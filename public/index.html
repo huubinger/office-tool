@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Office-Tool</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-mark">B</span>
+      <span class="brand-name">Office-Tool</span>
+    </div>
+    <div class="sidebar-section-label">Hauptmenü</div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="today" data-title="Heute">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M10 3l1.6 3.6L15 8l-3.4 1.4L10 13l-1.6-3.6L5 8l3.4-1.4L10 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M4.5 15.5h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Heute
+      </button>
+      <button class="tab-btn" data-tab="tasks" data-title="Aufgaben">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Aufgaben
+      </button>
+      <button class="tab-btn" data-tab="calendar" data-title="Kalender">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Kalender
+      </button>
+      <button class="tab-btn" data-tab="people" data-title="Personen">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Personen
+      </button>
+      <button class="tab-btn" data-tab="timetracking" data-title="Zeiterfassung">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Zeiterfassung
+      </button>
+      <button class="tab-btn" data-tab="dashboard" data-title="Dashboard">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="3.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="10.5" y="3.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="10.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="10.5" y="10.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/></svg>
+        Dashboard
+      </button>
+    </nav>
+  </aside>
+
+  <nav class="bottom-nav">
+    <button class="tab-btn active" data-tab="today" data-title="Heute">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M10 3l1.6 3.6L15 8l-3.4 1.4L10 13l-1.6-3.6L5 8l3.4-1.4L10 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M4.5 15.5h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Heute</span>
+    </button>
+    <button class="tab-btn" data-tab="tasks" data-title="Aufgaben">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Aufgaben</span>
+    </button>
+    <button class="tab-btn" data-tab="calendar" data-title="Kalender">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Kalender</span>
+    </button>
+    <button class="tab-btn" data-tab="timetracking" data-title="Zeiterfassung">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Zeit</span>
+    </button>
+    <button class="tab-btn" data-tab="people" data-title="Personen">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Personen</span>
+    </button>
+  </nav>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar-row1">
+        <h1 id="page-title">Heute</h1>
+        <div class="topbar-right">
+          <form id="quickstart-form" class="quickstart">
+            <select id="quickstart-person"></select>
+            <input type="text" id="quickstart-title" placeholder="Aufgabe (optional)">
+            <button type="submit">▶ Schnellstart</button>
+          </form>
+          <div class="account-menu">
+            <button type="button" id="account-btn" class="ghost-topbar" title="Konto"><span id="account-username">…</span> ▾</button>
+            <div id="account-dropdown" class="account-dropdown hidden">
+              <button type="button" id="change-password-btn">Passwort ändern</button>
+              <button type="button" id="logout-btn">Abmelden</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+
+  <!-- ===================== HEUTE (mobile Startansicht) ===================== -->
+  <section id="tab-today" class="tab-panel active">
+    <div class="today-stack">
+      <div class="card">
+        <h2>Läuft gerade</h2>
+        <div id="today-active-timers"></div>
+      </div>
+      <div class="card">
+        <h2>Heute geplant</h2>
+        <div id="today-calendar-list"></div>
+      </div>
+      <div class="card">
+        <h2>Fällig &amp; überfällig</h2>
+        <div id="today-due-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== AUFGABEN ===================== -->
+  <section id="tab-tasks" class="tab-panel">
+    <div class="panel-grid">
+      <div class="card">
+        <h2 id="task-form-heading">Neue Aufgabe</h2>
+        <form id="task-form">
+          <input type="hidden" id="task-id">
+          <label>Titel
+            <input type="text" id="task-title" required placeholder="z.B. Rechnungen prüfen">
+          </label>
+          <label>Beschreibung
+            <textarea id="task-description" rows="2" placeholder="Details (optional)"></textarea>
+          </label>
+          <label>Geschätzte Dauer (Minuten)
+            <input type="number" id="task-duration" min="5" step="5" value="60" required>
+          </label>
+          <div id="task-estimate-hint" class="estimate-hint hidden"></div>
+          <label>Priorität
+            <select id="task-priority">
+              <option value="niedrig">Niedrig</option>
+              <option value="mittel" selected>Mittel</option>
+              <option value="hoch">Hoch</option>
+            </select>
+          </label>
+          <div class="time-row">
+            <label>Fällig am
+              <input type="date" id="task-due-date">
+            </label>
+            <label>Uhrzeit (optional)
+              <input type="time" id="task-due-time">
+            </label>
+          </div>
+          <p class="hint" id="task-schedule-hint">Mit Uhrzeit wird die Aufgabe direkt in den Kalender übernommen; ohne Uhrzeit erscheint sie dort ganztägig.</p>
+          <label>Zugeordnete Personen
+            <div id="task-people-checkboxes" class="checkbox-list"></div>
+          </label>
+          <label>Status
+            <select id="task-status">
+              <option value="offen">Offen</option>
+              <option value="in Arbeit">In Arbeit</option>
+              <option value="erledigt">Erledigt</option>
+            </select>
+          </label>
+          <div class="form-actions">
+            <button type="submit" id="task-submit-btn">Aufgabe anlegen</button>
+            <button type="button" id="task-cancel-btn" class="secondary hidden">Abbrechen</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Alle Aufgaben</h2>
+        <div class="filter-row">
+          <label>Suche
+            <input type="text" id="task-filter-search" placeholder="Titel oder Beschreibung">
+          </label>
+          <label>Person
+            <select id="task-filter-person"><option value="">Alle</option></select>
+          </label>
+          <label>Status
+            <select id="task-filter-status">
+              <option value="">Alle</option>
+              <option value="offen">Offen</option>
+              <option value="in Arbeit">In Arbeit</option>
+              <option value="erledigt">Erledigt</option>
+            </select>
+          </label>
+          <label>Priorität
+            <select id="task-filter-priority">
+              <option value="">Alle</option>
+              <option value="niedrig">Niedrig</option>
+              <option value="mittel">Mittel</option>
+              <option value="hoch">Hoch</option>
+            </select>
+          </label>
+        </div>
+        <div id="task-list" class="task-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== KALENDER ===================== -->
+  <section id="tab-calendar" class="tab-panel">
+    <div class="calendar-layout">
+      <aside class="calendar-sidebar">
+        <h2>Offene Aufgaben</h2>
+        <p class="hint">Aufgabe in den Kalender ziehen, um sie einzuplanen. Bestehende Termine lassen sich verschieben oder an der Unterkante in der Dauer anpassen.</p>
+        <div id="calendar-task-pool" class="task-pool"></div>
+      </aside>
+
+      <div class="calendar-main">
+        <div class="calendar-nav">
+          <div class="calendar-nav-left">
+            <button id="week-prev">‹</button>
+            <span id="week-label"></span>
+            <button id="week-next">›</button>
+          </div>
+          <div class="calendar-nav-right">
+            <div class="view-toggle">
+              <button id="view-week-btn" class="active">Woche</button>
+              <button id="view-day-btn">Tag</button>
+            </div>
+            <a id="ical-export-link" class="ghost-link" href="#" target="_blank">iCal exportieren</a>
+          </div>
+        </div>
+        <div id="calendar-allday-grid" class="cal-allday-grid"></div>
+        <div class="calendar-grid-wrap">
+          <div id="calendar-grid" class="calendar-grid"></div>
+          <div id="calendar-entries-overlay" class="cal-entries-overlay"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PERSONEN ===================== -->
+  <section id="tab-people" class="tab-panel">
+    <div class="panel-grid">
+      <div class="card">
+        <h2>Neue Person</h2>
+        <form id="person-form">
+          <input type="hidden" id="person-id">
+          <label>Name
+            <input type="text" id="person-name" required placeholder="Vor- und Nachname">
+          </label>
+          <label>Rolle / Bereich
+            <input type="text" id="person-role" placeholder="z.B. Technik, Verwaltung">
+          </label>
+          <label>Farbe
+            <input type="color" id="person-color" value="#4f46e5">
+          </label>
+          <label>E-Mail (für Erinnerungen)
+            <input type="email" id="person-email" placeholder="name@beispiel.de">
+          </label>
+          <div class="time-row">
+            <label>PIN (optional, 4-stellig)
+              <input type="text" id="person-pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="beim Bearbeiten leer lassen = unverändert">
+            </label>
+            <label>Wochensoll (Std.)
+              <input type="number" id="person-weekly-hours" min="0" step="0.5" placeholder="z.B. 40">
+            </label>
+          </div>
+          <div id="person-pin-status" class="task-meta"></div>
+
+          <label>Vertragsart
+            <select id="person-contract-type">
+              <option value="">— keine —</option>
+              <option value="BFD">BFD (Bundesfreiwilligendienst)</option>
+            </select>
+          </label>
+
+          <div id="bfd-fields" class="hidden">
+            <div class="estimate-hint">
+              <span>BFD-Standardwerte: 40 Std/Woche, 28 Urlaubstage, 6 Wochen Probezeit</span>
+              <button type="button" id="bfd-defaults-btn">Übernehmen</button>
+            </div>
+
+            <label>Vertrag auslesen (PDF, optional)
+              <input type="file" id="contract-file-input" accept="application/pdf">
+            </label>
+            <div id="contract-parse-hint" class="estimate-hint hidden"></div>
+
+            <div class="time-row">
+              <label>Urlaubstage gesamt
+                <input type="number" id="person-vacation-days" min="0" step="1">
+              </label>
+              <label>Probezeit (Wochen)
+                <input type="number" id="person-probation-weeks" min="0" step="1">
+              </label>
+            </div>
+            <div class="time-row">
+              <label>Vertragsbeginn
+                <input type="date" id="person-contract-start">
+              </label>
+              <label>Vertragsende
+                <input type="date" id="person-contract-end">
+              </label>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" id="person-submit-btn">Person anlegen</button>
+            <button type="button" id="person-cancel-btn" class="secondary hidden">Abbrechen</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Alle Personen</h2>
+        <div id="people-list" class="people-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ZEITERFASSUNG ===================== -->
+  <section id="tab-timetracking" class="tab-panel">
+    <div class="panel-grid">
+      <div class="card">
+        <h2 id="time-form-heading">Arbeitszeit eintragen</h2>
+        <form id="time-form">
+          <input type="hidden" id="time-entry-id">
+          <label>Person
+            <select id="time-person" required></select>
+          </label>
+          <label>Datum
+            <input type="date" id="time-date" required>
+          </label>
+          <div class="time-row">
+            <label>Start
+              <input type="time" id="time-start">
+            </label>
+            <label>Ende
+              <input type="time" id="time-end">
+            </label>
+          </div>
+          <div class="time-row">
+            <label>Pause von
+              <input type="time" id="time-break-start">
+            </label>
+            <label>Pause bis
+              <input type="time" id="time-break-end">
+            </label>
+          </div>
+          <label>Bezug zu Aufgabe (optional)
+            <select id="time-task">
+              <option value="">— keine —</option>
+            </select>
+          </label>
+          <label>Notiz
+            <input type="text" id="time-note" placeholder="optional">
+          </label>
+          <div class="form-actions">
+            <button type="submit" id="time-submit-btn">Eintragen</button>
+            <button type="button" id="time-cancel-btn" class="secondary hidden">Abbrechen</button>
+          </div>
+        </form>
+
+        <h2 class="section-gap">Abwesenheiten</h2>
+        <form id="absence-form">
+          <label>Person
+            <select id="absence-person" required></select>
+          </label>
+          <div class="time-row">
+            <label>Von
+              <input type="date" id="absence-from" required>
+            </label>
+            <label>Bis
+              <input type="date" id="absence-to" required>
+            </label>
+          </div>
+          <label>Art
+            <select id="absence-type">
+              <option value="Urlaub">Urlaub</option>
+              <option value="Krank">Krank</option>
+              <option value="Seminar">Seminar (8 Std/Tag)</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+          </label>
+          <label>Notiz
+            <input type="text" id="absence-note" placeholder="optional">
+          </label>
+          <div class="form-actions">
+            <button type="submit">Abwesenheit eintragen</button>
+          </div>
+        </form>
+        <div id="absence-list" class="time-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>Wochenreport (Soll / Ist)</h2>
+        <div class="calendar-nav report-nav">
+          <button id="report-week-prev">‹</button>
+          <span id="report-week-label"></span>
+          <button id="report-week-next">›</button>
+        </div>
+        <div id="report-table" class="report-table"></div>
+
+        <h2 class="section-gap">Warnungen: Tageshöchstarbeitszeit</h2>
+        <p class="hint" id="warnings-hint"></p>
+        <div id="warnings-list" class="time-list"></div>
+
+        <h2 class="section-gap">Erfasste Zeiten</h2>
+        <div class="filter-row">
+          <label>Person
+            <select id="time-filter-person">
+              <option value="">Alle</option>
+            </select>
+          </label>
+          <label>Von
+            <input type="date" id="time-filter-from">
+          </label>
+          <label>Bis
+            <input type="date" id="time-filter-to">
+          </label>
+        </div>
+        <div class="time-summary-row">
+          <div id="time-summary" class="time-summary"></div>
+          <a id="csv-export-link" class="ghost-link" href="#" target="_blank">CSV exportieren</a>
+        </div>
+        <div id="time-list" class="time-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <section id="tab-dashboard" class="tab-panel">
+    <div class="panel-grid">
+      <div class="card">
+        <h2>Auslastung pro Person</h2>
+        <p class="hint">Geschätzte Dauer offener/laufender Aufgaben je Person.</p>
+        <div id="workload-list" class="workload-list"></div>
+      </div>
+      <div class="card">
+        <h2>Anstehende Aufgaben</h2>
+        <div id="upcoming-list" class="task-list"></div>
+      </div>
+    </div>
+  </section>
+
+    </main>
+  </div>
+</div>
+
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 id="modal-title">Termin planen</h3>
+    <div id="modal-body"></div>
+    <div class="form-actions">
+      <button id="modal-confirm">Einplanen</button>
+      <button id="modal-cancel" class="secondary">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<div id="entry-menu-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 id="entry-menu-title">Termin</h3>
+    <div class="form-actions entry-menu-actions">
+      <button id="entry-menu-done">✓ Als erledigt markieren</button>
+      <button id="entry-menu-remove" class="danger-btn">Aus Kalender entfernen</button>
+      <button id="entry-menu-cancel" class="secondary">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<div id="password-modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Passwort ändern</h3>
+    <label>Aktuelles Passwort <input type="password" id="pw-current"></label>
+    <label>Neues Passwort (mind. 6 Zeichen) <input type="password" id="pw-new"></label>
+    <div id="pw-error" class="login-error hidden"></div>
+    <div class="form-actions">
+      <button id="pw-confirm">Ändern</button>
+      <button id="pw-cancel" class="secondary">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<div id="quickcreate-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Neue Aufgabe im Kalender</h3>
+    <div id="quickcreate-body"></div>
+    <div class="form-actions">
+      <button id="quickcreate-confirm">Anlegen &amp; einplanen</button>
+      <button id="quickcreate-cancel" class="secondary">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<div id="pin-modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>PIN eingeben</h3>
+    <p class="hint" id="pin-modal-text"></p>
+    <input type="text" id="pin-modal-input" inputmode="numeric" maxlength="4" placeholder="4-stellige PIN">
+    <div class="form-actions">
+      <button id="pin-modal-confirm">Bestätigen</button>
+      <button id="pin-modal-cancel" class="secondary">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

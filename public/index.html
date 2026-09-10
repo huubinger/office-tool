@@ -80,6 +80,7 @@
             <button type="button" id="account-btn" class="ghost-topbar" title="Konto"><span id="account-username">…</span> ▾</button>
             <div id="account-dropdown" class="account-dropdown hidden">
               <button type="button" id="change-password-btn">Passwort ändern</button>
+              <button type="button" id="manage-users-btn">Benutzer verwalten</button>
               <button type="button" id="logout-btn">Abmelden</button>
             </div>
           </div>
@@ -447,6 +448,21 @@
       <button id="entry-menu-done">✓ Als erledigt markieren</button>
       <button id="entry-menu-remove" class="danger-btn">Aus Kalender entfernen</button>
       <button id="entry-menu-cancel" class="secondary">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<div id="users-modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Benutzer verwalten</h3>
+    <div id="users-list" class="time-list"></div>
+    <h3 class="section-gap">Neuer Benutzer</h3>
+    <label>Benutzername <input type="text" id="new-user-username"></label>
+    <label>Passwort (mind. 6 Zeichen) <input type="password" id="new-user-password"></label>
+    <div id="users-error" class="login-error hidden"></div>
+    <div class="form-actions">
+      <button id="users-add-confirm">Anlegen</button>
+      <button id="users-modal-close" class="secondary">Schließen</button>
     </div>
   </div>
 </div>

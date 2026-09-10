@@ -1525,6 +1525,58 @@
     }
   });
 
+  // ---------- Benutzerverwaltung ----------
+  const usersModal = document.getElementById('users-modal-overlay');
+  const usersError = document.getElementById('users-error');
+
+  async function loadUsers() {
+    const users = await api('/api/users');
+    const container = document.getElementById('users-list');
+    container.innerHTML = users.map(u => `
+      <div class="time-row-item">
+        <div class="tri-main">${escapeHtml(u.username)}</div>
+        <div class="row-actions">
+          <button class="danger" data-delete-user="${u.id}">Löschen</button>
+        </div>
+      </div>
+    `).join('');
+    container.querySelectorAll('[data-delete-user]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Dieses Benutzerkonto wirklich löschen?')) return;
+      try {
+        await api(`/api/users/${b.dataset.deleteUser}`, { method: 'DELETE' });
+        await loadUsers();
+      } catch (err) {
+        usersError.textContent = err.message;
+        usersError.classList.remove('hidden');
+      }
+    }));
+  }
+
+  document.getElementById('manage-users-btn').addEventListener('click', async () => {
+    accountDropdown.classList.add('hidden');
+    document.getElementById('new-user-username').value = '';
+    document.getElementById('new-user-password').value = '';
+    usersError.classList.add('hidden');
+    usersModal.classList.remove('hidden');
+    await loadUsers();
+  });
+  document.getElementById('users-modal-close').addEventListener('click', () => usersModal.classList.add('hidden'));
+  usersModal.addEventListener('click', (e) => { if (e.target === usersModal) usersModal.classList.add('hidden'); });
+  document.getElementById('users-add-confirm').addEventListener('click', async () => {
+    const username = document.getElementById('new-user-username').value.trim();
+    const password = document.getElementById('new-user-password').value;
+    usersError.classList.add('hidden');
+    try {
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password }) });
+      document.getElementById('new-user-username').value = '';
+      document.getElementById('new-user-password').value = '';
+      await loadUsers();
+    } catch (err) {
+      usersError.textContent = err.message;
+      usersError.classList.remove('hidden');
+    }
+  });
+
   async function loadAccount() {
     try {
       const me = await api('/api/me');

@@ -69,6 +69,30 @@ app.post('/api/account/change-password', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Benutzerverwaltung (weitere Login-Konten) ----------
+app.get('/api/users', (req, res) => {
+  res.json(db.prepare('SELECT id, username, created_at FROM app_users ORDER BY username').all());
+});
+
+app.post('/api/users', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !username.trim()) return res.status(400).json({ error: 'Benutzername ist erforderlich' });
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Passwort muss mindestens 6 Zeichen haben' });
+  const existing = db.prepare('SELECT id FROM app_users WHERE username = ?').get(username.trim());
+  if (existing) return res.status(409).json({ error: 'Benutzername ist bereits vergeben' });
+  const hash = bcrypt.hashSync(password, 10);
+  const info = db.prepare('INSERT INTO app_users (username, password_hash) VALUES (?, ?)').run(username.trim(), hash);
+  res.status(201).json({ id: info.lastInsertRowid, username: username.trim() });
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  const totalUsers = db.prepare('SELECT COUNT(*) AS c FROM app_users').get().c;
+  if (totalUsers <= 1) return res.status(400).json({ error: 'Das letzte verbleibende Konto kann nicht gelöscht werden' });
+  if (+req.params.id === req.session.userId) return res.status(400).json({ error: 'Das eigene, gerade angemeldete Konto kann nicht gelöscht werden' });
+  db.prepare('DELETE FROM app_users WHERE id = ?').run(req.params.id);
+  res.status(204).end();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;

@@ -125,20 +125,32 @@ ensureColumn('people', 'contract_end', 'TEXT');
 ensureColumn('people', 'seminar_days_total', 'INTEGER');
 ensureColumn('tasks', 'due_time', 'TEXT');
 
-// ---- Erstbenutzer anlegen, falls noch keiner existiert ----
+// ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----
+// Sind ADMIN_USERNAME und ADMIN_PASSWORD gesetzt, werden sie bei JEDEM Start durchgesetzt
+// (legt das Konto an, falls es fehlt, oder aktualisiert das Passwort, falls es sich geaendert hat).
+// So wirkt eine Passwortaenderung in Railway/den Umgebungsvariablen zuverlaessig nach einem Redeploy,
+// auch wenn zuvor schon ein Konto mit dem Standardpasswort angelegt wurde.
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM app_users').get().c;
-if (userCount === 0) {
+if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
   const bcrypt = require('bcryptjs');
-  const username = process.env.ADMIN_USERNAME || 'admin';
-  const password = process.env.ADMIN_PASSWORD || 'changeme128';
+  const username = process.env.ADMIN_USERNAME;
+  const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
+  const existing = db.prepare('SELECT * FROM app_users WHERE username = ?').get(username);
+  if (existing) {
+    db.prepare('UPDATE app_users SET password_hash = ? WHERE id = ?').run(hash, existing.id);
+  } else {
+    db.prepare('INSERT INTO app_users (username, password_hash) VALUES (?, ?)').run(username, hash);
+  }
+} else if (userCount === 0) {
+  const bcrypt = require('bcryptjs');
+  const username = 'admin';
+  const password = 'changeme128';
   const hash = bcrypt.hashSync(password, 10);
   db.prepare('INSERT INTO app_users (username, password_hash) VALUES (?, ?)').run(username, hash);
-  if (!process.env.ADMIN_PASSWORD) {
-    console.warn(
-      `\n[Hinweis] Kein ADMIN_PASSWORD gesetzt - Standard-Login angelegt: Benutzername "${username}", Passwort "${password}".\n` +
-      `Bitte vor dem Online-Gehen unbedingt in den Einstellungen ändern oder ADMIN_USERNAME/ADMIN_PASSWORD als Umgebungsvariablen setzen.\n`
-    );
-  }
+  console.warn(
+    `\n[Hinweis] Kein ADMIN_USERNAME/ADMIN_PASSWORD gesetzt - Standard-Login angelegt: Benutzername "${username}", Passwort "${password}".\n` +
+    `Bitte vor dem Online-Gehen unbedingt ADMIN_USERNAME/ADMIN_PASSWORD als Umgebungsvariablen setzen.\n`
+  );
 }
 
 module.exports = db;

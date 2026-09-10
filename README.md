@@ -1,4 +1,4 @@
-# Büro-Aufgabenplaner
+# Office-Tool
 
 Eigenständiges Tool für Aufgabenverwaltung, Personalzuordnung, Wochenkalender per
 Drag & Drop und Arbeitszeiterfassung. Node.js/Express-Backend mit SQLite,
@@ -76,6 +76,13 @@ Vanilla-JS-Frontend ohne Build-Schritt.
   geschützt. Ohne gültige Session leiten sowohl die Weboberfläche als auch
   alle API-Endpunkte auf die Login-Seite bzw. liefern 401. Passwort lässt
   sich über das Konto-Menü oben rechts ändern.
+- **Mobile Ansicht**: Auf schmalen Bildschirmen (Smartphone) verschwindet die
+  seitliche Navigation zugunsten einer festen Bottom-Navigation (Heute /
+  Aufgaben / Kalender / Zeit / Personen) mit größeren Touch-Flächen. Der
+  neue "Heute"-Tab dient als schnelle Übersicht: laufende Zeiterfassungen
+  mit Stopp-Button, heutige Kalendertermine und fällige/überfällige
+  Aufgaben — gedacht zum schnellen Eintragen unterwegs, ohne erst durch die
+  Desktop-Ansicht navigieren zu müssen.
 - **Dashboard**: Auslastung pro Person (geschätzte Dauer offener Aufgaben)
   und eine Liste der anstehenden Aufgaben, sortiert nach Fälligkeit/Priorität.
 - **E-Mail-Erinnerungen**: Ein täglicher Job (07:30 Uhr) prüft fällige und
@@ -96,17 +103,33 @@ Anschließend `http://localhost:3000` im Browser öffnen. Die Datenbank
 
 ## Deployment auf Railway
 
-1. Repository auf GitHub anlegen und Projektinhalt pushen.
+Ein lokales Git-Repo mit erstem Commit ist bereits vorbereitet (siehe unten) —
+`node_modules` und die lokale `data.db` sind nicht enthalten (`.gitignore`).
+
+1. Auf GitHub ein leeres Repository anlegen (ohne README/Lizenz, damit es zum
+   bestehenden Commit passt), dann pushen:
+   ```bash
+   git remote add origin <URL-des-neuen-Repos>
+   git branch -M main
+   git push -u origin main
+   ```
    **Wichtig**: `node_modules/` (inkl. dem nativen `better-sqlite3`-Build)
-   niemals mitcommitten — das `.gitignore` ist bereits entsprechend
-   vorbereitet. Railway installiert die Abhängigkeiten beim Deploy selbst
-   und baut das native Modul dabei passend zur Zielumgebung.
-2. In Railway ein neues Projekt aus dem GitHub-Repo erstellen.
-3. Ein persistentes Volume anlegen und z. B. unter `/app/db` einhängen.
-4. Umgebungsvariable `DB_DIR=/app/db` setzen, damit die SQLite-Datei auf dem
-   Volume liegt und Deploys überlebt.
-5. Start-Command ist bereits über `npm start` (→ `node server.js`) definiert.
-   Railway setzt `PORT` automatisch.
+   niemals mitcommitten — Railway installiert die Abhängigkeiten beim Deploy
+   selbst und baut das native Modul dabei passend zur Zielumgebung.
+2. In Railway ein neues Projekt aus dem GitHub-Repo erstellen (die
+   mitgelieferte `railway.json` sorgt für den richtigen Start-Command).
+3. Ein persistentes Volume anlegen und z. B. unter `/data` einhängen.
+4. Umgebungsvariablen setzen (siehe `.env.example` für die vollständige
+   Liste) — mindestens:
+   - `DB_DIR=/data`
+   - `ADMIN_USERNAME` und `ADMIN_PASSWORD` (eigene Zugangsdaten statt der
+     Standardwerte)
+   - `SESSION_SECRET` (fester Zufallswert, siehe Kommentar in `.env.example`)
+   - `NODE_ENV=production`
+5. Deploy anstoßen. Railway setzt `PORT` automatisch, der Start-Command
+   (`npm start` → `node server.js`) ist bereits hinterlegt.
+6. Nach dem ersten erfolgreichen Deploy: einloggen und über das Konto-Menü
+   sicherheitshalber nochmal das Passwort ändern.
 
 ## Datenmodell (SQLite)
 

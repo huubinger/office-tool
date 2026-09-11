@@ -8,7 +8,19 @@ const db = require('./db');
 const { runReminderCheck } = require('./reminders');
 
 const app = express();
+// Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
+// dass die urspruengliche Verbindung ueber HTTPS lief - sonst werden "secure"-Cookies
+// (siehe unten) nicht zuverlaessig gesetzt und der Login haengt sich scheinbar auf.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '25mb' }));
+
+// Verhindert, dass Browser oder ein zwischengeschalteter Proxy (z.B. bei Railway) Antworten
+// der API zwischenspeichern - sonst kann z.B. ein Login-Versuch faelschlich aus dem Cache
+// beantwortet werden (304 Not Modified, ohne dass der Server ihn tatsaechlich verarbeitet).
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 
 // ---------- Login/Session ----------
 // Ohne gesetztes SESSION_SECRET wird beim Start eines generiert - das invalidiert

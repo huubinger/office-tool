@@ -2,10 +2,27 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// Auf Railway kann per Volume ein persistenter Pfad gesetzt werden, z.B. /app/db/data.db
-const dbDir = process.env.DB_DIR || __dirname;
+// Auf Railway kann per Volume ein persistenter Pfad gesetzt werden, z.B. /data
+const dbDir = process.env.DB_DIR && process.env.DB_DIR.trim() ? process.env.DB_DIR.trim() : __dirname;
 if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
 const dbPath = process.env.DB_PATH || path.join(dbDir, 'data.db');
+
+// Sehr sichtbare Warnung, falls im Produktivbetrieb kein DB_DIR gesetzt ist: ohne echtes
+// Volume dahinter wird die Datenbank sonst bei jedem Deploy/Neustart stillschweigend
+// zurueckgesetzt, da der App-Ordner selbst nicht dauerhaft ist.
+if (process.env.NODE_ENV === 'production' && (!process.env.DB_DIR || !process.env.DB_DIR.trim())) {
+  console.warn(
+    '\n' + '!'.repeat(70) + '\n' +
+    '! WARNUNG: DB_DIR ist nicht gesetzt (Produktivbetrieb)!\n' +
+    '! Die Datenbank liegt dadurch im Anwendungsordner, NICHT auf einem\n' +
+    '! dauerhaften Volume - bei jedem Deploy/Neustart gehen alle Daten\n' +
+    '! (Personen, Aufgaben, Zeiterfassungen) verloren!\n' +
+    '! Bitte DB_DIR (z.B. "/data") als Umgebungsvariable setzen und ein\n' +
+    '! Volume auf diesen Pfad mounten.\n' +
+    '!'.repeat(70) + '\n'
+  );
+}
+console.log(`[DB] Verwende Datenbankpfad: ${dbPath}`);
 
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');

@@ -97,6 +97,15 @@ CREATE TABLE IF NOT EXISTS backup_log (
   message TEXT
 );
 
+CREATE TABLE IF NOT EXISTS time_off_compensation (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  minutes INTEGER NOT NULL,
+  note TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_person ON time_entries(person_id);

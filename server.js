@@ -1,3 +1,8 @@
+// Zeitzone fest auf Europe/Berlin setzen - muss vor allen anderen Requires stehen,
+// damit saemtliche Datumsberechnungen (Wochenreport, "heute", Cronjobs, etc.)
+// konsequent nach deutscher Zeit statt der Server-Standardzeit (z.B. UTC auf Railway) laufen.
+process.env.TZ = 'Europe/Berlin';
+
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
@@ -7,6 +12,7 @@ const bcrypt = require('bcryptjs');
 const db = require('./db');
 const { runReminderCheck } = require('./reminders');
 const { runBackup, getLastBackup, isConfigured: isBackupConfigured } = require('./backup');
+const { getHolidaysForYear, isHoliday } = require('./holidays');
 
 const app = express();
 // Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
@@ -208,6 +214,53 @@ function seminarCreditMinutes(personId, from, to) {
     }
   });
   return minutes;
+}
+
+// BFD-Zuschlag: 1 Std Freizeitausgleich pro Samstagsdienst, 2 Std pro Sonn-/Feiertagsdienst,
+// halbiert bei "halben Arbeitstagen" (< 4 Std an diesem Tag gearbeitet). Nur fuer Personen
+// mit Vertragsart 'BFD', da dies eine BFD-spezifische Vertragsregelung ist.
+function weekendHolidayBonusMinutes(personId, from, to) {
+  const rows = db.prepare(`
+    SELECT date, SUM(duration_minutes) AS minutes
+    FROM time_entries
+    WHERE person_id = ? AND date BETWEEN ? AND ? AND duration_minutes IS NOT NULL
+    GROUP BY date
+  `).all(personId, from, to);
+
+  let bonus = 0;
+  rows.forEach(r => {
+    const d = new Date(r.date);
+    const dow = d.getDay();
+    const holiday = isHoliday(r.date);
+    if (dow !== 0 && dow !== 6 && !holiday) return; // normaler Werktag, kein Zuschlag
+
+    const isHalfDay = r.minutes < 240;
+    if (dow === 6 && !holiday) {
+      bonus += isHalfDay ? 30 : 60; // Samstag: 1 Std, halbiert 30 Min
+    } else {
+      bonus += isHalfDay ? 60 : 120; // Sonntag oder Feiertag: 2 Std, halbiert 60 Min
+    }
+  });
+  return bonus;
+}
+
+// Bereits genommener Freizeitausgleich im Zeitraum (reduziert die Ueberstunden-Bilanz)
+function timeOffCompensationMinutes(personId, from, to) {
+  return db.prepare(`
+    SELECT COALESCE(SUM(minutes), 0) AS m FROM time_off_compensation
+    WHERE person_id = ? AND date BETWEEN ? AND ?
+  `).get(personId, from, to).m;
+}
+
+// BFD-Grenzwerte lt. Vereinbarung: max. 30 Ueberstunden bzw. max. 10 Minusstunden im Einzelfall
+const BFD_MAX_OVERTIME_MINUTES = 30 * 60;
+const BFD_MAX_UNDERTIME_MINUTES = 10 * 60;
+
+function bfdThresholdWarning(diffMinutes) {
+  if (diffMinutes === null) return null;
+  if (diffMinutes > BFD_MAX_OVERTIME_MINUTES) return 'Überstunden-Grenze (30 Std) überschritten';
+  if (diffMinutes < -BFD_MAX_UNDERTIME_MINUTES) return 'Minusstunden-Grenze (10 Std) überschritten';
+  return null;
 }
 
 // ---- Aehnlichkeits-Schaetzung fuer Aufgabendauer ----
@@ -849,13 +902,20 @@ app.get('/api/reports/week', (req, res) => {
   `);
 
   const report = people.map(p => {
-    const actual = actualStmt.get(p.id, from, to).m + seminarCreditMinutes(p.id, from, to);
+    const isBfd = p.contract_type === 'BFD';
+    let actual = actualStmt.get(p.id, from, to).m + seminarCreditMinutes(p.id, from, to);
+    if (isBfd) {
+      actual += weekendHolidayBonusMinutes(p.id, from, to);
+      actual -= timeOffCompensationMinutes(p.id, from, to);
+    }
+    const diff = p.weekly_target_minutes ? actual - p.weekly_target_minutes : null;
     return {
       person_id: p.id,
       person_name: p.name,
       target_minutes: p.weekly_target_minutes || null,
       actual_minutes: actual,
-      diff_minutes: p.weekly_target_minutes ? actual - p.weekly_target_minutes : null,
+      diff_minutes: diff,
+      bfd_warning: isBfd ? bfdThresholdWarning(diff) : null,
     };
   });
 
@@ -883,18 +943,60 @@ app.get('/api/reports/lifetime', (req, res) => {
   const firstMonday = getMondayOf(new Date(firstRow.d));
   const currentMonday = getMondayOf(new Date());
   const weeksCounted = Math.round((currentMonday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
-  const seminarMinutes = seminarCreditMinutes(personId, isoDateLocal(firstMonday), isoDateLocal(new Date()));
-  const totalActualWithCredit = totalActual + seminarMinutes;
+  const rangeFrom = isoDateLocal(firstMonday);
+  const rangeTo = isoDateLocal(new Date());
+  const isBfd = person.contract_type === 'BFD';
+
+  let totalActualWithCredit = totalActual + seminarCreditMinutes(personId, rangeFrom, rangeTo);
+  if (isBfd) {
+    totalActualWithCredit += weekendHolidayBonusMinutes(personId, rangeFrom, rangeTo);
+    totalActualWithCredit -= timeOffCompensationMinutes(personId, rangeFrom, rangeTo);
+  }
   const totalTarget = weeksCounted * person.weekly_target_minutes;
+  const diff = totalActualWithCredit - totalTarget;
 
   res.json({
     available: true,
     total_actual_minutes: totalActualWithCredit,
     total_target_minutes: totalTarget,
-    diff_minutes: totalActualWithCredit - totalTarget,
+    diff_minutes: diff,
     weeks_counted: weeksCounted,
     first_date: firstRow.d,
+    bfd_warning: isBfd ? bfdThresholdWarning(diff) : null,
   });
+});
+
+// ---------- Freizeitausgleich (genommene Ausgleichszeit fuer Ueberstunden) ----------
+app.get('/api/time-off', (req, res) => {
+  const { person_id, from, to } = req.query;
+  let query = `
+    SELECT t.*, p.name AS person_name FROM time_off_compensation t
+    JOIN people p ON p.id = t.person_id
+    WHERE 1=1
+  `;
+  const params = [];
+  if (person_id) { query += ' AND t.person_id = ?'; params.push(person_id); }
+  if (from) { query += ' AND t.date >= ?'; params.push(from); }
+  if (to) { query += ' AND t.date <= ?'; params.push(to); }
+  query += ' ORDER BY t.date DESC';
+  res.json(db.prepare(query).all(...params));
+});
+
+app.post('/api/time-off', (req, res) => {
+  const { person_id, date, minutes, note } = req.body;
+  if (!person_id || !date || !minutes) {
+    return res.status(400).json({ error: 'person_id, date und minutes sind erforderlich' });
+  }
+  const info = db.prepare('INSERT INTO time_off_compensation (person_id, date, minutes, note) VALUES (?, ?, ?, ?)')
+    .run(person_id, date, minutes, note || null);
+  res.status(201).json(db.prepare(`
+    SELECT t.*, p.name AS person_name FROM time_off_compensation t JOIN people p ON p.id = t.person_id WHERE t.id = ?
+  `).get(info.lastInsertRowid));
+});
+
+app.delete('/api/time-off/:id', (req, res) => {
+  db.prepare('DELETE FROM time_off_compensation WHERE id = ?').run(req.params.id);
+  res.status(204).end();
 });
 
 // ---------- Abwesenheiten ----------
@@ -945,7 +1047,7 @@ app.post('/api/reminders/run', async (req, res) => {
 // Taeglich um 07:30 Uhr auf faellige Aufgaben pruefen und E-Mails verschicken
 cron.schedule('30 7 * * *', () => {
   runReminderCheck().catch(err => console.error('[Erinnerung] Fehler beim geplanten Lauf:', err.message));
-});
+}, { timezone: 'Europe/Berlin' });
 
 // ---------- Dropbox-Backup der Datenbank ----------
 app.get('/api/backup/status', (req, res) => {
@@ -960,7 +1062,7 @@ app.post('/api/backup/run', async (req, res) => {
 // Taeglich um 03:00 Uhr sichern
 cron.schedule('0 3 * * *', () => {
   runBackup().catch(err => console.error('[Backup] Fehler beim geplanten Lauf:', err.message));
-});
+}, { timezone: 'Europe/Berlin' });
 
 // Einmalig kurz nach dem Start sichern (deckt u.a. Deploys/Updates ab, da diese einen Neustart ausloesen)
 setTimeout(() => {

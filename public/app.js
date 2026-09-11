@@ -95,7 +95,7 @@
       if (tab === 'today') renderToday();
       if (tab === 'calendar') renderCalendar();
       if (tab === 'dashboard') renderDashboard();
-      if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); }
+      if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
     });
   });
 
@@ -363,6 +363,7 @@
 
     document.getElementById('time-person').innerHTML = optionsHtml;
     document.getElementById('absence-person').innerHTML = optionsHtml;
+    document.getElementById('timeoff-person').innerHTML = optionsHtml;
     document.getElementById('quickstart-person').innerHTML = optionsHtml;
     document.getElementById('time-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
     document.getElementById('task-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
@@ -652,35 +653,62 @@
     };
     if (!payload.title) return;
 
-    let createdTask = null;
+    let task = null;
     if (editingTaskId) {
-      await api(`/api/tasks/${editingTaskId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      task = await api(`/api/tasks/${editingTaskId}`, { method: 'PUT', body: JSON.stringify(payload) });
     } else {
-      createdTask = await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
+      task = await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
     }
 
-    // Neue Aufgabe mit Datum + Uhrzeit und genau einer zugeordneten Person: direkt in den Kalender uebernehmen
-    if (createdTask && dueDate && dueTime && createdTask.people.length === 1) {
-      const startMin = timeToMinutes(dueTime);
-      const endMin = startMin + (createdTask.estimated_minutes || 30);
-      try {
-        await api('/api/calendar', {
-          method: 'POST',
-          body: JSON.stringify({
-            task_id: createdTask.id,
-            person_id: createdTask.people[0].id,
-            date: dueDate,
-            start_time: dueTime,
-            end_time: minutesToTime(endMin),
-          }),
-        });
-      } catch (err) { /* Kalenderuebernahme optional - Aufgabe bleibt trotzdem angelegt */ }
+    if (task && dueDate && dueTime) {
+      await autoScheduleTask(task, dueDate, dueTime);
     }
 
     resetTaskForm();
     await loadTasks();
     if (document.getElementById('tab-calendar').classList.contains('active')) await renderCalendar();
   });
+
+  // Legt fuer jede zugeordnete Person einen Kalendertermin an (Datum+Uhrzeit der Aufgabe),
+  // sofern noch keiner existiert. Zeigt bei Bedarf Hinweise zu kurzfristiger Planung / Nachtdienst
+  // fuer BFD-Personen (rein informativ, blockiert die Anlage nicht).
+  async function autoScheduleTask(task, dueDate, dueTime) {
+    if (!task.people.length) return;
+    const startMin = timeToMinutes(dueTime);
+    const endMin = startMin + (task.estimated_minutes || 30);
+    const endTime = minutesToTime(endMin);
+
+    let existingOnDate = [];
+    try {
+      existingOnDate = await api(`/api/calendar?from=${dueDate}&to=${dueDate}`);
+    } catch (e) { /* Kalenderabfrage optional - im Zweifel einfach anlegen */ }
+
+    const warnings = [];
+    const daysUntil = Math.round((new Date(dueDate) - new Date(isoDate(new Date()))) / (24 * 60 * 60 * 1000));
+
+    for (const person of task.people) {
+      const alreadyExists = existingOnDate.some(ce => ce.task_id === task.id && ce.person_id === person.id);
+      if (alreadyExists) continue;
+      try {
+        await api('/api/calendar', {
+          method: 'POST',
+          body: JSON.stringify({ task_id: task.id, person_id: person.id, date: dueDate, start_time: dueTime, end_time: endTime }),
+        });
+      } catch (err) { continue; }
+
+      if (person.contract_type === 'BFD') {
+        if (daysUntil < 7) {
+          warnings.push(`${person.name}: Termin liegt weniger als eine Woche im Voraus (Dienstplan sollte lt. BFD-Vereinbarung mind. 1 Woche vorher bekannt sein).`);
+        }
+        const nightOverlap = !(endMin <= 1380 && startMin >= 360); // 23:00-06:00
+        if (nightOverlap) {
+          warnings.push(`${person.name}: Termin überschneidet sich mit der Nachtzeit (23:00–06:00) — bei BFD (pauschal < 26 Jahre) nur in Ausnahmefällen zulässig.`);
+        }
+      }
+    }
+
+    if (warnings.length) alert('Hinweis:\n\n' + warnings.join('\n'));
+  }
 
   async function deleteTask(id) {
     if (!confirm('Aufgabe wirklich löschen? Geplante Kalendertermine dazu werden ebenfalls entfernt.')) return;
@@ -1152,7 +1180,8 @@
     if (!data || !data.available) return '';
     const cls = data.diff_minutes >= 0 ? 'positive' : 'negative';
     const sign = data.diff_minutes > 0 ? '+' : (data.diff_minutes < 0 ? '-' : '');
-    return ` <span class="lifetime-balance ${cls}">(gesamt ${sign}${fmtDuration(Math.abs(data.diff_minutes))})</span>`;
+    const warn = data.bfd_warning ? ` <span class="lifetime-balance negative">⚠ ${escapeHtml(data.bfd_warning)}</span>` : '';
+    return ` <span class="lifetime-balance ${cls}">(gesamt ${sign}${fmtDuration(Math.abs(data.diff_minutes))})</span>${warn}`;
   }
 
   // Montag der ISO-Woche zu einem Datumsstring
@@ -1375,6 +1404,49 @@
     await loadReport();
   });
 
+  // ================= FREIZEITAUSGLEICH =================
+  const timeoffForm = document.getElementById('timeoff-form');
+
+  async function loadTimeOff() {
+    const entries = await api('/api/time-off');
+    const container = document.getElementById('timeoff-list');
+    if (!entries.length) {
+      container.innerHTML = '<p class="empty-state">Noch kein Freizeitausgleich erfasst.</p>';
+      return;
+    }
+    container.innerHTML = entries.map(t => `
+      <div class="time-row-item">
+        <div>
+          <div class="tri-main"><strong>${escapeHtml(t.person_name)}</strong> · ${fmtDateDE(t.date)}</div>
+          <div class="tri-meta">${fmtDuration(t.minutes)}${t.note ? ' · ' + escapeHtml(t.note) : ''}</div>
+        </div>
+        <div class="row-actions">
+          <button class="danger" data-delete-timeoff="${t.id}">Löschen</button>
+        </div>
+      </div>
+    `).join('');
+    container.querySelectorAll('[data-delete-timeoff]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/time-off/${b.dataset.deleteTimeoff}`, { method: 'DELETE' });
+      await loadTimeOff();
+      await loadReport();
+    }));
+  }
+
+  timeoffForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      person_id: +document.getElementById('timeoff-person').value,
+      date: document.getElementById('timeoff-date').value,
+      minutes: Math.round(+document.getElementById('timeoff-hours').value * 60),
+      note: document.getElementById('timeoff-note').value.trim(),
+    };
+    if (!payload.person_id || !payload.date || !payload.minutes) return;
+    await api('/api/time-off', { method: 'POST', body: JSON.stringify(payload) });
+    timeoffForm.reset();
+    await loadTimeOff();
+    await loadReport();
+  });
+
   // ================= WOCHENREPORT =================
   const OVERTIME_WARN_THRESHOLD_MINUTES = 60; // ab 1 Std Abweichung wird die Zeile als Warnung hervorgehoben
 
@@ -1390,14 +1462,16 @@
       const sign = r.diff_minutes > 0 ? '+' : (r.diff_minutes < 0 ? '-' : '');
       const diffText = r.diff_minutes === null ? '–' : sign + fmtDuration(Math.abs(r.diff_minutes));
       const diffClass = r.diff_minutes === null ? '' : (r.diff_minutes >= 0 ? 'positive' : 'negative');
-      const isWarn = r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES;
-      const warnLabel = isWarn ? (r.diff_minutes > 0 ? ' ⚠ Überstunden' : ' ⚠ Unterstunden') : '';
+      const isWarn = (r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES) || r.bfd_warning;
+      const warnLabel = r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES
+        ? (r.diff_minutes > 0 ? ' ⚠ Überstunden' : ' ⚠ Unterstunden') : '';
       return `
         <div class="report-row ${isWarn ? 'warn' : ''}">
           <strong>${escapeHtml(r.person_name)}</strong>
           <span>Soll: ${r.target_minutes ? fmtDuration(r.target_minutes) : '–'}</span>
           <span>Ist: ${fmtDuration(r.actual_minutes)}</span>
           <span class="rr-diff ${diffClass}">${diffText}${warnLabel}</span>
+          ${r.bfd_warning ? `<div class="bfd-warning-line">⚠ BFD: ${escapeHtml(r.bfd_warning)}</div>` : ''}
         </div>
       `;
     }).join('');
@@ -1612,6 +1686,7 @@
   async function init() {
     document.getElementById('absence-from').value = isoDate(new Date());
     document.getElementById('absence-to').value = isoDate(new Date());
+    document.getElementById('timeoff-date').value = isoDate(new Date());
     resetTaskForm();
     resetPersonForm();
     resetTimeForm();

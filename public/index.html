@@ -374,6 +374,29 @@
           </div>
         </form>
         <div id="absence-list" class="time-list"></div>
+
+        <h2 class="section-gap">Freizeitausgleich (Überstunden-Abbau)</h2>
+        <p class="hint">Nur relevant für Personen mit Vertragsart BFD — Überstunden dürfen dort laut Vereinbarung nur durch Freizeit, nicht durch Geld ausgeglichen werden.</p>
+        <form id="timeoff-form">
+          <label>Person
+            <select id="timeoff-person" required></select>
+          </label>
+          <div class="time-row">
+            <label>Datum
+              <input type="date" id="timeoff-date" required>
+            </label>
+            <label>Stunden
+              <input type="number" id="timeoff-hours" min="0.5" step="0.5" required>
+            </label>
+          </div>
+          <label>Notiz
+            <input type="text" id="timeoff-note" placeholder="optional">
+          </label>
+          <div class="form-actions">
+            <button type="submit">Ausgleich eintragen</button>
+          </div>
+        </form>
+        <div id="timeoff-list" class="time-list"></div>
       </div>
 
       <div class="card">

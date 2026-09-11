@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS app_users (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS backup_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ran_at TEXT DEFAULT (datetime('now')),
+  success INTEGER NOT NULL,
+  message TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_person ON time_entries(person_id);
@@ -154,3 +161,4 @@ if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
 }
 
 module.exports = db;
+module.exports.dbPath = dbPath;

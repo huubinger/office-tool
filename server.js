@@ -6,6 +6,7 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 const { runReminderCheck } = require('./reminders');
+const { runBackup, getLastBackup, isConfigured: isBackupConfigured } = require('./backup');
 
 const app = express();
 // Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
@@ -945,6 +946,26 @@ app.post('/api/reminders/run', async (req, res) => {
 cron.schedule('30 7 * * *', () => {
   runReminderCheck().catch(err => console.error('[Erinnerung] Fehler beim geplanten Lauf:', err.message));
 });
+
+// ---------- Dropbox-Backup der Datenbank ----------
+app.get('/api/backup/status', (req, res) => {
+  res.json({ configured: isBackupConfigured(), last_backup: getLastBackup() });
+});
+
+app.post('/api/backup/run', async (req, res) => {
+  const result = await runBackup();
+  res.json(result);
+});
+
+// Taeglich um 03:00 Uhr sichern
+cron.schedule('0 3 * * *', () => {
+  runBackup().catch(err => console.error('[Backup] Fehler beim geplanten Lauf:', err.message));
+});
+
+// Einmalig kurz nach dem Start sichern (deckt u.a. Deploys/Updates ab, da diese einen Neustart ausloesen)
+setTimeout(() => {
+  runBackup().catch(err => console.error('[Backup] Fehler beim Start-Backup:', err.message));
+}, 15000);
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

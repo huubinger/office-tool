@@ -1577,6 +1577,30 @@
     }
   });
 
+  // ---------- Backup ----------
+  document.getElementById('backup-now-btn').addEventListener('click', async (e) => {
+    accountDropdown.classList.add('hidden');
+    const btn = e.currentTarget;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Sichert …';
+    try {
+      const result = await api('/api/backup/run', { method: 'POST' });
+      if (result.skipped) {
+        alert('Backup übersprungen: ' + result.message + '\n\nDropbox ist noch nicht eingerichtet (siehe README).');
+      } else if (result.ok) {
+        alert('Backup erfolgreich erstellt.');
+      } else {
+        alert('Backup fehlgeschlagen: ' + result.message);
+      }
+    } catch (err) {
+      alert('Backup fehlgeschlagen: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
   async function loadAccount() {
     try {
       const me = await api('/api/me');

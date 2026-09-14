@@ -3,6 +3,7 @@
 
   // ---------- State ----------
   let people = [];
+  let projects = [];
   let tasks = [];
   let calendarEntries = [];
   let timeEntries = [];
@@ -21,7 +22,7 @@
   let pendingEntryForMenu = null;
   let estimateDebounce = null;
   let pinResolver = null;
-  let taskFilters = { search: '', person: '', status: '', priority: '' };
+  let taskFilters = { search: '', person: '', project: '', status: '', priority: '' };
 
   const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
   const START_HOUR = 7;
@@ -92,7 +93,6 @@
       document.getElementById('tab-' + tab).classList.add('active');
       const pageTitle = document.getElementById('page-title');
       if (pageTitle) pageTitle.textContent = btn.dataset.title || btn.textContent.trim();
-      if (tab === 'today') renderToday();
       if (tab === 'calendar') renderCalendar();
       if (tab === 'dashboard') renderDashboard();
       if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
@@ -369,6 +369,71 @@
     document.getElementById('task-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
   }
 
+  // ================= PROJEKTE =================
+  async function loadProjects() {
+    projects = await api('/api/projects');
+    renderProjectList();
+    fillProjectSelects();
+  }
+
+  function fillProjectSelects() {
+    const optionsHtml = projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    document.getElementById('task-project').innerHTML = '<option value="">— keins —</option>' + optionsHtml;
+    document.getElementById('task-filter-project').innerHTML = '<option value="">Alle</option>' + optionsHtml;
+  }
+
+  function renderProjectList() {
+    const container = document.getElementById('project-list');
+    if (!projects.length) {
+      container.innerHTML = '<p class="empty-state">Noch keine Projekte angelegt.</p>';
+      return;
+    }
+    container.innerHTML = projects.map(p => `
+      <div class="person-row">
+        <div class="person-row-main">
+          <span class="color-dot" style="background:${p.color}"></span>
+          <strong>${escapeHtml(p.name)}</strong>
+        </div>
+        <div class="row-actions">
+          <button class="danger" data-delete-project="${p.id}">Löschen</button>
+        </div>
+      </div>
+    `).join('');
+    container.querySelectorAll('[data-delete-project]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Projekt wirklich löschen? Zugeordnete Aufgaben bleiben erhalten, verlieren aber die Projektzuordnung.')) return;
+      await api(`/api/projects/${b.dataset.deleteProject}`, { method: 'DELETE' });
+      await loadProjects();
+      await loadTasks();
+    }));
+  }
+
+  document.getElementById('project-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('project-name').value.trim();
+    const color = document.getElementById('project-color').value;
+    if (!name) return;
+    try {
+      await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, color }) });
+      document.getElementById('project-form').reset();
+      document.getElementById('project-color').value = '#4f46e5';
+      await loadProjects();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById('task-project-add-btn').addEventListener('click', async () => {
+    const name = prompt('Name des neuen Projekts:');
+    if (!name || !name.trim()) return;
+    try {
+      const project = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+      await loadProjects();
+      document.getElementById('task-project').value = project.id;
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   // ================= TASKS =================
   const taskForm = document.getElementById('task-form');
   const taskIdInput = document.getElementById('task-id');
@@ -388,7 +453,6 @@
     fillTaskSelect();
     if (document.getElementById('tab-calendar').classList.contains('active')) renderCalendar();
     if (document.getElementById('tab-dashboard').classList.contains('active')) renderDashboard();
-    if (document.getElementById('tab-today').classList.contains('active')) renderToday();
   }
 
   function renderTaskPeopleCheckboxes() {
@@ -436,7 +500,6 @@
       await loadReport();
       await loadWarnings();
     }
-    if (document.getElementById('tab-today').classList.contains('active')) await renderToday();
   }
 
   function renderTaskTimers(task) {
@@ -470,74 +533,66 @@
     return tasks.filter(t => {
       if (search && !(t.title.toLowerCase().includes(search) || (t.description || '').toLowerCase().includes(search))) return false;
       if (taskFilters.person && !t.people.some(p => p.id === +taskFilters.person)) return false;
+      if (taskFilters.project && (!t.project || t.project.id !== +taskFilters.project)) return false;
       if (taskFilters.status && t.status !== taskFilters.status) return false;
       if (taskFilters.priority && t.priority !== taskFilters.priority) return false;
       return true;
     });
   }
 
-  function taskRowHtml(t, opts) {
-    opts = opts || {};
-    const todayIso = isoDate(new Date());
-    const overdue = t.due_date && t.due_date < todayIso && t.status !== 'erledigt';
+  // Kompakte Tabellenzeile: nur Aufgabe + Person. Alles andere (Status, Prioritaet,
+  // Faelligkeit, Timer, Loeschen) ist erst beim Anklicken im Formular sichtbar.
+  function taskTableRowHtml(t) {
+    const peopleNames = t.people.length ? t.people.map(p => escapeHtml(p.name)).join(', ') : '—';
+    const projectDot = t.project ? `<span class="color-dot" style="background:${t.project.color}" title="${escapeHtml(t.project.name)}"></span> ` : '';
+    const doneClass = t.status === 'erledigt' ? 'task-row-done' : '';
     return `
-      <div class="task-row" data-task-row="${t.id}">
-        <div class="task-row-main">
-          <div class="task-title-line">
-            ${escapeHtml(t.title)}
-            <span class="status-badge ${statusClass(t.status)}">${escapeHtml(t.status)}</span>
-            <span class="priority-badge ${t.priority}">${escapeHtml(t.priority)}</span>
-          </div>
-          <div class="task-meta">
-            Geschätzt: ${fmtDuration(t.estimated_minutes)}
-            ${t.due_date ? ` · <span class="due-date ${overdue ? 'overdue' : ''}">Fällig: ${fmtDateDE(t.due_date)}</span>` : ''}
-          </div>
-          ${t.description ? `<div class="task-desc">${escapeHtml(t.description)}</div>` : ''}
-          <div class="people-chips">
-            ${t.people.length
-              ? t.people.map(p => `<span class="person-chip" style="background:${p.color}">${escapeHtml(p.name)}</span>`).join('')
-              : '<span class="task-meta">Niemandem zugeordnet</span>'}
-          </div>
-          ${opts.withTimers ? renderTaskTimers(t) : ''}
-        </div>
-        <div class="row-actions">
-          <button class="ghost" data-edit="${t.id}">Bearbeiten</button>
-          <button class="danger" data-delete="${t.id}">Löschen</button>
-        </div>
+      <tr class="task-table-row ${doneClass}" data-task-row="${t.id}">
+        <td>${projectDot}${escapeHtml(t.title)}</td>
+        <td>${peopleNames}</td>
+      </tr>
+    `;
+  }
+
+  // Kompakte Zeile fuer das Dashboard (kein Tabellenkontext dort)
+  function compactTaskRowHtml(t) {
+    const peopleNames = t.people.length ? t.people.map(p => escapeHtml(p.name)).join(', ') : '—';
+    const projectDot = t.project ? `<span class="color-dot" style="background:${t.project.color}" title="${escapeHtml(t.project.name)}"></span> ` : '';
+    return `
+      <div class="task-row-compact" data-task-row="${t.id}">
+        <span>${projectDot}${escapeHtml(t.title)}</span>
+        <span class="task-meta">${peopleNames}</span>
       </div>
     `;
   }
 
-  function wireTaskRowButtons(container) {
-    container.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => startEditTask(+b.dataset.edit)));
-    container.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteTask(+b.dataset.delete)));
-    container.querySelectorAll('[data-start-task]').forEach(b => b.addEventListener('click', () =>
-      startTimer(+b.dataset.startTask, +b.dataset.startPerson)));
-    container.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', () => stopTimer(+b.dataset.stop)));
-    tickElapsedDisplays();
+  function wireTaskRowClicks(container) {
+    container.querySelectorAll('[data-task-row]').forEach(el =>
+      el.addEventListener('click', () => startEditTask(+el.dataset.taskRow)));
   }
 
   function renderTaskList() {
     const container = document.getElementById('task-list');
     const filtered = getFilteredTasks();
     if (!tasks.length) {
-      container.innerHTML = '<p class="empty-state">Noch keine Aufgaben angelegt.</p>';
+      container.innerHTML = '<tr><td colspan="2" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
       return;
     }
     if (!filtered.length) {
-      container.innerHTML = '<p class="empty-state">Keine Aufgaben passen zu den Filtern.</p>';
+      container.innerHTML = '<tr><td colspan="2" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
       return;
     }
-    container.innerHTML = filtered.map(t => taskRowHtml(t, { withTimers: true })).join('');
-    wireTaskRowButtons(container);
+    container.innerHTML = filtered.map(taskTableRowHtml).join('');
+    wireTaskRowClicks(container);
   }
 
-  ['task-filter-search', 'task-filter-person', 'task-filter-status', 'task-filter-priority'].forEach(id => {
+  ['task-filter-search', 'task-filter-person', 'task-filter-project', 'task-filter-status', 'task-filter-priority'].forEach(id => {
     const el = document.getElementById(id);
     const handler = () => {
       taskFilters = {
         search: document.getElementById('task-filter-search').value,
         person: document.getElementById('task-filter-person').value,
+        project: document.getElementById('task-filter-project').value,
         status: document.getElementById('task-filter-status').value,
         priority: document.getElementById('task-filter-priority').value,
       };
@@ -560,6 +615,24 @@
   }
   setInterval(tickElapsedDisplays, 1000);
 
+  function renderTaskTimersInForm(task) {
+    const box = document.getElementById('task-timers-in-form');
+    if (!task) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    box.classList.remove('hidden');
+    box.innerHTML = `<label>Zeiterfassung</label>${renderTaskTimers(task)}`;
+    box.querySelectorAll('[data-start-task]').forEach(b => b.addEventListener('click', async () => {
+      await startTimer(+b.dataset.startTask, +b.dataset.startPerson);
+      const fresh = tasks.find(x => x.id === task.id);
+      if (fresh) renderTaskTimersInForm(fresh);
+    }));
+    box.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', async () => {
+      await stopTimer(+b.dataset.stop);
+      const fresh = tasks.find(x => x.id === task.id);
+      if (fresh) renderTaskTimersInForm(fresh);
+    }));
+    tickElapsedDisplays();
+  }
+
   function startEditTask(id) {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
@@ -572,12 +645,15 @@
     taskPriorityInput.value = t.priority || 'mittel';
     taskDueDateInput.value = t.due_date || '';
     taskDueTimeInput.value = t.due_time || '';
+    document.getElementById('task-project').value = t.project ? t.project.id : '';
     document.querySelectorAll('#task-people-checkboxes input').forEach(cb => {
       cb.checked = t.people.some(p => p.id === +cb.value);
     });
     taskSubmitBtn.textContent = 'Änderungen speichern';
     taskCancelBtn.classList.remove('hidden');
+    document.getElementById('task-delete-btn').classList.remove('hidden');
     document.getElementById('task-form-heading').textContent = 'Aufgabe bearbeiten';
+    renderTaskTimersInForm(t);
     document.querySelector('[data-tab="tasks"]').click();
     taskTitleInput.focus();
   }
@@ -591,10 +667,15 @@
     document.querySelectorAll('#task-people-checkboxes input').forEach(cb => cb.checked = false);
     taskSubmitBtn.textContent = 'Aufgabe anlegen';
     taskCancelBtn.classList.add('hidden');
+    document.getElementById('task-delete-btn').classList.add('hidden');
     document.getElementById('task-form-heading').textContent = 'Neue Aufgabe';
+    renderTaskTimersInForm(null);
     hideEstimateHint();
   }
   taskCancelBtn.addEventListener('click', resetTaskForm);
+  document.getElementById('task-delete-btn').addEventListener('click', async () => {
+    if (editingTaskId) await deleteTask(editingTaskId);
+  });
 
   // ---------- Dauer-Schätzung anhand früherer, ähnlicher Aufgaben ----------
   const estimateHint = document.getElementById('task-estimate-hint');
@@ -640,6 +721,7 @@
     const person_ids = Array.from(document.querySelectorAll('#task-people-checkboxes input:checked')).map(cb => +cb.value);
     const dueDate = taskDueDateInput.value || null;
     const dueTime = taskDueTimeInput.value || null;
+    const projectVal = document.getElementById('task-project').value;
     const payload = {
       title: taskTitleInput.value.trim(),
       description: taskDescInput.value.trim(),
@@ -649,6 +731,8 @@
       due_date: dueDate,
       due_time: dueDate ? dueTime : null,
       clear_due_date: !dueDate,
+      project_id: projectVal ? +projectVal : null,
+      clear_project: !projectVal,
       person_ids,
     };
     if (!payload.title) return;
@@ -1166,7 +1250,9 @@
 
   // Kumulierte Ueber-/Unterstunden je Person laden (nur fuer Personen mit Wochensoll)
   async function loadLifetimeBalances() {
-    const targets = people.filter(p => p.weekly_target_minutes);
+    const targets = currentUser.is_admin
+      ? people.filter(p => p.weekly_target_minutes)
+      : people.filter(p => p.weekly_target_minutes && p.id === currentUser.person_id);
     await Promise.all(targets.map(async p => {
       try {
         const data = await api('/api/reports/lifetime?person_id=' + p.id);
@@ -1338,11 +1424,12 @@
     const container = document.getElementById('warnings-list');
     document.getElementById('warnings-hint').textContent =
       `Wird protokolliert, wenn die Arbeitszeit einer Person an einem Tag ${fmtDuration(data.daily_max_minutes)} überschreitet.`;
-    if (!data.warnings.length) {
+    const warnings = currentUser.is_admin ? data.warnings : data.warnings.filter(w => w.person_id === currentUser.person_id);
+    if (!warnings.length) {
       container.innerHTML = '<p class="empty-state">Keine Überschreitungen erfasst.</p>';
       return;
     }
-    container.innerHTML = data.warnings.map(w => `
+    container.innerHTML = warnings.map(w => `
       <div class="time-row-item">
         <div>
           <div class="tri-main"><strong>${escapeHtml(w.person_name)}</strong> · ${fmtDateDE(w.date)}</div>
@@ -1454,11 +1541,12 @@
     const data = await api('/api/reports/week?date=' + isoDate(reportWeekStart));
     document.getElementById('report-week-label').textContent = `${fmtDateLabel(new Date(data.from))} – ${fmtDateLabel(new Date(data.to))}`;
     const container = document.getElementById('report-table');
-    if (!data.report.length) {
+    const report = currentUser.is_admin ? data.report : data.report.filter(r => r.person_id === currentUser.person_id);
+    if (!report.length) {
       container.innerHTML = '<p class="empty-state">Keine aktiven Personen.</p>';
       return;
     }
-    container.innerHTML = data.report.map(r => {
+    container.innerHTML = report.map(r => {
       const sign = r.diff_minutes > 0 ? '+' : (r.diff_minutes < 0 ? '-' : '');
       const diffText = r.diff_minutes === null ? '–' : sign + fmtDuration(Math.abs(r.diff_minutes));
       const diffClass = r.diff_minutes === null ? '' : (r.diff_minutes >= 0 ? 'positive' : 'negative');
@@ -1512,54 +1600,9 @@
 
     const upcomingContainer = document.getElementById('upcoming-list');
     upcomingContainer.innerHTML = upcoming.length
-      ? upcoming.map(t => taskRowHtml(t, { withTimers: false })).join('')
+      ? upcoming.map(compactTaskRowHtml).join('')
       : '<p class="empty-state">Keine offenen Aufgaben.</p>';
-    wireTaskRowButtons(upcomingContainer);
-  }
-
-  // ---------- Heute (mobile Startansicht) ----------
-  async function renderToday() {
-    // Laeuft gerade
-    const timerContainer = document.getElementById('today-active-timers');
-    if (!activeTimers.length) {
-      timerContainer.innerHTML = '<p class="empty-state">Aktuell läuft keine Zeiterfassung.</p>';
-    } else {
-      timerContainer.innerHTML = activeTimers.map(t => `
-        <div class="timer-row">
-          <span class="timer-person">${escapeHtml(t.person_name)} · ${escapeHtml(t.task_title)}</span>
-          <span class="timer-elapsed" data-start-iso="${t.date}T${t.start_time}">00:00:00</span>
-          <button class="timer-btn stop" data-stop="${t.id}">■ Stopp</button>
-        </div>
-      `).join('');
-      timerContainer.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', () => stopTimer(+b.dataset.stop)));
-      tickElapsedDisplays();
-    }
-
-    // Heute geplant (frischer Abruf, unabhaengig von der im Kalender-Tab gewaehlten Woche)
-    const today = isoDate(new Date());
-    const calContainer = document.getElementById('today-calendar-list');
-    try {
-      const todaysEntries = await api(`/api/calendar?from=${today}&to=${today}`);
-      calContainer.innerHTML = todaysEntries.length ? todaysEntries.map(e => `
-        <div class="time-row-item">
-          <div>
-            <div class="tri-main"><strong>${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}</strong> · ${escapeHtml(e.task_title)}</div>
-            <div class="tri-meta">${escapeHtml(e.person_name)}</div>
-          </div>
-        </div>
-      `).join('') : '<p class="empty-state">Heute nichts eingeplant.</p>';
-    } catch (e) {
-      calContainer.innerHTML = '<p class="empty-state">Konnte nicht geladen werden.</p>';
-    }
-
-    // Faellig heute oder ueberfaellig
-    const dueContainer = document.getElementById('today-due-list');
-    const due = tasks.filter(t => t.status !== 'erledigt' && t.due_date && t.due_date <= today)
-      .sort((a, b) => a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0);
-    dueContainer.innerHTML = due.length
-      ? due.map(t => taskRowHtml(t, { withTimers: false })).join('')
-      : '<p class="empty-state">Nichts fällig oder überfällig.</p>';
-    wireTaskRowButtons(dueContainer);
+    wireTaskRowClicks(upcomingContainer);
   }
 
   // ================= ACCOUNT / LOGIN =================
@@ -1608,7 +1651,7 @@
     const container = document.getElementById('users-list');
     container.innerHTML = users.map(u => `
       <div class="time-row-item">
-        <div class="tri-main">${escapeHtml(u.username)}</div>
+        <div class="tri-main">${escapeHtml(u.username)}${u.person_name ? ` <span class="task-meta">(${escapeHtml(u.person_name)})</span>` : ' <span class="task-meta">(Admin)</span>'}</div>
         <div class="row-actions">
           <button class="danger" data-delete-user="${u.id}">Löschen</button>
         </div>
@@ -1630,6 +1673,9 @@
     accountDropdown.classList.add('hidden');
     document.getElementById('new-user-username').value = '';
     document.getElementById('new-user-password').value = '';
+    const personSelect = document.getElementById('new-user-person');
+    personSelect.innerHTML = '<option value="">— keine (Admin, uneingeschränkt) —</option>' +
+      people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     usersError.classList.add('hidden');
     usersModal.classList.remove('hidden');
     await loadUsers();
@@ -1639,11 +1685,13 @@
   document.getElementById('users-add-confirm').addEventListener('click', async () => {
     const username = document.getElementById('new-user-username').value.trim();
     const password = document.getElementById('new-user-password').value;
+    const personVal = document.getElementById('new-user-person').value;
     usersError.classList.add('hidden');
     try {
-      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password }) });
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password, person_id: personVal ? +personVal : null }) });
       document.getElementById('new-user-username').value = '';
       document.getElementById('new-user-password').value = '';
+      document.getElementById('new-user-person').value = '';
       await loadUsers();
     } catch (err) {
       usersError.textContent = err.message;
@@ -1675,11 +1723,38 @@
     }
   });
 
+  let currentUser = { username: null, person_id: null, person_name: null, is_admin: true };
+
   async function loadAccount() {
     try {
       const me = await api('/api/me');
+      currentUser = me;
       document.getElementById('account-username').textContent = me.username;
+      applyRoleRestrictions();
     } catch (e) { /* Redirect passiert bereits in api() bei 401 */ }
+  }
+
+  // Nicht-Admin-Logins (an eine Person gebunden) duerfen in der Zeiterfassung nur die
+  // eigene Person sehen/bearbeiten (serverseitig ohnehin erzwungen); hier wird das
+  // Frontend passend eingeschraenkt, damit gar nicht erst versucht wird, andere
+  // auszuwaehlen. In Aufgaben/Kalender/Dashboard liegt nur der Fokus auf der eigenen
+  // Person (voreingestellter Filter), der Rest bleibt einsehbar.
+  function applyRoleRestrictions() {
+    if (currentUser.is_admin) return;
+
+    ['time-person', 'time-filter-person', 'timeoff-person'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = `<option value="${currentUser.person_id}">${escapeHtml(currentUser.person_name || '')}</option>`;
+      el.disabled = true;
+    });
+
+    // Fokus auf eigene Person im Aufgaben-Filter (bleibt umschaltbar)
+    const taskPersonFilter = document.getElementById('task-filter-person');
+    if (taskPersonFilter) {
+      taskPersonFilter.value = String(currentUser.person_id);
+      taskFilters.person = String(currentUser.person_id);
+    }
   }
 
   // ---------- Init ----------
@@ -1692,10 +1767,12 @@
     resetTimeForm();
     await loadAccount();
     await loadPeople();
+    await loadProjects();
     await loadActiveTimers();
     await loadTasks();
     await loadTimeEntries();
     await loadWarnings();
+    applyRoleRestrictions();
   }
   init();
 })();

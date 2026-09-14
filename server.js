@@ -62,6 +62,7 @@ app.post('/api/login', (req, res) => {
   }
   req.session.userId = user.id;
   req.session.username = user.username;
+  req.session.personId = user.person_id || null;
   res.json({ ok: true, username: user.username });
 });
 
@@ -71,7 +72,17 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
   if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Nicht angemeldet' });
-  res.json({ username: req.session.username });
+  let personName = null;
+  if (req.session.personId) {
+    const p = db.prepare('SELECT name FROM people WHERE id = ?').get(req.session.personId);
+    personName = p ? p.name : null;
+  }
+  res.json({
+    username: req.session.username,
+    person_id: req.session.personId || null,
+    person_name: personName,
+    is_admin: !req.session.personId,
+  });
 });
 
 app.post('/api/account/change-password', (req, res) => {
@@ -88,20 +99,39 @@ app.post('/api/account/change-password', (req, res) => {
   res.json({ ok: true });
 });
 
+// Schuetzt Zeiterfassungs-Routen: Nicht-Admin-Logins (an eine Person gebunden) duerfen
+// nur mit der eigenen person_id arbeiten. Admin (kein personId in der Session) ist frei.
+function enforceOwnPerson(req, res, next) {
+  if (!req.session.personId) return next(); // Admin
+  const bodyPersonId = req.body && req.body.person_id;
+  const queryPersonId = req.query && req.query.person_id;
+  if ((bodyPersonId && +bodyPersonId !== req.session.personId) || (queryPersonId && +queryPersonId !== req.session.personId)) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
+  if (req.body && 'person_id' in req.body) req.body.person_id = req.session.personId;
+  if (req.query && !req.query.person_id) req.query.person_id = String(req.session.personId);
+  next();
+}
+
 // ---------- Benutzerverwaltung (weitere Login-Konten) ----------
 app.get('/api/users', (req, res) => {
-  res.json(db.prepare('SELECT id, username, created_at FROM app_users ORDER BY username').all());
+  res.json(db.prepare(`
+    SELECT u.id, u.username, u.created_at, u.person_id, p.name AS person_name
+    FROM app_users u LEFT JOIN people p ON p.id = u.person_id
+    ORDER BY u.username
+  `).all());
 });
 
 app.post('/api/users', (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, person_id } = req.body || {};
   if (!username || !username.trim()) return res.status(400).json({ error: 'Benutzername ist erforderlich' });
   if (!password || password.length < 6) return res.status(400).json({ error: 'Passwort muss mindestens 6 Zeichen haben' });
   const existing = db.prepare('SELECT id FROM app_users WHERE username = ?').get(username.trim());
   if (existing) return res.status(409).json({ error: 'Benutzername ist bereits vergeben' });
   const hash = bcrypt.hashSync(password, 10);
-  const info = db.prepare('INSERT INTO app_users (username, password_hash) VALUES (?, ?)').run(username.trim(), hash);
-  res.status(201).json({ id: info.lastInsertRowid, username: username.trim() });
+  const info = db.prepare('INSERT INTO app_users (username, password_hash, person_id) VALUES (?, ?, ?)')
+    .run(username.trim(), hash, person_id || null);
+  res.status(201).json({ id: info.lastInsertRowid, username: username.trim(), person_id: person_id || null });
 });
 
 app.delete('/api/users/:id', (req, res) => {
@@ -142,7 +172,8 @@ function getTaskWithAssignments(taskId) {
     WHERE ta.task_id = ?
     ORDER BY p.name
   `).all(taskId).map(sanitizePerson);
-  return { ...task, people, actual_minutes: actualMinutesStmt.get(taskId).m };
+  const project = task.project_id ? db.prepare('SELECT id, name, color FROM projects WHERE id = ?').get(task.project_id) : null;
+  return { ...task, people, project, actual_minutes: actualMinutesStmt.get(taskId).m };
 }
 
 function allTasksWithAssignments() {
@@ -153,9 +184,11 @@ function allTasksWithAssignments() {
     WHERE ta.task_id = ?
     ORDER BY p.name
   `);
+  const projects = new Map(db.prepare('SELECT id, name, color FROM projects').all().map(p => [p.id, p]));
   return tasks.map(t => ({
     ...t,
     people: assignStmt.all(t.id).map(sanitizePerson),
+    project: t.project_id ? (projects.get(t.project_id) || null) : null,
     actual_minutes: actualMinutesStmt.get(t.id).m,
   }));
 }
@@ -469,12 +502,12 @@ app.get('/api/tasks', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { title, description, estimated_minutes, person_ids, priority, due_date, due_time } = req.body;
+  const { title, description, estimated_minutes, person_ids, priority, due_date, due_time, project_id } = req.body;
   if (!title || !title.trim()) return res.status(400).json({ error: 'Titel ist erforderlich' });
   const info = db.prepare(`
-    INSERT INTO tasks (title, description, estimated_minutes, priority, due_date, due_time)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(title.trim(), description || null, estimated_minutes || 60, priority || 'mittel', due_date || null, due_time || null);
+    INSERT INTO tasks (title, description, estimated_minutes, priority, due_date, due_time, project_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(title.trim(), description || null, estimated_minutes || 60, priority || 'mittel', due_date || null, due_time || null, project_id || null);
   const taskId = info.lastInsertRowid;
   if (Array.isArray(person_ids)) {
     const stmt = db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)');
@@ -486,9 +519,9 @@ app.post('/api/tasks', (req, res) => {
 app.put('/api/tasks/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Aufgabe nicht gefunden' });
-  const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date } = req.body;
+  const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date, project_id, clear_project } = req.body;
   db.prepare(`
-    UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?
+    UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?, project_id = ?
     WHERE id = ?
   `).run(
     title ?? existing.title,
@@ -498,6 +531,7 @@ app.put('/api/tasks/:id', (req, res) => {
     priority ?? existing.priority,
     clear_due_date ? null : (due_date ?? existing.due_date),
     clear_due_date ? null : (due_time ?? existing.due_time),
+    clear_project ? null : (project_id ?? existing.project_id),
     req.params.id
   );
   if (Array.isArray(person_ids)) {
@@ -510,6 +544,34 @@ app.put('/api/tasks/:id', (req, res) => {
 
 app.delete('/api/tasks/:id', (req, res) => {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+  res.status(204).end();
+});
+
+// ---------- Projekte ----------
+app.get('/api/projects', (req, res) => {
+  res.json(db.prepare('SELECT * FROM projects ORDER BY name').all());
+});
+
+app.post('/api/projects', (req, res) => {
+  const { name, color } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name ist erforderlich' });
+  const existing = db.prepare('SELECT id FROM projects WHERE name = ?').get(name.trim());
+  if (existing) return res.status(409).json({ error: 'Projekt existiert bereits' });
+  const info = db.prepare('INSERT INTO projects (name, color) VALUES (?, ?)').run(name.trim(), color || '#4f46e5');
+  res.status(201).json(db.prepare('SELECT * FROM projects WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.put('/api/projects/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+  const { name, color } = req.body || {};
+  db.prepare('UPDATE projects SET name = ?, color = ? WHERE id = ?')
+    .run(name ?? existing.name, color ?? existing.color, req.params.id);
+  res.json(db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id));
+});
+
+app.delete('/api/projects/:id', (req, res) => {
+  db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
   res.status(204).end();
 });
 
@@ -660,7 +722,7 @@ app.get('/api/calendar/export.ics', (req, res) => {
 });
 
 // ---------- Time entries (Zeiterfassung) ----------
-app.get('/api/time-entries', (req, res) => {
+app.get('/api/time-entries', enforceOwnPerson, (req, res) => {
   const { person_id, from, to } = req.query;
   let query = `
     SELECT te.*, p.name AS person_name, t.title AS task_title
@@ -677,7 +739,7 @@ app.get('/api/time-entries', (req, res) => {
   res.json(db.prepare(query).all(...params));
 });
 
-app.post('/api/time-entries', (req, res) => {
+app.post('/api/time-entries', enforceOwnPerson, (req, res) => {
   const { person_id, task_id, date, start_time, end_time, duration_minutes, break_start, break_end, break_minutes, note } = req.body;
   if (!person_id || !date) return res.status(400).json({ error: 'person_id und date sind erforderlich' });
 
@@ -707,6 +769,12 @@ app.post('/api/time-entries', (req, res) => {
 app.put('/api/time-entries/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
+  if (req.session.personId && existing.person_id !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
+  if (req.session.personId && req.body.person_id && +req.body.person_id !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
   if (existing.running) return res.status(400).json({ error: 'Laufende Zeiterfassung kann nicht bearbeitet werden, bitte zuerst stoppen' });
 
   const {
@@ -763,6 +831,9 @@ app.put('/api/time-entries/:id', (req, res) => {
 
 app.delete('/api/time-entries/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(req.params.id);
+  if (req.session.personId && existing && existing.person_id !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
   db.prepare('DELETE FROM time_entries WHERE id = ?').run(req.params.id);
   if (existing) recomputeDailyWarning(existing.person_id, existing.date);
   res.status(204).end();
@@ -770,11 +841,13 @@ app.delete('/api/time-entries/:id', (req, res) => {
 
 // ---------- Start/Stopp-Zeiterfassung pro Aufgabe ----------
 app.get('/api/time-entries/active', (req, res) => {
-  const rows = db.prepare(`${timeEntryJoinSelect} WHERE te.running = 1 ORDER BY te.start_time`).all();
+  const rows = req.session.personId
+    ? db.prepare(`${timeEntryJoinSelect} WHERE te.running = 1 AND te.person_id = ? ORDER BY te.start_time`).all(req.session.personId)
+    : db.prepare(`${timeEntryJoinSelect} WHERE te.running = 1 ORDER BY te.start_time`).all();
   res.json(rows);
 });
 
-app.post('/api/time-entries/start', (req, res) => {
+app.post('/api/time-entries/start', enforceOwnPerson, (req, res) => {
   const { person_id, task_id } = req.body;
   if (!person_id || !task_id) return res.status(400).json({ error: 'person_id und task_id sind erforderlich' });
 
@@ -791,7 +864,7 @@ app.post('/api/time-entries/start', (req, res) => {
 
 // Schnellstart: legt im Hintergrund eine minimale Aufgabe an und startet direkt die Zeiterfassung dafuer.
 // Details (Titel, Beschreibung, Priorität, ...) koennen danach im Aufgaben-Tab nachgetragen werden.
-app.post('/api/time-entries/quick-start', (req, res) => {
+app.post('/api/time-entries/quick-start', enforceOwnPerson, (req, res) => {
   const { person_id, title } = req.body;
   if (!person_id) return res.status(400).json({ error: 'person_id ist erforderlich' });
 
@@ -821,6 +894,9 @@ app.post('/api/time-entries/quick-start', (req, res) => {
 app.post('/api/time-entries/:id/stop', (req, res) => {
   const entry = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
+  if (req.session.personId && entry.person_id !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
   if (!entry.running) return res.status(400).json({ error: 'Dieser Eintrag laeuft nicht' });
 
   const now = new Date();
@@ -833,7 +909,7 @@ app.post('/api/time-entries/:id/stop', (req, res) => {
 });
 
 // CSV-Export der Zeiterfassung, z.B. fuer die Lohnabrechnung
-app.get('/api/time-entries/export.csv', (req, res) => {
+app.get('/api/time-entries/export.csv', enforceOwnPerson, (req, res) => {
   const { person_id, from, to } = req.query;
   let query = `
     SELECT te.date, p.name AS person_name, te.start_time, te.end_time, te.break_minutes, te.duration_minutes, t.title AS task_title, te.note
@@ -894,7 +970,10 @@ app.get('/api/reports/week', (req, res) => {
   const from = isoDateLocal(monday);
   const to = isoDateLocal(sunday);
 
-  const people = db.prepare('SELECT * FROM people WHERE active = 1 ORDER BY name').all();
+  const people = (req.session.personId
+    ? db.prepare('SELECT * FROM people WHERE active = 1 AND id = ? ORDER BY name').all(req.session.personId)
+    : db.prepare('SELECT * FROM people WHERE active = 1 ORDER BY name').all()
+  );
   const actualStmt = db.prepare(`
     SELECT COALESCE(SUM(duration_minutes), 0) AS m
     FROM time_entries
@@ -927,6 +1006,9 @@ app.get('/api/reports/week', (req, res) => {
 app.get('/api/reports/lifetime', (req, res) => {
   const personId = req.query.person_id;
   if (!personId) return res.status(400).json({ error: 'person_id ist erforderlich' });
+  if (req.session.personId && +personId !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
   const person = db.prepare('SELECT * FROM people WHERE id = ?').get(personId);
   if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
   if (!person.weekly_target_minutes) return res.json({ available: false });

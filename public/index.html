@@ -16,11 +16,7 @@
     </div>
     <div class="sidebar-section-label">Hauptmenü</div>
     <nav class="tabs">
-      <button class="tab-btn active" data-tab="today" data-title="Heute">
-        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M10 3l1.6 3.6L15 8l-3.4 1.4L10 13l-1.6-3.6L5 8l3.4-1.4L10 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M4.5 15.5h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        Heute
-      </button>
-      <button class="tab-btn" data-tab="tasks" data-title="Aufgaben">
+      <button class="tab-btn active" data-tab="tasks" data-title="Aufgaben">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Aufgaben
       </button>
@@ -44,11 +40,7 @@
   </aside>
 
   <nav class="bottom-nav">
-    <button class="tab-btn active" data-tab="today" data-title="Heute">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M10 3l1.6 3.6L15 8l-3.4 1.4L10 13l-1.6-3.6L5 8l3.4-1.4L10 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M4.5 15.5h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Heute</span>
-    </button>
-    <button class="tab-btn" data-tab="tasks" data-title="Aufgaben">
+    <button class="tab-btn active" data-tab="tasks" data-title="Aufgaben">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Aufgaben</span>
     </button>
@@ -69,7 +61,7 @@
   <div class="main-area">
     <header class="topbar">
       <div class="topbar-row1">
-        <h1 id="page-title">Heute</h1>
+        <h1 id="page-title">Aufgaben</h1>
         <div class="topbar-right">
           <form id="quickstart-form" class="quickstart">
             <select id="quickstart-person"></select>
@@ -91,26 +83,8 @@
 
     <main>
 
-  <!-- ===================== HEUTE (mobile Startansicht) ===================== -->
-  <section id="tab-today" class="tab-panel active">
-    <div class="today-stack">
-      <div class="card">
-        <h2>Läuft gerade</h2>
-        <div id="today-active-timers"></div>
-      </div>
-      <div class="card">
-        <h2>Heute geplant</h2>
-        <div id="today-calendar-list"></div>
-      </div>
-      <div class="card">
-        <h2>Fällig &amp; überfällig</h2>
-        <div id="today-due-list"></div>
-      </div>
-    </div>
-  </section>
-
   <!-- ===================== AUFGABEN ===================== -->
-  <section id="tab-tasks" class="tab-panel">
+  <section id="tab-tasks" class="tab-panel active">
     <div class="panel-grid">
       <div class="card">
         <h2 id="task-form-heading">Neue Aufgabe</h2>
@@ -145,6 +119,13 @@
           <label>Zugeordnete Personen
             <div id="task-people-checkboxes" class="checkbox-list"></div>
           </label>
+          <label>Projekt
+            <div class="inline-select-row">
+              <select id="task-project"><option value="">— keins —</option></select>
+              <button type="button" id="task-project-add-btn" class="ghost" title="Neues Projekt anlegen">+ Neu</button>
+            </div>
+          </label>
+          <div id="task-timers-in-form" class="hidden"></div>
           <label>Status
             <select id="task-status">
               <option value="offen">Offen</option>
@@ -155,6 +136,7 @@
           <div class="form-actions">
             <button type="submit" id="task-submit-btn">Aufgabe anlegen</button>
             <button type="button" id="task-cancel-btn" class="secondary hidden">Abbrechen</button>
+            <button type="button" id="task-delete-btn" class="danger hidden">Löschen</button>
           </div>
         </form>
       </div>
@@ -167,6 +149,9 @@
           </label>
           <label>Person
             <select id="task-filter-person"><option value="">Alle</option></select>
+          </label>
+          <label>Projekt
+            <select id="task-filter-project"><option value="">Alle</option></select>
           </label>
           <label>Status
             <select id="task-filter-status">
@@ -185,7 +170,12 @@
             </select>
           </label>
         </div>
-        <div id="task-list" class="task-list"></div>
+        <table class="task-table">
+          <thead>
+            <tr><th>Aufgabe</th><th>Person</th></tr>
+          </thead>
+          <tbody id="task-list"></tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -298,6 +288,14 @@
       <div class="card">
         <h2>Alle Personen</h2>
         <div id="people-list" class="people-list"></div>
+
+        <h2 class="section-gap">Projekte</h2>
+        <form id="project-form" class="inline-form-row">
+          <input type="text" id="project-name" placeholder="Neues Projekt, z.B. Das Album" required>
+          <input type="color" id="project-color" value="#4f46e5">
+          <button type="submit">Anlegen</button>
+        </form>
+        <div id="project-list" class="people-list section-gap"></div>
       </div>
     </div>
   </section>
@@ -483,6 +481,10 @@
     <h3 class="section-gap">Neuer Benutzer</h3>
     <label>Benutzername <input type="text" id="new-user-username"></label>
     <label>Passwort (mind. 6 Zeichen) <input type="password" id="new-user-password"></label>
+    <label>Verknüpfte Person (optional)
+      <select id="new-user-person"><option value="">— keine (Admin, uneingeschränkt) —</option></select>
+    </label>
+    <p class="hint">Ohne verknüpfte Person hat der Login vollen Zugriff (Admin). Mit verknüpfter Person darf sich diese Person nur ihre eigene Zeit in der Zeiterfassung ansehen/eintragen.</p>
     <div id="users-error" class="login-error hidden"></div>
     <div class="form-actions">
       <button id="users-add-confirm">Anlegen</button>

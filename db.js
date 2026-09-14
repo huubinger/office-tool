@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS people (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  color TEXT DEFAULT '#4f46e5',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
@@ -49,6 +56,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT DEFAULT 'offen',
   priority TEXT DEFAULT 'mittel',
   due_date TEXT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -104,6 +112,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -157,6 +166,8 @@ ensureColumn('people', 'contract_start', 'TEXT');
 ensureColumn('people', 'contract_end', 'TEXT');
 ensureColumn('people', 'seminar_days_total', 'INTEGER');
 ensureColumn('tasks', 'due_time', 'TEXT');
+ensureColumn('tasks', 'project_id', 'INTEGER REFERENCES projects(id)');
+ensureColumn('app_users', 'person_id', 'INTEGER REFERENCES people(id)');
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----
 // Sind ADMIN_USERNAME und ADMIN_PASSWORD gesetzt, werden sie bei JEDEM Start durchgesetzt

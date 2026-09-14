@@ -1869,7 +1869,6 @@
     document.getElementById('absence-from').value = isoDate(new Date());
     document.getElementById('absence-to').value = isoDate(new Date());
     document.getElementById('timeoff-date').value = isoDate(new Date());
-    resetTaskForm();
     resetPersonForm();
     resetTimeForm();
     await loadAccount();

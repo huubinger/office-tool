@@ -85,21 +85,91 @@
 
   <!-- ===================== AUFGABEN ===================== -->
   <section id="tab-tasks" class="tab-panel active">
-    <div class="panel-grid">
-      <div class="card">
-        <h2 id="task-form-heading">Neue Aufgabe</h2>
-        <form id="task-form">
-          <input type="hidden" id="task-id">
-          <label>Titel
-            <input type="text" id="task-title" required placeholder="z.B. Rechnungen prüfen">
-          </label>
-          <label>Beschreibung
-            <textarea id="task-description" rows="2" placeholder="Details (optional)"></textarea>
-          </label>
+    <div class="quickadd-bar card">
+      <h2>Neue Aufgabe anlegen</h2>
+      <form id="task-quickadd-form">
+        <button type="submit" class="quickadd-plus" title="Anlegen">+</button>
+        <select id="qa-project"><option value="">Projekt auswählen</option></select>
+        <input type="text" id="qa-title" placeholder="Aufgabe eingeben …" required>
+        <select id="qa-person"><option value="">Zuständig</option></select>
+        <select id="qa-priority">
+          <option value="niedrig">Niedrig</option>
+          <option value="mittel" selected>Mittel</option>
+          <option value="hoch">Hoch</option>
+        </select>
+        <input type="date" id="qa-start-date" title="Startdatum">
+        <input type="date" id="qa-due-date" title="Deadline">
+        <input type="number" id="qa-duration" min="5" step="5" placeholder="Dauer (Min)" title="Geschätzte Dauer in Minuten">
+        <button type="submit" class="quickadd-submit">+ Anlegen</button>
+      </form>
+    </div>
+
+    <div class="card filter-bar-card">
+      <div class="filter-row filter-row-tasks">
+        <label>Suche
+          <input type="text" id="task-filter-search" placeholder="Aufgabe, Projekt oder Person …">
+        </label>
+        <label>Projekt
+          <select id="task-filter-project"><option value="">Alle Projekte</option></select>
+        </label>
+        <label>Person
+          <select id="task-filter-person"><option value="">Alle Personen</option></select>
+        </label>
+        <label>Priorität
+          <select id="task-filter-priority">
+            <option value="">Alle Prioritäten</option>
+            <option value="niedrig">Niedrig</option>
+            <option value="mittel">Mittel</option>
+            <option value="hoch">Hoch</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="task-filter-status">
+            <option value="">Alle Status</option>
+            <option value="offen">Offen</option>
+            <option value="in Arbeit">In Arbeit</option>
+            <option value="erledigt">Erledigt</option>
+          </select>
+        </label>
+        <label>Sortieren nach
+          <select id="task-sort">
+            <option value="deadline">Deadline</option>
+            <option value="start">Start</option>
+            <option value="priority">Priorität</option>
+            <option value="title">Aufgabe</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="card task-groups-card">
+      <table class="task-table">
+        <thead>
+          <tr>
+            <th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Start</th><th>Deadline</th><th>Dauer</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="task-list"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Aufgabe bearbeiten (Detail-Modal) -->
+  <div id="task-modal-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+      <h3 id="task-form-heading">Aufgabe bearbeiten</h3>
+      <form id="task-form">
+        <input type="hidden" id="task-id">
+        <label>Titel
+          <input type="text" id="task-title" required placeholder="z.B. Rechnungen prüfen">
+        </label>
+        <label>Beschreibung
+          <textarea id="task-description" rows="2" placeholder="Details (optional)"></textarea>
+        </label>
+        <div class="time-row">
           <label>Geschätzte Dauer (Minuten)
             <input type="number" id="task-duration" min="5" step="5" value="60" required>
           </label>
-          <div id="task-estimate-hint" class="estimate-hint hidden"></div>
           <label>Priorität
             <select id="task-priority">
               <option value="niedrig">Niedrig</option>
@@ -107,78 +177,45 @@
               <option value="hoch">Hoch</option>
             </select>
           </label>
-          <div class="time-row">
-            <label>Fällig am
-              <input type="date" id="task-due-date">
-            </label>
-            <label>Uhrzeit (optional)
-              <input type="time" id="task-due-time">
-            </label>
-          </div>
-          <p class="hint" id="task-schedule-hint">Mit Uhrzeit wird die Aufgabe direkt in den Kalender übernommen; ohne Uhrzeit erscheint sie dort ganztägig.</p>
-          <label>Zugeordnete Personen
-            <div id="task-people-checkboxes" class="checkbox-list"></div>
+        </div>
+        <div id="task-estimate-hint" class="estimate-hint hidden"></div>
+        <div class="time-row">
+          <label>Startdatum
+            <input type="date" id="task-start-date">
           </label>
-          <label>Projekt
-            <div class="inline-select-row">
-              <select id="task-project"><option value="">— keins —</option></select>
-              <button type="button" id="task-project-add-btn" class="ghost" title="Neues Projekt anlegen">+ Neu</button>
-            </div>
-          </label>
-          <div id="task-timers-in-form" class="hidden"></div>
-          <label>Status
-            <select id="task-status">
-              <option value="offen">Offen</option>
-              <option value="in Arbeit">In Arbeit</option>
-              <option value="erledigt">Erledigt</option>
-            </select>
-          </label>
-          <div class="form-actions">
-            <button type="submit" id="task-submit-btn">Aufgabe anlegen</button>
-            <button type="button" id="task-cancel-btn" class="secondary hidden">Abbrechen</button>
-            <button type="button" id="task-delete-btn" class="danger hidden">Löschen</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Alle Aufgaben</h2>
-        <div class="filter-row">
-          <label>Suche
-            <input type="text" id="task-filter-search" placeholder="Titel oder Beschreibung">
-          </label>
-          <label>Person
-            <select id="task-filter-person"><option value="">Alle</option></select>
-          </label>
-          <label>Projekt
-            <select id="task-filter-project"><option value="">Alle</option></select>
-          </label>
-          <label>Status
-            <select id="task-filter-status">
-              <option value="">Alle</option>
-              <option value="offen">Offen</option>
-              <option value="in Arbeit">In Arbeit</option>
-              <option value="erledigt">Erledigt</option>
-            </select>
-          </label>
-          <label>Priorität
-            <select id="task-filter-priority">
-              <option value="">Alle</option>
-              <option value="niedrig">Niedrig</option>
-              <option value="mittel">Mittel</option>
-              <option value="hoch">Hoch</option>
-            </select>
+          <label>Deadline
+            <input type="date" id="task-due-date">
           </label>
         </div>
-        <table class="task-table">
-          <thead>
-            <tr><th>Aufgabe</th><th>Person</th></tr>
-          </thead>
-          <tbody id="task-list"></tbody>
-        </table>
-      </div>
+        <label>Uhrzeit (optional)
+          <input type="time" id="task-due-time">
+        </label>
+        <p class="hint" id="task-schedule-hint">Mit Uhrzeit wird die Aufgabe direkt in den Kalender übernommen; ohne Uhrzeit erscheint sie dort ganztägig.</p>
+        <label>Zugeordnete Personen
+          <div id="task-people-checkboxes" class="checkbox-list"></div>
+        </label>
+        <label>Projekt
+          <div class="inline-select-row">
+            <select id="task-project"><option value="">— keins —</option></select>
+            <button type="button" id="task-project-add-btn" class="ghost" title="Neues Projekt anlegen">+ Neu</button>
+          </div>
+        </label>
+        <div id="task-timers-in-form" class="hidden"></div>
+        <label>Status
+          <select id="task-status">
+            <option value="offen">Offen</option>
+            <option value="in Arbeit">In Arbeit</option>
+            <option value="erledigt">Erledigt</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="task-submit-btn">Änderungen speichern</button>
+          <button type="button" id="task-cancel-btn" class="secondary">Abbrechen</button>
+          <button type="button" id="task-delete-btn" class="danger">Löschen</button>
+        </div>
+      </form>
     </div>
-  </section>
+  </div>
 
   <!-- ===================== KALENDER ===================== -->
   <section id="tab-calendar" class="tab-panel">

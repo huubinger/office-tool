@@ -366,7 +366,8 @@
     document.getElementById('timeoff-person').innerHTML = optionsHtml;
     document.getElementById('quickstart-person').innerHTML = optionsHtml;
     document.getElementById('time-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
-    document.getElementById('task-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
+    document.getElementById('task-filter-person').innerHTML = '<option value="">Alle Personen</option>' + optionsHtml;
+    document.getElementById('qa-person').innerHTML = '<option value="">Zuständig</option>' + optionsHtml;
   }
 
   // ================= PROJEKTE =================
@@ -379,7 +380,8 @@
   function fillProjectSelects() {
     const optionsHtml = projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     document.getElementById('task-project').innerHTML = '<option value="">— keins —</option>' + optionsHtml;
-    document.getElementById('task-filter-project').innerHTML = '<option value="">Alle</option>' + optionsHtml;
+    document.getElementById('task-filter-project').innerHTML = '<option value="">Alle Projekte</option>' + optionsHtml;
+    document.getElementById('qa-project').innerHTML = '<option value="">Projekt auswählen</option>' + optionsHtml;
   }
 
   function renderProjectList() {
@@ -442,10 +444,12 @@
   const taskDurationInput = document.getElementById('task-duration');
   const taskStatusInput = document.getElementById('task-status');
   const taskPriorityInput = document.getElementById('task-priority');
+  const taskStartDateInput = document.getElementById('task-start-date');
   const taskDueDateInput = document.getElementById('task-due-date');
   const taskDueTimeInput = document.getElementById('task-due-time');
-  const taskSubmitBtn = document.getElementById('task-submit-btn');
-  const taskCancelBtn = document.getElementById('task-cancel-btn');
+  const taskModalOverlay = document.getElementById('task-modal-overlay');
+  let collapsedProjectGroups = new Set();
+  let taskSort = 'deadline';
 
   async function loadTasks() {
     tasks = await api('/api/tasks');
@@ -470,6 +474,11 @@
   }
 
   function statusClass(status) { return status.replace(' ', '-'); }
+
+  function initials(name) {
+    const parts = name.trim().split(/\s+/);
+    return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
+  }
 
   // ---------- Start/Stopp-Zeiterfassung ----------
   async function loadActiveTimers() {
@@ -531,7 +540,12 @@
   function getFilteredTasks() {
     const search = taskFilters.search.trim().toLowerCase();
     return tasks.filter(t => {
-      if (search && !(t.title.toLowerCase().includes(search) || (t.description || '').toLowerCase().includes(search))) return false;
+      if (search && !(
+        t.title.toLowerCase().includes(search) ||
+        (t.description || '').toLowerCase().includes(search) ||
+        (t.project && t.project.name.toLowerCase().includes(search)) ||
+        t.people.some(p => p.name.toLowerCase().includes(search))
+      )) return false;
       if (taskFilters.person && !t.people.some(p => p.id === +taskFilters.person)) return false;
       if (taskFilters.project && (!t.project || t.project.id !== +taskFilters.project)) return false;
       if (taskFilters.status && t.status !== taskFilters.status) return false;
@@ -540,16 +554,45 @@
     });
   }
 
-  // Kompakte Tabellenzeile: nur Aufgabe + Person. Alles andere (Status, Prioritaet,
-  // Faelligkeit, Timer, Loeschen) ist erst beim Anklicken im Formular sichtbar.
+  const PRIORITY_RANK = { hoch: 0, mittel: 1, niedrig: 2 };
+  function sortTasks(list) {
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (taskSort === 'deadline') return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : (a.due_date || '9999') > (b.due_date || '9999') ? 1 : 0;
+      if (taskSort === 'start') return (a.start_date || '9999') < (b.start_date || '9999') ? -1 : (a.start_date || '9999') > (b.start_date || '9999') ? 1 : 0;
+      if (taskSort === 'priority') return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+      return a.title.localeCompare(b.title, 'de');
+    });
+    return sorted;
+  }
+
+  function priorityDotHtml(priority) {
+    return `<span class="task-priority-dot ${priority}"><span class="dot"></span>${escapeHtml(priority.charAt(0).toUpperCase() + priority.slice(1))}</span>`;
+  }
+
+  function statusPillHtml(status) {
+    const icons = { offen: '○', 'in Arbeit': '★', erledigt: '✓' };
+    return `<span class="task-status-pill ${statusClass(status)}">${icons[status] || '○'} ${escapeHtml(status)}</span>`;
+  }
+
+  // Tabellenzeile innerhalb einer Projekt-Gruppe: Aufgabe, Zustaendig, Prioritaet, Start,
+  // Deadline, Dauer (Minuten), Status. Klick oeffnet das Detail-Formular.
   function taskTableRowHtml(t) {
-    const peopleNames = t.people.length ? t.people.map(p => escapeHtml(p.name)).join(', ') : '—';
-    const projectDot = t.project ? `<span class="color-dot" style="background:${t.project.color}" title="${escapeHtml(t.project.name)}"></span> ` : '';
     const doneClass = t.status === 'erledigt' ? 'task-row-done' : '';
+    const assignee = t.people.length
+      ? `<div class="task-assignee"><span class="task-avatar" style="background:${t.people[0].color}">${initials(t.people[0].name)}</span>
+          <span>${escapeHtml(t.people[0].name)}${t.people.length > 1 ? ` +${t.people.length - 1}` : ''}</span></div>`
+      : '<span class="task-meta">—</span>';
     return `
-      <tr class="task-table-row ${doneClass}" data-task-row="${t.id}">
-        <td>${projectDot}${escapeHtml(t.title)}</td>
-        <td>${peopleNames}</td>
+      <tr class="task-table-row ${doneClass}" data-task-row="${t.id}" style="border-left-color:${t.project ? t.project.color : 'transparent'}">
+        <td>${escapeHtml(t.title)}</td>
+        <td>${assignee}</td>
+        <td>${priorityDotHtml(t.priority || 'mittel')}</td>
+        <td>${t.start_date ? fmtDateDE(t.start_date) : '–'}</td>
+        <td>${t.due_date ? fmtDateDE(t.due_date) : '–'}</td>
+        <td>${fmtDuration(t.estimated_minutes)}</td>
+        <td>${statusPillHtml(t.status)}</td>
+        <td><button type="button" class="task-row-menu-btn" data-task-row="${t.id}">⋯</button></td>
       </tr>
     `;
   }
@@ -571,18 +614,60 @@
       el.addEventListener('click', () => startEditTask(+el.dataset.taskRow)));
   }
 
+  // Gruppiert die gefilterten Aufgaben nach Projekt und rendert je Gruppe eine farbige
+  // Kopfzeile (mit Anzahl + Ein-/Ausklappen) gefolgt von den Aufgaben-Zeilen.
   function renderTaskList() {
     const container = document.getElementById('task-list');
     const filtered = getFilteredTasks();
     if (!tasks.length) {
-      container.innerHTML = '<tr><td colspan="2" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
+      container.innerHTML = '<tr><td colspan="8" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
       return;
     }
     if (!filtered.length) {
-      container.innerHTML = '<tr><td colspan="2" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
+      container.innerHTML = '<tr><td colspan="8" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
       return;
     }
-    container.innerHTML = filtered.map(taskTableRowHtml).join('');
+
+    const groups = new Map(); // key: project id or 'none' -> { project, tasks }
+    filtered.forEach(t => {
+      const key = t.project ? t.project.id : 'none';
+      if (!groups.has(key)) groups.set(key, { project: t.project || null, tasks: [] });
+      groups.get(key).tasks.push(t);
+    });
+
+    const orderedKeys = [
+      ...projects.map(p => p.id).filter(id => groups.has(id)),
+      ...(groups.has('none') ? ['none'] : []),
+    ];
+
+    container.innerHTML = orderedKeys.map(key => {
+      const group = groups.get(key);
+      const collapsed = collapsedProjectGroups.has(key);
+      const color = group.project ? group.project.color : '#5b6472';
+      const name = group.project ? group.project.name : 'Ohne Projekt';
+      const rows = collapsed ? '' : sortTasks(group.tasks).map(taskTableRowHtml).join('');
+      return `
+        <tbody data-group="${key}">
+          <tr class="task-group-header ${collapsed ? 'collapsed' : ''}" data-group-toggle="${key}" style="background:${color}33">
+            <td colspan="8">
+              <div class="tgh-inner">
+                <span>${escapeHtml(name)}</span>
+                <span class="task-group-count">${group.tasks.length} Aufgabe${group.tasks.length === 1 ? '' : 'n'}</span>
+                <span class="task-group-chevron">▾</span>
+              </div>
+            </td>
+          </tr>
+          ${rows}
+        </tbody>
+      `;
+    }).join('');
+
+    container.querySelectorAll('[data-group-toggle]').forEach(el => el.addEventListener('click', () => {
+      const key = el.dataset.groupToggle;
+      if (collapsedProjectGroups.has(key)) collapsedProjectGroups.delete(key);
+      else collapsedProjectGroups.add(key);
+      renderTaskList();
+    }));
     wireTaskRowClicks(container);
   }
 
@@ -600,6 +685,10 @@
     };
     el.addEventListener('input', handler);
     el.addEventListener('change', handler);
+  });
+  document.getElementById('task-sort').addEventListener('change', (e) => {
+    taskSort = e.target.value;
+    renderTaskList();
   });
 
   function tickElapsedDisplays() {
@@ -633,6 +722,8 @@
     tickElapsedDisplays();
   }
 
+  // Das Detail-Formular (Modal) dient ausschliesslich zum Bearbeiten einer bestehenden
+  // Aufgabe. Neue Aufgaben werden ueber die Schnellanlage-Leiste oben angelegt.
   function startEditTask(id) {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
@@ -643,36 +734,26 @@
     taskDurationInput.value = t.estimated_minutes || '';
     taskStatusInput.value = t.status;
     taskPriorityInput.value = t.priority || 'mittel';
+    taskStartDateInput.value = t.start_date || '';
     taskDueDateInput.value = t.due_date || '';
     taskDueTimeInput.value = t.due_time || '';
     document.getElementById('task-project').value = t.project ? t.project.id : '';
     document.querySelectorAll('#task-people-checkboxes input').forEach(cb => {
       cb.checked = t.people.some(p => p.id === +cb.value);
     });
-    taskSubmitBtn.textContent = 'Änderungen speichern';
-    taskCancelBtn.classList.remove('hidden');
-    document.getElementById('task-delete-btn').classList.remove('hidden');
     document.getElementById('task-form-heading').textContent = 'Aufgabe bearbeiten';
     renderTaskTimersInForm(t);
-    document.querySelector('[data-tab="tasks"]').click();
-    taskTitleInput.focus();
+    hideEstimateHint();
+    taskModalOverlay.classList.remove('hidden');
   }
 
-  function resetTaskForm() {
+  function closeTaskModal() {
     editingTaskId = null;
+    taskModalOverlay.classList.add('hidden');
     taskForm.reset();
-    taskDurationInput.value = 60;
-    taskStatusInput.value = 'offen';
-    taskPriorityInput.value = 'mittel';
-    document.querySelectorAll('#task-people-checkboxes input').forEach(cb => cb.checked = false);
-    taskSubmitBtn.textContent = 'Aufgabe anlegen';
-    taskCancelBtn.classList.add('hidden');
-    document.getElementById('task-delete-btn').classList.add('hidden');
-    document.getElementById('task-form-heading').textContent = 'Neue Aufgabe';
-    renderTaskTimersInForm(null);
-    hideEstimateHint();
   }
-  taskCancelBtn.addEventListener('click', resetTaskForm);
+  document.getElementById('task-cancel-btn').addEventListener('click', closeTaskModal);
+  taskModalOverlay.addEventListener('click', (e) => { if (e.target === taskModalOverlay) closeTaskModal(); });
   document.getElementById('task-delete-btn').addEventListener('click', async () => {
     if (editingTaskId) await deleteTask(editingTaskId);
   });
@@ -718,6 +799,7 @@
 
   taskForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!editingTaskId) return;
     const person_ids = Array.from(document.querySelectorAll('#task-people-checkboxes input:checked')).map(cb => +cb.value);
     const dueDate = taskDueDateInput.value || null;
     const dueTime = taskDueTimeInput.value || null;
@@ -728,6 +810,8 @@
       estimated_minutes: taskDurationInput.value ? +taskDurationInput.value : null,
       status: taskStatusInput.value,
       priority: taskPriorityInput.value,
+      start_date: taskStartDateInput.value || null,
+      clear_start_date: !taskStartDateInput.value,
       due_date: dueDate,
       due_time: dueDate ? dueTime : null,
       clear_due_date: !dueDate,
@@ -737,18 +821,40 @@
     };
     if (!payload.title) return;
 
-    let task = null;
-    if (editingTaskId) {
-      task = await api(`/api/tasks/${editingTaskId}`, { method: 'PUT', body: JSON.stringify(payload) });
-    } else {
-      task = await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
-    }
+    const task = await api(`/api/tasks/${editingTaskId}`, { method: 'PUT', body: JSON.stringify(payload) });
 
     if (task && dueDate && dueTime) {
       await autoScheduleTask(task, dueDate, dueTime);
     }
 
-    resetTaskForm();
+    closeTaskModal();
+    await loadTasks();
+    if (document.getElementById('tab-calendar').classList.contains('active')) await renderCalendar();
+  });
+
+  // Schnellanlage-Leiste oben auf der Aufgaben-Seite: legt direkt eine neue Aufgabe an
+  // (Projekt, Titel, eine zustaendige Person, Prioritaet, Start, Deadline, Dauer in Minuten).
+  // Weitere Details (Beschreibung, mehrere Personen, Uhrzeit, Status) lassen sich danach
+  // per Klick auf die Aufgabe im Detail-Formular ergaenzen.
+  document.getElementById('task-quickadd-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('qa-title').value.trim();
+    if (!title) return;
+    const projectVal = document.getElementById('qa-project').value;
+    const personVal = document.getElementById('qa-person').value;
+    const dueDate = document.getElementById('qa-due-date').value || null;
+    const payload = {
+      title,
+      project_id: projectVal ? +projectVal : null,
+      person_ids: personVal ? [+personVal] : [],
+      priority: document.getElementById('qa-priority').value,
+      start_date: document.getElementById('qa-start-date').value || null,
+      due_date: dueDate,
+      estimated_minutes: document.getElementById('qa-duration').value ? +document.getElementById('qa-duration').value : 60,
+    };
+    await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
+    document.getElementById('task-quickadd-form').reset();
+    document.getElementById('qa-priority').value = 'mittel';
     await loadTasks();
     if (document.getElementById('tab-calendar').classList.contains('active')) await renderCalendar();
   });
@@ -797,6 +903,7 @@
   async function deleteTask(id) {
     if (!confirm('Aufgabe wirklich löschen? Geplante Kalendertermine dazu werden ebenfalls entfernt.')) return;
     await api(`/api/tasks/${id}`, { method: 'DELETE' });
+    closeTaskModal();
     await loadTasks();
     await loadCalendar();
   }

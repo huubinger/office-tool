@@ -167,6 +167,7 @@ ensureColumn('people', 'contract_end', 'TEXT');
 ensureColumn('people', 'seminar_days_total', 'INTEGER');
 ensureColumn('tasks', 'due_time', 'TEXT');
 ensureColumn('tasks', 'project_id', 'INTEGER REFERENCES projects(id)');
+ensureColumn('tasks', 'start_date', 'TEXT');
 ensureColumn('app_users', 'person_id', 'INTEGER REFERENCES people(id)');
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----

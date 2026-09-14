@@ -502,12 +502,12 @@ app.get('/api/tasks', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { title, description, estimated_minutes, person_ids, priority, due_date, due_time, project_id } = req.body;
+  const { title, description, estimated_minutes, person_ids, priority, due_date, due_time, project_id, start_date } = req.body;
   if (!title || !title.trim()) return res.status(400).json({ error: 'Titel ist erforderlich' });
   const info = db.prepare(`
-    INSERT INTO tasks (title, description, estimated_minutes, priority, due_date, due_time, project_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(title.trim(), description || null, estimated_minutes || 60, priority || 'mittel', due_date || null, due_time || null, project_id || null);
+    INSERT INTO tasks (title, description, estimated_minutes, priority, due_date, due_time, project_id, start_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(title.trim(), description || null, estimated_minutes || 60, priority || 'mittel', due_date || null, due_time || null, project_id || null, start_date || null);
   const taskId = info.lastInsertRowid;
   if (Array.isArray(person_ids)) {
     const stmt = db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)');
@@ -519,9 +519,9 @@ app.post('/api/tasks', (req, res) => {
 app.put('/api/tasks/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Aufgabe nicht gefunden' });
-  const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date, project_id, clear_project } = req.body;
+  const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date, project_id, clear_project, start_date, clear_start_date } = req.body;
   db.prepare(`
-    UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?, project_id = ?
+    UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?, project_id = ?, start_date = ?
     WHERE id = ?
   `).run(
     title ?? existing.title,
@@ -532,6 +532,7 @@ app.put('/api/tasks/:id', (req, res) => {
     clear_due_date ? null : (due_date ?? existing.due_date),
     clear_due_date ? null : (due_time ?? existing.due_time),
     clear_project ? null : (project_id ?? existing.project_id),
+    clear_start_date ? null : (start_date ?? existing.start_date),
     req.params.id
   );
   if (Array.isArray(person_ids)) {

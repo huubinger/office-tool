@@ -24,9 +24,9 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         Kalender
       </button>
-      <button class="tab-btn" data-tab="people" data-title="Personen">
+      <button class="tab-btn" data-tab="people" data-title="Personen/Projekte">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        Personen
+        Personen/Projekte
       </button>
       <button class="tab-btn" data-tab="timetracking" data-title="Zeiterfassung">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -35,6 +35,10 @@
       <button class="tab-btn" data-tab="dashboard" data-title="Dashboard">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="3.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="10.5" y="3.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="10.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="10.5" y="10.5" width="6" height="6" rx="1.4" stroke="currentColor" stroke-width="1.6"/></svg>
         Dashboard
+      </button>
+      <button class="tab-btn" data-tab="yearcalendar" data-title="Jahreskalender">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>
+        Jahreskalender
       </button>
     </nav>
   </aside>
@@ -52,9 +56,9 @@
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Zeit</span>
     </button>
-    <button class="tab-btn" data-tab="people" data-title="Personen">
+    <button class="tab-btn" data-tab="people" data-title="Personen/Projekte">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Personen</span>
+      <span>Personen/Projekte</span>
     </button>
   </nav>
 
@@ -86,7 +90,6 @@
   <!-- ===================== AUFGABEN ===================== -->
   <section id="tab-tasks" class="tab-panel active">
     <div class="quickadd-bar card">
-      <h2>Neue Aufgabe anlegen</h2>
       <form id="task-quickadd-form">
         <button type="submit" class="quickadd-plus" title="Anlegen">+</button>
         <select id="qa-project"><option value="">Projekt auswählen</option></select>
@@ -470,6 +473,51 @@
     </div>
   </section>
 
+  <!-- ===================== JAHRESKALENDER ===================== -->
+  <section id="tab-yearcalendar" class="tab-panel">
+    <div class="card yc-toolbar">
+      <div class="yc-year-nav">
+        <button type="button" id="yc-year-prev">‹</button>
+        <span id="yc-year-label">2026</span>
+        <button type="button" id="yc-year-next">›</button>
+      </div>
+      <div class="yc-half-label" id="yc-half-label">Januar – Juni</div>
+      <a href="#" id="yc-open-other-half" class="ghost-link">Andere Jahreshälfte öffnen ↗</a>
+    </div>
+
+    <div class="card">
+      <h2>Neuer Termin</h2>
+      <form id="yc-event-form" class="yc-event-form">
+        <input type="text" id="yc-event-title" placeholder="Titel" required>
+        <input type="date" id="yc-event-date" required>
+        <select id="yc-event-project"><option value="">— kein Projekt —</option></select>
+        <select id="yc-event-recurrence">
+          <option value="keine">Keine Wiederholung</option>
+          <option value="weekly">Wöchentlich</option>
+          <option value="monthly">Monatlich</option>
+          <option value="yearly">Jährlich</option>
+        </select>
+        <input type="date" id="yc-event-until" class="hidden" title="Wiederholen bis">
+        <button type="submit">+ Anlegen</button>
+      </form>
+      <p class="hint">Klick auf einen Tag im Kalender unten trägt das Datum hier automatisch ein.</p>
+    </div>
+
+    <div id="yc-months-grid" class="yc-months-grid"></div>
+
+    <div class="card">
+      <h2>Externe Kalender abonnieren</h2>
+      <p class="hint">Z.B. Fußball-WM/EM oder andere öffentliche iCal-Kalender. Werden täglich automatisch aktualisiert.</p>
+      <form id="yc-external-form" class="inline-form-row">
+        <input type="text" id="yc-ext-name" placeholder="Name, z.B. Fußball-WM" required>
+        <input type="text" id="yc-ext-url" placeholder="iCal-URL (.ics)" required>
+        <input type="color" id="yc-ext-color" value="#8a8d90">
+        <button type="submit">Abonnieren</button>
+      </form>
+      <div id="yc-external-list" class="time-list"></div>
+    </div>
+  </section>
+
   <!-- ===================== DASHBOARD ===================== -->
   <section id="tab-dashboard" class="tab-panel">
     <div class="panel-grid">
@@ -486,6 +534,18 @@
   </section>
 
     </main>
+  </div>
+</div>
+
+<!-- Tagesdetails im Jahreskalender -->
+<div id="yc-day-modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 id="yc-day-modal-title">Tag</h3>
+    <div id="yc-day-modal-body"></div>
+    <div class="form-actions">
+      <button type="button" id="yc-day-modal-add">+ Termin an diesem Tag</button>
+      <button type="button" id="yc-day-modal-close" class="secondary">Schließen</button>
+    </div>
   </div>
 </div>
 

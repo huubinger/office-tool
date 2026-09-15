@@ -13,6 +13,8 @@ const db = require('./db');
 const { runReminderCheck } = require('./reminders');
 const { runBackup, getLastBackup, isConfigured: isBackupConfigured } = require('./backup');
 const { getHolidaysForYear, isHoliday } = require('./holidays');
+const { getSchoolHolidaysForYear } = require('./schulferien');
+const { fetchAndParseIcs } = require('./icalparser');
 
 const app = express();
 // Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
@@ -1151,6 +1153,149 @@ cron.schedule('0 3 * * *', () => {
 setTimeout(() => {
   runBackup().catch(err => console.error('[Backup] Fehler beim Start-Backup:', err.message));
 }, 15000);
+
+// ================= JAHRESKALENDER =================
+// Eigenstaendiger Jahres-Uebersichtskalender, unabhaengig vom Aufgaben-Kalender
+// (calendar_entries). Termine, Feiertage, BW-Schulferien und abonnierte externe
+// Kalender (z.B. Turnierkalender) werden hier zusammengefuehrt, wirken sich aber
+// nicht auf Aufgaben oder deren Terminplanung aus.
+
+app.get('/api/year-events', (req, res) => {
+  const year = req.query.year || new Date().getFullYear();
+  const rows = db.prepare(`
+    SELECT ye.*, p.name AS project_name, p.color AS project_color
+    FROM year_events ye
+    LEFT JOIN projects p ON p.id = ye.project_id
+    WHERE substr(ye.date, 1, 4) = ?
+    ORDER BY ye.date
+  `).all(String(year));
+  res.json(rows);
+});
+
+// Legt einen Termin an - bei angegebener Wiederholung werden mehrere Eintraege
+// (eine Serie mit gemeinsamer recurrence_group) erzeugt.
+app.post('/api/year-events', (req, res) => {
+  const { title, date, project_id, recurrence } = req.body || {};
+  if (!title || !title.trim() || !date) {
+    return res.status(400).json({ error: 'title und date sind erforderlich' });
+  }
+
+  const dates = [date];
+  if (recurrence && recurrence.type && recurrence.type !== 'keine' && recurrence.until) {
+    const step = { weekly: 7, monthly: 'month', yearly: 'year' }[recurrence.type];
+    if (step) {
+      let current = new Date(date);
+      const until = new Date(recurrence.until);
+      // Erster Termin ist schon in dates[] enthalten, hier folgen die weiteren
+      while (true) {
+        if (step === 'month') current.setMonth(current.getMonth() + 1);
+        else if (step === 'year') current.setFullYear(current.getFullYear() + 1);
+        else current.setDate(current.getDate() + step);
+        if (current > until) break;
+        dates.push(isoDateLocal(current));
+        if (dates.length > 500) break; // Sicherheitsgrenze gegen versehentliche Endlos-Serien
+      }
+    }
+  }
+
+  const recurrenceGroup = dates.length > 1 ? crypto.randomBytes(8).toString('hex') : null;
+  const stmt = db.prepare('INSERT INTO year_events (title, date, project_id, recurrence_group) VALUES (?, ?, ?, ?)');
+  const insertedIds = dates.map(d => stmt.run(title.trim(), d, project_id || null, recurrenceGroup).lastInsertRowid);
+
+  res.status(201).json({ count: insertedIds.length, ids: insertedIds, recurrence_group: recurrenceGroup });
+});
+
+app.delete('/api/year-events/:id', (req, res) => {
+  db.prepare('DELETE FROM year_events WHERE id = ?').run(req.params.id);
+  res.status(204).end();
+});
+
+app.delete('/api/year-events/group/:group', (req, res) => {
+  db.prepare('DELETE FROM year_events WHERE recurrence_group = ?').run(req.params.group);
+  res.status(204).end();
+});
+
+// BW-Schulferien fuer ein Jahr (hinterlegte Termine, siehe schulferien.js)
+app.get('/api/school-holidays', (req, res) => {
+  const year = req.query.year || new Date().getFullYear();
+  res.json(getSchoolHolidaysForYear(Number(year)));
+});
+
+// Gesetzliche Feiertage fuer ein Jahr (bereits vorhandene Berechnung aus holidays.js)
+app.get('/api/public-holidays', (req, res) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const set = getHolidaysForYear(year);
+  res.json([...set].sort());
+});
+
+// ---------- Abonnierte externe Kalender ----------
+app.get('/api/external-calendars', (req, res) => {
+  res.json(db.prepare('SELECT id, name, ical_url, color, last_synced_at, last_sync_error FROM external_calendars ORDER BY name').all());
+});
+
+async function syncExternalCalendar(calendarId) {
+  const cal = db.prepare('SELECT * FROM external_calendars WHERE id = ?').get(calendarId);
+  if (!cal) return;
+  try {
+    const events = await fetchAndParseIcs(cal.ical_url);
+    db.prepare('DELETE FROM external_calendar_events WHERE external_calendar_id = ?').run(calendarId);
+    const stmt = db.prepare('INSERT INTO external_calendar_events (external_calendar_id, title, date, end_date) VALUES (?, ?, ?, ?)');
+    for (const ev of events) stmt.run(calendarId, ev.title, ev.date, ev.end_date || null);
+    db.prepare('UPDATE external_calendars SET last_synced_at = datetime(\'now\'), last_sync_error = NULL WHERE id = ?').run(calendarId);
+  } catch (err) {
+    db.prepare('UPDATE external_calendars SET last_sync_error = ? WHERE id = ?').run(err.message, calendarId);
+    throw err;
+  }
+}
+
+app.post('/api/external-calendars', async (req, res) => {
+  const { name, ical_url, color } = req.body || {};
+  if (!name || !name.trim() || !ical_url || !ical_url.trim()) {
+    return res.status(400).json({ error: 'name und ical_url sind erforderlich' });
+  }
+  const info = db.prepare('INSERT INTO external_calendars (name, ical_url, color) VALUES (?, ?, ?)')
+    .run(name.trim(), ical_url.trim(), color || '#8a8d90');
+  try {
+    await syncExternalCalendar(info.lastInsertRowid);
+  } catch (err) {
+    // Kalender bleibt trotzdem angelegt, Fehler steht in last_sync_error
+  }
+  res.status(201).json(db.prepare('SELECT id, name, ical_url, color, last_synced_at, last_sync_error FROM external_calendars WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.post('/api/external-calendars/:id/sync', async (req, res) => {
+  try {
+    await syncExternalCalendar(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/external-calendars/:id', (req, res) => {
+  db.prepare('DELETE FROM external_calendars WHERE id = ?').run(req.params.id);
+  res.status(204).end();
+});
+
+app.get('/api/external-calendar-events', (req, res) => {
+  const year = req.query.year || new Date().getFullYear();
+  const rows = db.prepare(`
+    SELECT e.*, c.name AS calendar_name, c.color AS calendar_color
+    FROM external_calendar_events e
+    JOIN external_calendars c ON c.id = e.external_calendar_id
+    WHERE substr(e.date, 1, 4) = ?
+    ORDER BY e.date
+  `).all(String(year));
+  res.json(rows);
+});
+
+// Externe Kalender einmal taeglich automatisch aktualisieren
+cron.schedule('30 4 * * *', async () => {
+  const cals = db.prepare('SELECT id FROM external_calendars').all();
+  for (const c of cals) {
+    await syncExternalCalendar(c.id).catch(err => console.error('[Jahreskalender] Sync-Fehler:', err.message));
+  }
+}, { timezone: 'Europe/Berlin' });
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

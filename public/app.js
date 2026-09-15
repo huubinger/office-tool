@@ -96,6 +96,7 @@
       if (tab === 'calendar') renderCalendar();
       if (tab === 'dashboard') renderDashboard();
       if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
+      if (tab === 'yearcalendar') { renderYearCalendar(); maybeAutoOpenSecondHalf(); }
     });
   });
 
@@ -382,6 +383,7 @@
     document.getElementById('task-project').innerHTML = '<option value="">— keins —</option>' + optionsHtml;
     document.getElementById('task-filter-project').innerHTML = '<option value="">Alle Projekte</option>' + optionsHtml;
     document.getElementById('qa-project').innerHTML = '<option value="">Projekt auswählen</option>' + optionsHtml;
+    document.getElementById('yc-event-project').innerHTML = '<option value="">— kein Projekt —</option>' + optionsHtml;
   }
 
   function renderProjectList() {
@@ -393,7 +395,7 @@
     container.innerHTML = projects.map(p => `
       <div class="person-row">
         <div class="person-row-main">
-          <span class="color-dot" style="background:${p.color}"></span>
+          <input type="color" class="project-color-input" data-project-color="${p.id}" value="${p.color}" title="Farbe ändern">
           <strong>${escapeHtml(p.name)}</strong>
         </div>
         <div class="row-actions">
@@ -406,6 +408,12 @@
       await api(`/api/projects/${b.dataset.deleteProject}`, { method: 'DELETE' });
       await loadProjects();
       await loadTasks();
+    }));
+    container.querySelectorAll('[data-project-color]').forEach(input => input.addEventListener('change', async () => {
+      await api(`/api/projects/${input.dataset.projectColor}`, { method: 'PUT', body: JSON.stringify({ color: input.value }) });
+      await loadProjects();
+      await loadTasks();
+      if (document.getElementById('tab-calendar').classList.contains('active')) await renderCalendar();
     }));
   }
 
@@ -1712,6 +1720,240 @@
     wireTaskRowClicks(upcomingContainer);
   }
 
+  // ================= JAHRESKALENDER =================
+  const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  let ycYear = new Date().getFullYear();
+  let ycHalf = 'h1';
+  let ycEvents = [];
+  let ycExternalEvents = [];
+  let ycSchoolHolidays = [];
+  let ycPublicHolidays = [];
+  let ycExternalCalendars = [];
+
+  // Prueft beim Laden, ob dieses Fenster ueber den "andere Haelfte oeffnen"-Link
+  // gestartet wurde, und stellt dann direkt auf den Jahreskalender + die passende Haelfte.
+  function initYearCalendarFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('yc') === 'h2') {
+      ycHalf = 'h2';
+      const y = params.get('ycyear');
+      if (y) ycYear = +y;
+    }
+  }
+
+  async function loadYearCalendarData() {
+    [ycEvents, ycExternalEvents, ycSchoolHolidays, ycPublicHolidays, ycExternalCalendars] = await Promise.all([
+      api(`/api/year-events?year=${ycYear}`),
+      api(`/api/external-calendar-events?year=${ycYear}`),
+      api(`/api/school-holidays?year=${ycYear}`),
+      api(`/api/public-holidays?year=${ycYear}`),
+      api('/api/external-calendars'),
+    ]);
+  }
+
+  function isSchoolHoliday(dateIso) {
+    return ycSchoolHolidays.some(h => dateIso >= h.from && dateIso <= h.to);
+  }
+
+  function renderMonthHtml(year, monthIndex) {
+    const first = new Date(year, monthIndex, 1);
+    const startOffset = (first.getDay() + 6) % 7; // Montag = 0
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const todayIso = isoDate(new Date());
+
+    let cells = '';
+    for (let i = 0; i < startOffset; i++) cells += '<div class="yc-day yc-empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateIso = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dow = new Date(year, monthIndex, d).getDay();
+      const isWeekend = dow === 0 || dow === 6;
+      const isPublicHoliday = ycPublicHolidays.includes(dateIso);
+      const isSchool = isSchoolHoliday(dateIso);
+      const dayEvents = ycEvents.filter(e => e.date === dateIso);
+      const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
+      const dots = [
+        ...dayEvents.map(e => `<span class="yc-day-dot" style="background:${e.project_color || '#8a8d90'}"></span>`),
+        ...dayExternal.map(e => `<span class="yc-day-dot" style="background:${e.calendar_color}"></span>`),
+      ].slice(0, 6).join('');
+
+      const classes = ['yc-day'];
+      if (isWeekend) classes.push('yc-weekend');
+      if (isSchool) classes.push('yc-school-holiday');
+      if (isPublicHoliday) classes.push('yc-public-holiday');
+      if (dateIso === todayIso) classes.push('yc-today');
+
+      cells += `
+        <div class="${classes.join(' ')}" data-yc-day="${dateIso}" title="${isPublicHoliday ? 'Feiertag' : ''}${isSchool ? ' Schulferien' : ''}">
+          <span>${d}</span>
+          <span class="yc-day-dots">${dots}</span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="yc-month">
+        <h3>${MONTH_NAMES[monthIndex]} ${year}</h3>
+        <div class="yc-month-grid">
+          <div class="yc-dow">Mo</div><div class="yc-dow">Di</div><div class="yc-dow">Mi</div>
+          <div class="yc-dow">Do</div><div class="yc-dow">Fr</div><div class="yc-dow">Sa</div><div class="yc-dow">So</div>
+          ${cells}
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderYearCalendar() {
+    document.getElementById('yc-year-label').textContent = ycYear;
+    document.getElementById('yc-half-label').textContent = ycHalf === 'h1' ? 'Januar – Juni' : 'Juli – Dezember';
+    await loadYearCalendarData();
+
+    const monthsRange = ycHalf === 'h1' ? [0, 1, 2, 3, 4, 5] : [6, 7, 8, 9, 10, 11];
+    document.getElementById('yc-months-grid').innerHTML = monthsRange.map(m => renderMonthHtml(ycYear, m)).join('');
+    document.querySelectorAll('[data-yc-day]').forEach(el => el.addEventListener('click', () => openYcDayModal(el.dataset.ycDay)));
+
+    renderYcExternalList();
+  }
+
+  function renderYcExternalList() {
+    const container = document.getElementById('yc-external-list');
+    if (!ycExternalCalendars.length) {
+      container.innerHTML = '<p class="empty-state">Noch keine externen Kalender abonniert.</p>';
+      return;
+    }
+    container.innerHTML = ycExternalCalendars.map(c => `
+      <div class="time-row-item">
+        <div>
+          <div class="tri-main"><span class="color-dot" style="background:${c.color}"></span> <strong>${escapeHtml(c.name)}</strong></div>
+          <div class="tri-meta">${c.last_sync_error ? 'Fehler: ' + escapeHtml(c.last_sync_error) : c.last_synced_at ? 'Zuletzt aktualisiert: ' + c.last_synced_at : 'Noch nicht synchronisiert'}</div>
+        </div>
+        <div class="row-actions">
+          <button class="ghost" data-sync-cal="${c.id}">Jetzt aktualisieren</button>
+          <button class="danger" data-delete-cal="${c.id}">Löschen</button>
+        </div>
+      </div>
+    `).join('');
+    container.querySelectorAll('[data-sync-cal]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api(`/api/external-calendars/${b.dataset.syncCal}/sync`, { method: 'POST' });
+      } catch (err) { /* Fehler steht ohnehin in last_sync_error */ }
+      await renderYearCalendar();
+    }));
+    container.querySelectorAll('[data-delete-cal]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Diesen abonnierten Kalender wirklich entfernen?')) return;
+      await api(`/api/external-calendars/${b.dataset.deleteCal}`, { method: 'DELETE' });
+      await renderYearCalendar();
+    }));
+  }
+
+  const ycDayModal = document.getElementById('yc-day-modal-overlay');
+  let ycSelectedDate = null;
+
+  function openYcDayModal(dateIso) {
+    ycSelectedDate = dateIso;
+    document.getElementById('yc-day-modal-title').textContent = fmtDateDE(dateIso);
+    const dayEvents = ycEvents.filter(e => e.date === dateIso);
+    const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
+    const body = document.getElementById('yc-day-modal-body');
+
+    const notes = [];
+    if (ycPublicHolidays.includes(dateIso)) notes.push('<div class="hint">Gesetzlicher Feiertag</div>');
+    if (isSchoolHoliday(dateIso)) notes.push('<div class="hint">Schulferien (Baden-Württemberg)</div>');
+
+    const rows = [
+      ...dayEvents.map(e => `
+        <div class="yc-day-event-row">
+          <span><span class="color-dot" style="background:${e.project_color || '#8a8d90'}"></span> ${escapeHtml(e.title)}${e.project_name ? ' · ' + escapeHtml(e.project_name) : ''}</span>
+          <button type="button" class="danger" data-delete-yc-event="${e.id}" data-yc-group="${e.recurrence_group || ''}">Löschen</button>
+        </div>
+      `),
+      ...dayExternal.map(e => `
+        <div class="yc-day-event-row">
+          <span><span class="color-dot" style="background:${e.calendar_color}"></span> ${escapeHtml(e.title)} · <span class="task-meta">${escapeHtml(e.calendar_name)}</span></span>
+        </div>
+      `),
+    ];
+
+    body.innerHTML = notes.join('') + `<div class="yc-day-modal-list">${rows.length ? rows.join('') : '<p class="empty-state">Keine Termine an diesem Tag.</p>'}</div>`;
+
+    body.querySelectorAll('[data-delete-yc-event]').forEach(b => b.addEventListener('click', async () => {
+      const group = b.dataset.ycGroup;
+      if (group && !confirm('Dies ist Teil einer Wiederholungsserie. Nur diesen Termin löschen (OK) oder abbrechen?')) return;
+      await api(`/api/year-events/${b.dataset.deleteYcEvent}`, { method: 'DELETE' });
+      await renderYearCalendar();
+      openYcDayModal(dateIso);
+    }));
+
+    ycDayModal.classList.remove('hidden');
+  }
+
+  function closeYcDayModal() {
+    ycDayModal.classList.add('hidden');
+    ycSelectedDate = null;
+  }
+  document.getElementById('yc-day-modal-close').addEventListener('click', closeYcDayModal);
+  ycDayModal.addEventListener('click', (e) => { if (e.target === ycDayModal) closeYcDayModal(); });
+  document.getElementById('yc-day-modal-add').addEventListener('click', () => {
+    if (ycSelectedDate) document.getElementById('yc-event-date').value = ycSelectedDate;
+    closeYcDayModal();
+    document.getElementById('yc-event-title').focus();
+  });
+
+  document.getElementById('yc-event-recurrence').addEventListener('change', (e) => {
+    document.getElementById('yc-event-until').classList.toggle('hidden', e.target.value === 'keine');
+  });
+
+  document.getElementById('yc-event-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('yc-event-title').value.trim();
+    const date = document.getElementById('yc-event-date').value;
+    if (!title || !date) return;
+    const projectVal = document.getElementById('yc-event-project').value;
+    const recurrenceType = document.getElementById('yc-event-recurrence').value;
+    const until = document.getElementById('yc-event-until').value;
+    const payload = { title, date, project_id: projectVal ? +projectVal : null };
+    if (recurrenceType !== 'keine' && until) payload.recurrence = { type: recurrenceType, until };
+    await api('/api/year-events', { method: 'POST', body: JSON.stringify(payload) });
+    document.getElementById('yc-event-form').reset();
+    document.getElementById('yc-event-until').classList.add('hidden');
+    await renderYearCalendar();
+  });
+
+  document.getElementById('yc-external-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('yc-ext-name').value.trim();
+    const ical_url = document.getElementById('yc-ext-url').value.trim();
+    const color = document.getElementById('yc-ext-color').value;
+    if (!name || !ical_url) return;
+    try {
+      await api('/api/external-calendars', { method: 'POST', body: JSON.stringify({ name, ical_url, color }) });
+      document.getElementById('yc-external-form').reset();
+      document.getElementById('yc-ext-color').value = '#8a8d90';
+      await renderYearCalendar();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById('yc-year-prev').addEventListener('click', () => { ycYear--; renderYearCalendar(); });
+  document.getElementById('yc-year-next').addEventListener('click', () => { ycYear++; renderYearCalendar(); });
+
+  document.getElementById('yc-open-other-half').addEventListener('click', (e) => {
+    e.preventDefault();
+    const otherHalf = ycHalf === 'h1' ? 'h2' : 'h1';
+    window.open(`${window.location.pathname}?yc=${otherHalf}&ycyear=${ycYear}`, '_blank');
+  });
+
+  // Beim allerersten Wechsel in den Jahreskalender (H1-Ansicht, einmal pro Browser-Sitzung)
+  // automatisch ein zweites Browser-Tab mit der zweiten Jahreshaelfte oeffnen - gedacht zum
+  // Rueberziehen auf einen zweiten Bildschirm fuer den vollen Jahresueberblick.
+  function maybeAutoOpenSecondHalf() {
+    if (ycHalf !== 'h1') return;
+    if (sessionStorage.getItem('yc_second_half_opened')) return;
+    sessionStorage.setItem('yc_second_half_opened', '1');
+    window.open(`${window.location.pathname}?yc=h2&ycyear=${ycYear}`, '_blank');
+  }
+
   // ================= ACCOUNT / LOGIN =================
   const accountBtn = document.getElementById('account-btn');
   const accountDropdown = document.getElementById('account-dropdown');
@@ -1869,8 +2111,10 @@
     document.getElementById('absence-from').value = isoDate(new Date());
     document.getElementById('absence-to').value = isoDate(new Date());
     document.getElementById('timeoff-date').value = isoDate(new Date());
+    document.getElementById('yc-event-date').value = isoDate(new Date());
     resetPersonForm();
     resetTimeForm();
+    initYearCalendarFromUrl();
     await loadAccount();
     await loadPeople();
     await loadProjects();
@@ -1879,6 +2123,9 @@
     await loadTimeEntries();
     await loadWarnings();
     applyRoleRestrictions();
+    if (ycHalf === 'h2') {
+      document.querySelector('[data-tab="yearcalendar"]').click();
+    }
   }
   init();
 })();

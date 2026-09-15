@@ -132,6 +132,36 @@ CREATE TABLE IF NOT EXISTS time_off_compensation (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS year_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  date TEXT NOT NULL,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  recurrence_group TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS external_calendars (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  ical_url TEXT NOT NULL,
+  color TEXT DEFAULT '#8a8d90',
+  last_synced_at TEXT,
+  last_sync_error TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS external_calendar_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  external_calendar_id INTEGER NOT NULL REFERENCES external_calendars(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  date TEXT NOT NULL,
+  end_date TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_year_events_date ON year_events(date);
+CREATE INDEX IF NOT EXISTS idx_ext_cal_events_date ON external_calendar_events(date);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_person ON time_entries(person_id);

@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS calendar_entries (
   date TEXT NOT NULL,
   start_time TEXT NOT NULL,
   end_time TEXT NOT NULL,
+  series_id TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -207,6 +208,7 @@ ensureColumn('tasks', 'project_id', 'INTEGER REFERENCES projects(id)');
 ensureColumn('tasks', 'start_date', 'TEXT');
 ensureColumn('year_events', 'start_time', 'TEXT');
 ensureColumn('year_events', 'end_time', 'TEXT');
+ensureColumn('calendar_entries', 'series_id', 'TEXT');
 ensureColumn('app_users', 'person_id', 'INTEGER REFERENCES people(id)');
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----

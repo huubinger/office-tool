@@ -63,11 +63,6 @@
       <div class="topbar-row1">
         <h1 id="page-title">Aufgaben</h1>
         <div class="topbar-right">
-          <form id="quickstart-form" class="quickstart">
-            <select id="quickstart-person"></select>
-            <input type="text" id="quickstart-title" placeholder="Aufgabe (optional)">
-            <button type="submit">▶ Schnellstart</button>
-          </form>
           <div class="account-menu">
             <button type="button" id="account-btn" class="ghost-topbar" title="Konto"><span id="account-username">…</span> ▾</button>
             <div id="account-dropdown" class="account-dropdown hidden">
@@ -154,6 +149,21 @@
           </tr>
         </thead>
         <tbody id="task-list"></tbody>
+      </table>
+    </div>
+
+    <div class="card done-tasks-card hidden" id="done-tasks-card">
+      <button type="button" id="done-tasks-toggle" class="done-tasks-toggle">
+        <span id="done-tasks-count">Erledigt (0)</span>
+        <span class="task-group-chevron" id="done-tasks-chevron">▾</span>
+      </button>
+      <table class="task-table hidden" id="done-tasks-table">
+        <thead>
+          <tr>
+            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Start</th><th>Deadline</th><th>Dauer</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="done-task-list"></tbody>
       </table>
     </div>
   </section>
@@ -243,6 +253,7 @@
         <div id="calendar-grid" class="calendar-grid"></div>
         <div id="calendar-entries-overlay" class="cal-entries-overlay"></div>
       </div>
+      <div id="calendar-mobile-list" class="calendar-mobile-list"></div>
     </div>
 
     <div class="card calendar-pool-card">
@@ -445,12 +456,14 @@
         <span id="report-week-label"></span>
         <button id="report-week-next">Neuere Wochen ›</button>
       </div>
-      <table class="task-table report-multi-table">
-        <thead>
-          <tr><th>Woche</th><th>Person</th><th>Soll</th><th>Ist</th><th>Differenz</th></tr>
-        </thead>
-        <tbody id="report-table"></tbody>
-      </table>
+      <div class="report-table-scroll">
+        <table class="task-table report-multi-table">
+          <thead>
+            <tr><th>Woche</th><th>Person</th><th>Soll</th><th>Ist</th><th>Differenz</th></tr>
+          </thead>
+          <tbody id="report-table"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card">
@@ -582,6 +595,7 @@
     <div class="form-actions entry-menu-actions">
       <button id="entry-menu-done">✓ Als erledigt markieren</button>
       <button id="entry-menu-remove" class="danger-btn">Aus Kalender entfernen</button>
+      <button id="entry-menu-remove-series" class="danger-btn hidden">Ganze Serie entfernen (mehrtägig)</button>
       <button id="entry-menu-cancel" class="secondary">Abbrechen</button>
     </div>
   </div>

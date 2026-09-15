@@ -618,21 +618,39 @@ app.get('/api/calendar', (req, res) => {
 });
 
 app.post('/api/calendar', (req, res) => {
-  const { task_id, person_id, date, start_time, end_time } = req.body;
+  const { task_id, person_id, date, start_time, end_time, end_date } = req.body;
   if (!task_id || !person_id || !date || !start_time || !end_time) {
     return res.status(400).json({ error: 'task_id, person_id, date, start_time und end_time sind erforderlich' });
   }
-  const info = db.prepare(`
-    INSERT INTO calendar_entries (task_id, person_id, date, start_time, end_time)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(task_id, person_id, date, start_time, end_time);
+
+  // Mehrtages-Termin: end_date > date legt fuer jeden Tag im Zeitraum einen eigenen
+  // Eintrag mit derselben Uhrzeit an, verknuepft ueber eine gemeinsame series_id.
+  const dates = [date];
+  if (end_date && end_date > date) {
+    let cur = new Date(date);
+    const last = new Date(end_date);
+    while (true) {
+      cur.setDate(cur.getDate() + 1);
+      if (cur > last) break;
+      dates.push(isoDateLocal(cur));
+      if (dates.length > 60) break; // Sicherheitsgrenze
+    }
+  }
+  const seriesId = dates.length > 1 ? crypto.randomBytes(8).toString('hex') : null;
+
+  const stmt = db.prepare(`
+    INSERT INTO calendar_entries (task_id, person_id, date, start_time, end_time, series_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const ids = dates.map(d => stmt.run(task_id, person_id, d, start_time, end_time, seriesId).lastInsertRowid);
+
   const row = db.prepare(`
     SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color
     FROM calendar_entries ce
     JOIN tasks t ON t.id = ce.task_id
     JOIN people p ON p.id = ce.person_id
     WHERE ce.id = ?
-  `).get(info.lastInsertRowid);
+  `).get(ids[0]);
   res.status(201).json(row);
 });
 
@@ -656,6 +674,11 @@ app.put('/api/calendar/:id', (req, res) => {
     WHERE ce.id = ?
   `).get(req.params.id);
   res.json(row);
+});
+
+app.delete('/api/calendar/series/:seriesId', (req, res) => {
+  db.prepare('DELETE FROM calendar_entries WHERE series_id = ?').run(req.params.seriesId);
+  res.status(204).end();
 });
 
 app.delete('/api/calendar/:id', (req, res) => {
@@ -843,35 +866,6 @@ app.post('/api/time-entries/start', enforceOwnPerson, (req, res) => {
   `).run(person_id, task_id, isoDateLocal(now), formatHMS(now));
 
   res.status(201).json(db.prepare(`${timeEntryJoinSelect} WHERE te.id = ?`).get(info.lastInsertRowid));
-});
-
-// Schnellstart: legt im Hintergrund eine minimale Aufgabe an und startet direkt die Zeiterfassung dafuer.
-// Details (Titel, Beschreibung, Priorität, ...) koennen danach im Aufgaben-Tab nachgetragen werden.
-app.post('/api/time-entries/quick-start', enforceOwnPerson, (req, res) => {
-  const { person_id, title } = req.body;
-  if (!person_id) return res.status(400).json({ error: 'person_id ist erforderlich' });
-
-  const now = new Date();
-  const taskTitle = (title && title.trim()) || `Schnellerfasst ${isoDateLocal(now)} ${formatHMS(now).slice(0, 5)}`;
-
-  const taskInfo = db.prepare(`
-    INSERT INTO tasks (title, estimated_minutes, status, priority)
-    VALUES (?, NULL, 'offen', 'mittel')
-  `).run(taskTitle);
-  const taskId = taskInfo.lastInsertRowid;
-  db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)').run(taskId, person_id);
-
-  autoStopRunningForPerson(person_id, now);
-
-  const entryInfo = db.prepare(`
-    INSERT INTO time_entries (person_id, task_id, date, start_time, running)
-    VALUES (?, ?, ?, ?, 1)
-  `).run(person_id, taskId, isoDateLocal(now), formatHMS(now));
-
-  res.status(201).json({
-    task: getTaskWithAssignments(taskId),
-    entry: db.prepare(`${timeEntryJoinSelect} WHERE te.id = ?`).get(entryInfo.lastInsertRowid),
-  });
 });
 
 app.post('/api/time-entries/:id/stop', (req, res) => {

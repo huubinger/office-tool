@@ -98,18 +98,6 @@
     });
   });
 
-  // ================= QUICKSTART ================= 
-  const quickstartForm = document.getElementById('quickstart-form');
-  quickstartForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const personId = +document.getElementById('quickstart-person').value;
-    const title = document.getElementById('quickstart-title').value.trim();
-    if (!personId) return;
-    await api('/api/time-entries/quick-start', { method: 'POST', body: JSON.stringify({ person_id: personId, title }) });
-    document.getElementById('quickstart-title').value = '';
-    await refreshAfterTimerChange();
-  });
-
   // ================= PEOPLE =================
   const personForm = document.getElementById('person-form');
   const personNameInput = document.getElementById('person-name');
@@ -293,7 +281,6 @@
     document.getElementById('time-person').innerHTML = optionsHtml;
     document.getElementById('absence-person').innerHTML = optionsHtml;
     document.getElementById('timeoff-person').innerHTML = optionsHtml;
-    document.getElementById('quickstart-person').innerHTML = optionsHtml;
     document.getElementById('time-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
     document.getElementById('task-filter-person').innerHTML = '<option value="">Alle Personen</option>' + optionsHtml;
     document.getElementById('qa-person').innerHTML = '<option value="">Zuständig</option>' + optionsHtml;
@@ -390,6 +377,7 @@
   async function loadTasks() {
     tasks = await api('/api/tasks');
     renderTaskList();
+    renderDoneSection();
     renderUrgentSection();
     fillTaskSelect();
     if (document.getElementById('tab-calendar').classList.contains('active')) renderCalendar();
@@ -474,6 +462,10 @@
   function getFilteredTasks() {
     const search = taskFilters.search.trim().toLowerCase();
     return tasks.filter(t => {
+      // Erledigte Aufgaben wandern standardmaessig ins eigene "Erledigt"-Feld unten und
+      // werden aus der normalen Tabelle ausgeblendet - ausser der Status-Filter wurde
+      // gezielt auf "erledigt" gesetzt, dann greift er wie gewohnt.
+      if (t.status === 'erledigt' && taskFilters.status !== 'erledigt') return false;
       if (search && !(
         t.title.toLowerCase().includes(search) ||
         (t.description || '').toLowerCase().includes(search) ||
@@ -538,6 +530,7 @@
     const projectDot = t.project ? `<span class="color-dot" style="background:${t.project.color}" title="${escapeHtml(t.project.name)}"></span> ` : '';
     return `
       <div class="task-row-compact" data-task-row="${t.id}">
+        <input type="checkbox" class="task-done-checkbox" data-done-toggle="${t.id}" ${t.status === 'erledigt' ? 'checked' : ''} title="Als erledigt markieren">
         <span>${projectDot}${escapeHtml(t.title)}</span>
         <span class="task-meta">${peopleNames}</span>
       </div>
@@ -617,6 +610,24 @@
     }));
     wireTaskRowClicks(container);
   }
+
+  // Eigenes, standardmaessig eingeklapptes Feld fuer erledigte Aufgaben - unabhaengig
+  // vom Status-Filter oben, der weiterhin normal funktioniert.
+  function renderDoneSection() {
+    const done = tasks.filter(t => t.status === 'erledigt');
+    const card = document.getElementById('done-tasks-card');
+    card.classList.toggle('hidden', done.length === 0);
+    document.getElementById('done-tasks-count').textContent = `Erledigt (${done.length})`;
+    const container = document.getElementById('done-task-list');
+    container.innerHTML = sortTasks(done).map(taskTableRowHtml).join('');
+    wireTaskRowClicks(container);
+  }
+  document.getElementById('done-tasks-toggle').addEventListener('click', () => {
+    const table = document.getElementById('done-tasks-table');
+    const chevron = document.getElementById('done-tasks-chevron');
+    const nowHidden = table.classList.toggle('hidden');
+    chevron.classList.toggle('collapsed', nowHidden);
+  });
 
   ['task-filter-search', 'task-filter-person', 'task-filter-project', 'task-filter-status', 'task-filter-priority'].forEach(id => {
     const el = document.getElementById(id);
@@ -807,8 +818,9 @@
   });
 
   // Legt fuer jede zugeordnete Person einen Kalendertermin an (Datum+Uhrzeit der Aufgabe),
-  // sofern noch keiner existiert. Zeigt bei Bedarf Hinweise zu kurzfristiger Planung / Nachtdienst
-  // fuer BFD-Personen (rein informativ, blockiert die Anlage nicht).
+  // Legt fuer jede zugeordnete Person einen Kalendertermin an (Datum+Uhrzeit der Aufgabe),
+  // sofern noch keiner existiert. Zeigt bei Bedarf einen Nachtdienst-Hinweis fuer BFD-Personen
+  // (rein informativ, blockiert die Anlage nicht).
   async function autoScheduleTask(task, dueDate, dueTime) {
     if (!task.people.length) return;
     const startMin = timeToMinutes(dueTime);
@@ -821,7 +833,6 @@
     } catch (e) { /* Kalenderabfrage optional - im Zweifel einfach anlegen */ }
 
     const warnings = [];
-    const daysUntil = Math.round((new Date(dueDate) - new Date(isoDate(new Date()))) / (24 * 60 * 60 * 1000));
 
     for (const person of task.people) {
       const alreadyExists = existingOnDate.some(ce => ce.task_id === task.id && ce.person_id === person.id);
@@ -834,9 +845,6 @@
       } catch (err) { continue; }
 
       if (person.contract_type === 'BFD') {
-        if (daysUntil < 7) {
-          warnings.push(`${person.name}: Termin liegt weniger als eine Woche im Voraus (Dienstplan sollte lt. BFD-Vereinbarung mind. 1 Woche vorher bekannt sein).`);
-        }
         const nightOverlap = !(endMin <= 1380 && startMin >= 360); // 23:00-06:00
         if (nightOverlap) {
           warnings.push(`${person.name}: Termin überschneidet sich mit der Nachtzeit (23:00–06:00) — bei BFD (pauschal < 26 Jahre) nur in Ausnahmefällen zulässig.`);
@@ -985,8 +993,13 @@
         chip.className = 'cal-allday-chip';
         chip.textContent = t.title;
         chip.style.background = (t.people[0] && t.people[0].color) || '#8a8d90';
-        chip.title = t.title;
+        chip.title = t.title + ' — auf eine Uhrzeit ziehen, um sie dort einzuplanen';
+        chip.draggable = true;
         chip.addEventListener('click', () => startEditTask(t.id));
+        chip.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: t.id }));
+          e.dataTransfer.effectAllowed = 'copy';
+        });
         cell.appendChild(chip);
       });
       row.appendChild(cell);
@@ -1190,6 +1203,44 @@
     await loadCalendar();
     renderAllDayRow();
     renderCalendarEntries();
+    renderCalendarMobileList();
+  }
+
+  const DE_WEEKDAY_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+
+  // Einfache chronologische Tagesliste fuer die mobile Ansicht (statt Raster-Kalender,
+  // der auf schmalen Bildschirmen abgeschnitten wird). Nutzt dieselben Daten wie das Raster.
+  function renderCalendarMobileList() {
+    const container = document.getElementById('calendar-mobile-list');
+    const days = visibleDays();
+    const dayIso = days.map(isoDate);
+
+    const html = dayIso.map(iso => {
+      const dayEntries = calendarEntries
+        .filter(e => e.date === iso)
+        .sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+      const d = new Date(iso);
+      const heading = `${DE_WEEKDAY_LONG[d.getDay()]}, ${fmtDateDE(iso)}`;
+      const rows = dayEntries.length
+        ? dayEntries.map(e => `
+            <div class="cml-entry ${e.task_status === 'erledigt' ? 'done' : ''}" data-cml-entry="${e.id}">
+              <span class="cml-entry-color" style="background:${e.person_color || '#4f46e5'}"></span>
+              <span class="cml-entry-time">${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}</span>
+              <span class="cml-entry-body">
+                <span class="cml-entry-title">${escapeHtml(e.task_title)}</span>
+                <span class="cml-entry-person">${escapeHtml(e.person_name)}</span>
+              </span>
+            </div>
+          `).join('')
+        : '<p class="empty-state">Keine Termine.</p>';
+      return `<div class="cml-day"><div class="cml-day-heading">${heading}</div>${rows}</div>`;
+    }).join('');
+
+    container.innerHTML = html;
+    container.querySelectorAll('[data-cml-entry]').forEach(el => {
+      const entry = calendarEntries.find(e => e.id === +el.dataset.cmlEntry);
+      if (entry) el.addEventListener('click', () => openEntryMenu(entry));
+    });
   }
 
   document.getElementById('week-prev').addEventListener('click', async () => {
@@ -1235,11 +1286,13 @@
     modalBody.innerHTML = `
       <label>Aufgabe<br><strong>${escapeHtml(task.title)}</strong></label>
       <label>Datum <input type="date" id="modal-date" value="${date}"></label>
+      <label>Enddatum (optional, für mehrtägige Termine) <input type="date" id="modal-end-date" value="${date}"></label>
       <label>Start <input type="time" id="modal-start" value="${startTime}"></label>
       <label>Ende <input type="time" id="modal-end" value="${endTime}"></label>
       <label>Person
         <select id="modal-person">${peopleOptions || '<option value="">— keine Person angelegt —</option>'}</select>
       </label>
+      <p class="hint">Bei mehrtägigen Terminen gilt dieselbe Uhrzeit an jedem Tag im Zeitraum.</p>
     `;
     pendingDrop = { taskId };
     modalOverlay.classList.remove('hidden');
@@ -1255,6 +1308,8 @@
   modalConfirm.addEventListener('click', async () => {
     if (!pendingDrop) return;
     const date = document.getElementById('modal-date').value;
+    const endDateField = document.getElementById('modal-end-date');
+    const end_date = endDateField ? endDateField.value : null;
     const start_time = document.getElementById('modal-start').value;
     const end_time = document.getElementById('modal-end').value;
     const person_id = +document.getElementById('modal-person').value;
@@ -1262,13 +1317,18 @@
       alert('Bitte Datum, Uhrzeit und Person angeben.');
       return;
     }
+    if (end_date && end_date < date) {
+      alert('Das Enddatum darf nicht vor dem Startdatum liegen.');
+      return;
+    }
     await api('/api/calendar', {
       method: 'POST',
-      body: JSON.stringify({ task_id: pendingDrop.taskId, person_id, date, start_time, end_time }),
+      body: JSON.stringify({ task_id: pendingDrop.taskId, person_id, date, start_time, end_time, end_date: end_date || null }),
     });
     closeModal();
     await loadCalendar();
     renderCalendarEntries();
+    renderCalendarMobileList();
   });
 
   // ---------- Termin-Menü (Klick auf bestehenden Kalendereintrag) ----------
@@ -1276,6 +1336,7 @@
   function openEntryMenu(entry) {
     pendingEntryForMenu = entry;
     document.getElementById('entry-menu-title').textContent = `${entry.task_title} · ${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)}`;
+    document.getElementById('entry-menu-remove-series').classList.toggle('hidden', !entry.series_id);
     entryMenuOverlay.classList.remove('hidden');
   }
   function closeEntryMenu() {
@@ -1295,6 +1356,16 @@
     closeEntryMenu();
     await loadCalendar();
     renderCalendarEntries();
+    renderCalendarMobileList();
+  });
+  document.getElementById('entry-menu-remove-series').addEventListener('click', async () => {
+    if (!pendingEntryForMenu || !pendingEntryForMenu.series_id) return;
+    if (!confirm('Den gesamten mehrtägigen Termin (alle Tage) entfernen?')) return;
+    await api(`/api/calendar/series/${pendingEntryForMenu.series_id}`, { method: 'DELETE' });
+    closeEntryMenu();
+    await loadCalendar();
+    renderCalendarEntries();
+    renderCalendarMobileList();
   });
 
   // ---------- Direkt-Anlage im Kalender (Klick auf leere Zeitzelle) ----------

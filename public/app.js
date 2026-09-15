@@ -1306,6 +1306,9 @@
 
     const peopleOptions = (task.people.length ? task.people : people.filter(p => p.active))
       .map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    const projectOptions = projects.map(p =>
+      `<option value="${p.id}" ${task.project && task.project.id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+    ).join('');
 
     modalBody.innerHTML = `
       <label>Aufgabe<br><strong>${escapeHtml(task.title)}</strong></label>
@@ -1315,6 +1318,9 @@
       <label>Ende <input type="time" id="modal-end" value="${endTime}"></label>
       <label>Person
         <select id="modal-person">${peopleOptions || '<option value="">— keine Person angelegt —</option>'}</select>
+      </label>
+      <label>Projekt
+        <select id="modal-project"><option value="">— kein Projekt —</option>${projectOptions}</select>
       </label>
       <p class="hint">Bei mehrtägigen Terminen gilt dieselbe Uhrzeit an jedem Tag im Zeitraum.</p>
     `;
@@ -1349,8 +1355,23 @@
       method: 'POST',
       body: JSON.stringify({ task_id: pendingDrop.taskId, person_id, date, start_time, end_time, end_date: end_date || null }),
     });
+
+    // Projekt an der Aufgabe aktualisieren, falls im Einplanungs-Fenster geaendert
+    const projectVal = document.getElementById('modal-project').value;
+    const task = tasks.find(t => t.id === pendingDrop.taskId);
+    const currentProjectId = task && task.project ? task.project.id : null;
+    const newProjectId = projectVal ? +projectVal : null;
+    if (newProjectId !== currentProjectId) {
+      await api(`/api/tasks/${pendingDrop.taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ project_id: newProjectId, clear_project: !newProjectId }),
+      });
+    }
+
     closeModal();
+    await loadTasks();
     await loadCalendar();
+    renderAllDayRow();
     renderCalendarEntries();
     renderCalendarMobileList();
   });

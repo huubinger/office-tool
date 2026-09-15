@@ -26,7 +26,7 @@
   const START_HOUR = 0;
   const END_HOUR = 24;
   const MAIN_VIEW_START_HOUR = 9;
-  const MAIN_VIEW_END_HOUR = 20;
+  const MAIN_VIEW_END_HOUR = 22;
   const SLOT_MINUTES = 30;
   const SLOT_HEIGHT = 24;
   const SLOTS_PER_DAY = ((END_HOUR - START_HOUR) * 60) / SLOT_MINUTES;
@@ -882,7 +882,15 @@
     for (let i = 0; i < 7; i++) days.push(addDays(currentWeekStart, i));
     return days;
   }
-  function dayWidth() { return calendarViewMode === 'day' ? DAY_VIEW_WIDTH : WEEK_DAY_WIDTH; }
+  function dayWidth() {
+    if (calendarViewMode === 'day') return DAY_VIEW_WIDTH;
+    // Woche soll komplett ohne horizontales Scrollen passen: Breite dynamisch aus dem
+    // verfuegbaren Platz berechnen statt eine feste Breite je Tag zu nutzen.
+    const container = document.querySelector('.calendar-main-full');
+    if (!container) return WEEK_DAY_WIDTH;
+    const available = container.clientWidth - 32 /* Innenabstand links+rechts */ - 56 /* Uhrzeit-Spalte */;
+    return Math.max(60, Math.floor(available / 7));
+  }
 
   async function loadCalendar() {
     const days = visibleDays();
@@ -948,23 +956,29 @@
   }
 
   function renderCalendarGrid() {
-    const grid = document.getElementById('calendar-grid');
-    grid.innerHTML = '';
     const days = visibleDays();
     const dw = dayWidth();
-    grid.style.gridTemplateColumns = `56px repeat(${days.length}, ${dw}px)`;
-    grid.style.width = (56 + days.length * dw) + 'px';
 
+    // Kopfzeile mit Wochentagen ausserhalb des scrollbaren Bereichs, damit sie beim
+    // Scrollen im Zeitraster (z.B. zur 9-Uhr-Hauptansicht) sichtbar bleibt.
+    const header = document.getElementById('calendar-header-row');
+    header.innerHTML = '';
+    header.style.gridTemplateColumns = `56px repeat(${days.length}, ${dw}px)`;
+    header.style.width = (56 + days.length * dw) + 'px';
     const corner = document.createElement('div');
     corner.className = 'cal-head';
-    grid.appendChild(corner);
-
-    days.forEach((d, i) => {
+    header.appendChild(corner);
+    days.forEach(d => {
       const head = document.createElement('div');
       head.className = 'cal-head';
       head.innerHTML = `${DAY_NAMES[d.getDay() === 0 ? 6 : d.getDay() - 1]}<div class="cal-head-date">${fmtDateLabel(d)}</div>`;
-      grid.appendChild(head);
+      header.appendChild(head);
     });
+
+    const grid = document.getElementById('calendar-grid');
+    grid.innerHTML = '';
+    grid.style.gridTemplateColumns = `56px repeat(${days.length}, ${dw}px)`;
+    grid.style.width = (56 + days.length * dw) + 'px';
 
     for (let s = 0; s < SLOTS_PER_DAY; s++) {
       const isHour = (s % (60 / SLOT_MINUTES)) === 0;

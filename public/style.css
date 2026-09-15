@@ -558,23 +558,24 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 /* ---------- Calendar ---------- */
 .calendar-3col-layout {
   display: grid;
-  grid-template-columns: minmax(180px, 230px) 1fr minmax(180px, 230px);
-  gap: 14px;
-  align-items: stretch;
+  grid-template-columns: minmax(150px, 190px) 1fr minmax(150px, 190px);
+  gap: 10px;
   margin-bottom: 14px;
+  --calendar-box-height: 760px;
 }
 .calendar-3col-layout .calendar-main-full { margin-bottom: 0; }
 
 .pool-sidebar {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow-card); padding: 12px; display: flex; flex-direction: column; min-height: 0;
+  box-shadow: var(--shadow-card); padding: 12px; display: flex; flex-direction: column;
+  height: var(--calendar-box-height);
 }
 .pool-sidebar h2 { flex-shrink: 0; font-size: 13.5px; margin-bottom: 8px; }
 .pool-sidebar-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 
 @media (max-width: 1100px) {
   .calendar-3col-layout { grid-template-columns: 1fr; }
-  .pool-sidebar { max-height: 260px; }
+  .pool-sidebar { height: 260px; }
 }
 
 .magnet-card {
@@ -586,7 +587,16 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .magnet-card .mc-title { color: var(--ink); }
 .magnet-card .mc-person { color: var(--ink-soft); display: block; margin-top: 2px; }
 
-.calendar-main-full { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 16px; overflow-x: auto; margin-bottom: 14px; }
+.calendar-main-full {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-card); padding: 14px; margin-bottom: 14px;
+}
+.calendar-3col-layout .calendar-main-full {
+  height: var(--calendar-box-height); display: flex; flex-direction: column; min-height: 0;
+}
+.calendar-3col-layout .calendar-nav,
+.calendar-3col-layout .calendar-header-row,
+.calendar-3col-layout .cal-allday-grid { flex-shrink: 0; }
 .hint { font-size: 12px; color: var(--ink-soft); margin: -4px 0 10px; }
 form + .hint { margin-top: 8px; }
 
@@ -604,13 +614,18 @@ form + .hint { margin-top: 8px; }
 .report-nav { justify-content: center; gap: 14px; }
 .section-gap { margin-top: 22px; }
 
-.calendar-grid-wrap { position: relative; max-height: 528px; overflow-y: auto; }
+/* Wochentag-Kopfzeile: eigenes Element AUSSERHALB des scrollbaren Zeitrasters, damit sie
+   beim Scrollen (z.B. automatisch zur 9-Uhr-Ansicht) immer sichtbar bleibt. */
+.calendar-header-row { display: grid; overflow: hidden; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+
+.calendar-grid-wrap { position: relative; overflow-y: auto; overflow-x: hidden; }
+.calendar-3col-layout .calendar-grid-wrap { flex: 1; min-height: 0; }
 .calendar-mobile-list { display: none; }
 
 /* Auf dem Handy: Raster-Kalender wird abgeschnitten/unbedienbar -> stattdessen eine
    einfache chronologische Liste je Tag mit Uhrzeit, Titel und Person. */
 @media (max-width: 700px) {
-  #calendar-allday-grid, .calendar-grid-wrap { display: none; }
+  #calendar-allday-grid, .calendar-grid-wrap, .calendar-header-row { display: none; }
   .calendar-mobile-list { display: block; }
 }
 
@@ -635,9 +650,6 @@ form + .hint { margin-top: 8px; }
 
 .calendar-grid {
   display: grid;
-  grid-template-columns: 56px repeat(7, 140px);
-  width: 1036px;
-  border-top: 1px solid var(--line);
   border-left: 1px solid var(--line);
 }
 .cal-head {
@@ -951,14 +963,14 @@ form + .hint { margin-top: 8px; }
   .yc-month-col { flex: 1 1 30%; min-width: 220px; }
 }
 
-.yc-day-modal-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; max-height: 40vh; overflow-y: auto; }
+.yc-day-modal-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; max-height: 55vh; overflow-y: auto; }
 .yc-day-event-row {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line);
-  background: var(--panel-alt); font-size: 12.5px;
+  background: var(--panel-alt); font-size: 12.5px; flex-shrink: 0;
 }
 
-.wd-day { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.wd-day { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; }
 .wd-day-heading {
   display: flex; justify-content: space-between; padding: 7px 10px; font-size: 12.5px;
   font-weight: 600; background: var(--panel-alt); border-bottom: 1px solid var(--line);

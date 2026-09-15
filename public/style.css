@@ -556,43 +556,32 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .project-color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
 
 /* ---------- Calendar ---------- */
-.pool-count-heading { font-size: 13px; color: var(--ink-soft); margin-bottom: 10px; }
-
-.calendar-magnet-layout {
+.calendar-3col-layout {
   display: grid;
-  grid-template-columns: minmax(150px, 200px) 1fr minmax(150px, 200px);
-  grid-template-rows: auto auto auto;
-  gap: 10px;
+  grid-template-columns: minmax(180px, 230px) 1fr minmax(180px, 230px);
+  gap: 14px;
   align-items: stretch;
+  margin-bottom: 14px;
 }
-.magnet-top { grid-column: 2; grid-row: 1; }
-.magnet-left { grid-column: 1; grid-row: 2; }
-.magnet-center { grid-column: 2; grid-row: 2; margin-bottom: 0; }
-.magnet-right { grid-column: 3; grid-row: 2; }
-.magnet-bottom { grid-column: 2; grid-row: 3; }
+.calendar-3col-layout .calendar-main-full { margin-bottom: 0; }
 
-.magnet-zone {
-  display: flex; gap: 8px; min-height: 0;
+.pool-sidebar {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-card); padding: 12px; display: flex; flex-direction: column; min-height: 0;
 }
-.magnet-top, .magnet-bottom { flex-direction: row; flex-wrap: wrap; align-content: flex-start; }
-.magnet-left, .magnet-right { flex-direction: column; overflow-y: auto; max-height: 600px; }
-.magnet-zone.empty { display: none; }
+.pool-sidebar h2 { flex-shrink: 0; font-size: 13.5px; margin-bottom: 8px; }
+.pool-sidebar-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 
 @media (max-width: 1100px) {
-  .calendar-magnet-layout { grid-template-columns: 1fr; }
-  .magnet-top, .magnet-left, .magnet-center, .magnet-right, .magnet-bottom { grid-column: 1; }
-  .magnet-top { grid-row: 1; } .magnet-left { grid-row: 2; } .magnet-center { grid-row: 3; }
-  .magnet-right { grid-row: 4; } .magnet-bottom { grid-row: 5; }
-  .magnet-left, .magnet-right { flex-direction: row; flex-wrap: wrap; max-height: none; }
+  .calendar-3col-layout { grid-template-columns: 1fr; }
+  .pool-sidebar { max-height: 260px; }
 }
 
 .magnet-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
-  padding: 7px 9px; font-size: 11.5px; cursor: grab; flex: 1 1 auto; min-width: 130px;
-  box-shadow: var(--shadow-card);
+  background: var(--panel-alt); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 7px 9px; font-size: 11.5px; cursor: grab;
 }
 .magnet-card:active { cursor: grabbing; }
-.magnet-top .magnet-card, .magnet-bottom .magnet-card { min-width: 140px; max-width: 200px; }
 .magnet-card .mc-project { font-weight: 700; display: block; }
 .magnet-card .mc-title { color: var(--ink); }
 .magnet-card .mc-person { color: var(--ink-soft); display: block; margin-top: 2px; }

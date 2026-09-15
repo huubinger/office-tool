@@ -233,12 +233,13 @@
 
   <!-- ===================== KALENDER ===================== -->
   <section id="tab-calendar" class="tab-panel">
-    <div class="pool-count-heading">Offene Aufgaben <span id="calendar-pool-count" class="task-meta">(0)</span> — je wichtiger/dringender, desto näher am Kalender</div>
-    <div class="calendar-magnet-layout">
-      <div class="magnet-zone magnet-top" id="pool-zone-top"></div>
-      <div class="magnet-zone magnet-left" id="pool-zone-left"></div>
+    <div class="calendar-3col-layout">
+      <div class="pool-sidebar" id="pool-sidebar-urgent">
+        <h2>Dringend <span id="pool-urgent-count" class="task-meta">(0)</span></h2>
+        <div class="pool-sidebar-scroll" id="pool-zone-urgent"></div>
+      </div>
 
-      <div class="calendar-main-full magnet-center">
+      <div class="calendar-main-full">
         <div class="calendar-nav">
           <div class="calendar-nav-left">
             <button id="week-prev">‹</button>
@@ -261,8 +262,10 @@
         <div id="calendar-mobile-list" class="calendar-mobile-list"></div>
       </div>
 
-      <div class="magnet-zone magnet-right" id="pool-zone-right"></div>
-      <div class="magnet-zone magnet-bottom" id="pool-zone-bottom"></div>
+      <div class="pool-sidebar" id="pool-sidebar-other">
+        <h2>Weitere Aufgaben <span id="pool-other-count" class="task-meta">(0)</span></h2>
+        <div class="pool-sidebar-scroll" id="pool-zone-other"></div>
+      </div>
     </div>
   </section>
 

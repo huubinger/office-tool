@@ -921,40 +921,23 @@
     `;
   }
 
-  // Verteilt die offenen Aufgaben auf die vier Zonen rund um den Kalender (oben/rechts/unten/
-  // links) im Reihum-Verfahren nach Dringlichkeit, sodass insgesamt die dringendsten Aufgaben
-  // am naechsten am Kalender liegen: bei "oben" und "links" steht die dringendste Aufgabe direkt
-  // am Kalenderrand (Ende der Liste), bei "rechts" und "unten" direkt am Anfang.
+  // Links neben dem Kalender: dringende Aufgaben (gleiches Kriterium wie der "Dringend"-Bereich
+  // bei den Aufgaben), rechts: alle uebrigen offenen Aufgaben. Beide Spalten scrollen unabhaengig
+  // und sind genauso hoch wie der Kalender in der Mitte.
   function renderTaskPool() {
-    const zones = {
-      top: document.getElementById('pool-zone-top'),
-      right: document.getElementById('pool-zone-right'),
-      bottom: document.getElementById('pool-zone-bottom'),
-      left: document.getElementById('pool-zone-left'),
-    };
     const openTasks = tasks.filter(t => t.status !== 'erledigt');
-    const countEl = document.getElementById('calendar-pool-count');
-    if (countEl) countEl.textContent = `(${openTasks.length})`;
+    const soonIso = isoDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    const urgent = sortByUrgency(openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso)));
+    const urgentIds = new Set(urgent.map(t => t.id));
+    const other = openTasks.filter(t => !urgentIds.has(t.id));
 
-    Object.values(zones).forEach(z => { z.innerHTML = ''; z.classList.remove('empty'); });
-    if (!openTasks.length) {
-      Object.values(zones).forEach(z => z.classList.add('empty'));
-      return;
-    }
+    document.getElementById('pool-urgent-count').textContent = `(${urgent.length})`;
+    document.getElementById('pool-other-count').textContent = `(${other.length})`;
 
-    const sorted = sortByUrgency(openTasks);
-    const buckets = { top: [], right: [], bottom: [], left: [] };
-    const order = ['top', 'right', 'bottom', 'left'];
-    sorted.forEach((t, i) => buckets[order[i % 4]].push(t));
-
-    // "oben" und "links" umkehren, damit die dringendste Aufgabe direkt am Kalenderrand steht
-    buckets.top.reverse();
-    buckets.left.reverse();
-
-    Object.keys(zones).forEach(side => {
-      if (!buckets[side].length) { zones[side].classList.add('empty'); return; }
-      zones[side].innerHTML = buckets[side].map(magnetTaskCardHtml).join('');
-    });
+    const urgentZone = document.getElementById('pool-zone-urgent');
+    const otherZone = document.getElementById('pool-zone-other');
+    urgentZone.innerHTML = urgent.length ? urgent.map(magnetTaskCardHtml).join('') : '<p class="empty-state">Keine dringenden Aufgaben.</p>';
+    otherZone.innerHTML = other.length ? other.map(magnetTaskCardHtml).join('') : '<p class="empty-state">Keine weiteren Aufgaben.</p>';
 
     document.querySelectorAll('.magnet-card').forEach(card => {
       card.addEventListener('dragstart', (e) => {

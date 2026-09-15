@@ -1006,19 +1006,23 @@ app.get('/api/reports/week-detail', (req, res) => {
   const monday = new Date(refDate);
   monday.setDate(refDate.getDate() + ((day === 0 ? -6 : 1) - day));
 
-  const dayStmt = db.prepare(`
-    SELECT COALESCE(SUM(duration_minutes), 0) AS m
-    FROM time_entries
-    WHERE person_id = ? AND date = ? AND duration_minutes IS NOT NULL
+  const entriesStmt = db.prepare(`
+    SELECT te.*, t.title AS task_title
+    FROM time_entries te
+    LEFT JOIN tasks t ON t.id = te.task_id
+    WHERE te.person_id = ? AND te.date = ?
+    ORDER BY te.start_time
   `);
   const days = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     const iso = isoDateLocal(d);
-    days.push({ date: iso, minutes: dayStmt.get(personId, iso).m });
+    const entries = entriesStmt.all(personId, iso);
+    const totalMinutes = entries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
+    days.push({ date: iso, entries, total_minutes: totalMinutes });
   }
-  res.json({ person_name: person.name, days });
+  res.json({ person_id: +personId, person_name: person.name, days });
 });
 
 const DE_WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -1273,13 +1277,23 @@ app.get('/api/year-events', (req, res) => {
 // Legt einen Termin an - bei angegebener Wiederholung werden mehrere Eintraege
 // (eine Serie mit gemeinsamer recurrence_group) erzeugt.
 app.post('/api/year-events', (req, res) => {
-  const { title, date, project_id, recurrence, start_time, end_time } = req.body || {};
+  const { title, date, project_id, recurrence, start_time, end_time, end_date } = req.body || {};
   if (!title || !title.trim() || !date) {
     return res.status(400).json({ error: 'title und date sind erforderlich' });
   }
 
   const dates = [date];
-  if (recurrence && recurrence.type && recurrence.type !== 'keine' && recurrence.until) {
+  if (end_date && end_date > date) {
+    // Durchgehender Mehrtages-Block (z.B. Urlaub) - ein Eintrag pro Tag im Zeitraum
+    let current = new Date(date);
+    const last = new Date(end_date);
+    while (true) {
+      current.setDate(current.getDate() + 1);
+      if (current > last) break;
+      dates.push(isoDateLocal(current));
+      if (dates.length > 366) break; // Sicherheitsgrenze
+    }
+  } else if (recurrence && recurrence.type && recurrence.type !== 'keine' && recurrence.until) {
     const step = { weekly: 7, monthly: 'month', yearly: 'year' }[recurrence.type];
     if (step) {
       let current = new Date(date);

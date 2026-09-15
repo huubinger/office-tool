@@ -233,38 +233,36 @@
 
   <!-- ===================== KALENDER ===================== -->
   <section id="tab-calendar" class="tab-panel">
-    <div class="calendar-main-full">
-      <div class="calendar-nav">
-        <div class="calendar-nav-left">
-          <button id="week-prev">‹</button>
-          <span id="week-label"></span>
-          <button id="week-next">›</button>
-        </div>
-        <div class="calendar-nav-right">
-          <div class="view-toggle">
-            <button id="view-week-btn" class="active">Woche</button>
-            <button id="view-day-btn">Tag</button>
-          </div>
-          <a id="ical-export-link" class="ghost-link" href="#" target="_blank">iCal exportieren</a>
-        </div>
-      </div>
-      <div id="calendar-allday-grid" class="cal-allday-grid"></div>
-      <div class="calendar-grid-wrap">
-        <div id="calendar-grid" class="calendar-grid"></div>
-        <div id="calendar-entries-overlay" class="cal-entries-overlay"></div>
-      </div>
-      <div id="calendar-mobile-list" class="calendar-mobile-list"></div>
-    </div>
+    <div class="pool-count-heading">Offene Aufgaben <span id="calendar-pool-count" class="task-meta">(0)</span> — je wichtiger/dringender, desto näher am Kalender</div>
+    <div class="calendar-magnet-layout">
+      <div class="magnet-zone magnet-top" id="pool-zone-top"></div>
+      <div class="magnet-zone magnet-left" id="pool-zone-left"></div>
 
-    <div class="card calendar-pool-card">
-      <h2>Offene Aufgaben</h2>
-      <p class="hint">Aufgabe in den Kalender oben ziehen, um sie einzuplanen. Bestehende Termine lassen sich verschieben oder an der Unterkante in der Dauer anpassen.</p>
-      <table class="task-table">
-        <thead>
-          <tr><th>Aufgabe</th><th>Person</th><th>Dauer</th></tr>
-        </thead>
-        <tbody id="calendar-task-pool"></tbody>
-      </table>
+      <div class="calendar-main-full magnet-center">
+        <div class="calendar-nav">
+          <div class="calendar-nav-left">
+            <button id="week-prev">‹</button>
+            <span id="week-label"></span>
+            <button id="week-next">›</button>
+          </div>
+          <div class="calendar-nav-right">
+            <div class="view-toggle">
+              <button id="view-week-btn" class="active">Woche</button>
+              <button id="view-day-btn">Tag</button>
+            </div>
+            <a id="ical-export-link" class="ghost-link" href="#" target="_blank">iCal exportieren</a>
+          </div>
+        </div>
+        <div id="calendar-allday-grid" class="cal-allday-grid"></div>
+        <div class="calendar-grid-wrap">
+          <div id="calendar-grid" class="calendar-grid"></div>
+          <div id="calendar-entries-overlay" class="cal-entries-overlay"></div>
+        </div>
+        <div id="calendar-mobile-list" class="calendar-mobile-list"></div>
+      </div>
+
+      <div class="magnet-zone magnet-right" id="pool-zone-right"></div>
+      <div class="magnet-zone magnet-bottom" id="pool-zone-bottom"></div>
     </div>
   </section>
 
@@ -419,7 +417,11 @@
             <button type="submit">Abwesenheit eintragen</button>
           </div>
         </form>
-        <div id="absence-list" class="time-list"></div>
+        <button type="button" id="absence-list-toggle" class="done-tasks-toggle">
+          <span id="absence-list-count">Abwesenheiten (0)</span>
+          <span class="task-group-chevron collapsed" id="absence-list-chevron">▾</span>
+        </button>
+        <div id="absence-list" class="time-list hidden"></div>
       </div>
 
       <div class="card">
@@ -473,7 +475,8 @@
     </div>
 
     <div class="card">
-      <h2>Erfasste Zeiten</h2>
+      <h2>Export</h2>
+      <p class="hint">Person, Von und Bis für den CSV-/PDF-Export auswählen (PDF braucht eine konkrete Person, nicht "Alle").</p>
       <div class="filter-row">
         <label>Person
           <select id="time-filter-person">
@@ -488,12 +491,9 @@
         </label>
       </div>
       <div class="time-summary-row">
-        <div id="time-summary" class="time-summary"></div>
         <a id="csv-export-link" class="ghost-link" href="#" target="_blank">CSV exportieren</a>
         <button type="button" id="pdf-export-btn" class="ghost">PDF exportieren</button>
       </div>
-      <p class="hint">PDF-Export nutzt die Filter oben (Person muss konkret ausgewählt sein, nicht "Alle").</p>
-      <div id="time-list" class="time-list"></div>
     </div>
   </section>
 
@@ -514,6 +514,7 @@
       <form id="yc-event-form" class="yc-event-form">
         <input type="text" id="yc-event-title" placeholder="Titel" required>
         <input type="date" id="yc-event-date" required>
+        <input type="date" id="yc-event-end-date" title="Enddatum (optional, für durchgehende Mehrtages-Blöcke wie Urlaub)">
         <input type="time" id="yc-event-start-time" title="Von (optional)">
         <input type="time" id="yc-event-end-time" title="Bis (optional)">
         <select id="yc-event-project"><option value="">— kein Projekt —</option></select>
@@ -526,7 +527,7 @@
         <input type="date" id="yc-event-until" class="hidden" title="Wiederholen bis">
         <button type="submit">+ Anlegen</button>
       </form>
-      <p class="hint">Klick auf einen Tag im Kalender unten trägt das Datum hier automatisch ein.</p>
+      <p class="hint">Klick auf einen Tag im Kalender unten trägt das Datum hier automatisch ein. Enddatum = durchgehender Block (z.B. Urlaub); Wiederholung = wiederkehrende Einzeltermine — nicht beides gleichzeitig nutzen.</p>
     </div>
 
     <div id="yc-months-grid" class="yc-months-grid"></div>
@@ -569,7 +570,7 @@
 </div>
 
 <div id="week-detail-modal-overlay" class="modal-overlay hidden">
-  <div class="modal">
+  <div class="modal modal-wide">
     <h3 id="week-detail-modal-title">Tagesaufschlüsselung</h3>
     <div id="week-detail-modal-body"></div>
     <div class="form-actions">

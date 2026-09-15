@@ -6,7 +6,6 @@
   let projects = [];
   let tasks = [];
   let calendarEntries = [];
-  let timeEntries = [];
   let activeTimers = [];
   let absences = [];
   let currentWeekStart = getMonday(new Date());
@@ -24,8 +23,10 @@
   let taskFilters = { search: '', person: '', project: '', status: '', priority: '' };
 
   const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-  const START_HOUR = 7;
-  const END_HOUR = 20;
+  const START_HOUR = 0;
+  const END_HOUR = 24;
+  const MAIN_VIEW_START_HOUR = 9;
+  const MAIN_VIEW_END_HOUR = 20;
   const SLOT_MINUTES = 30;
   const SLOT_HEIGHT = 24;
   const SLOTS_PER_DAY = ((END_HOUR - START_HOUR) * 60) / SLOT_MINUTES;
@@ -891,30 +892,75 @@
     document.getElementById('ical-export-link').href = `/api/calendar/export.ics?from=${from}&to=${to}`;
   }
 
+  const PRIORITY_RANK_URGENCY = { hoch: 0, mittel: 1, niedrig: 2 };
+  // Sortiert Aufgaben nach Dringlichkeit (ueberfaellig zuerst, dann nahende Faelligkeit, dann
+  // Prioritaet) - gemeinsam genutzt vom "Dringend"-Bereich und der Aufgaben-Verteilung rund
+  // um den Kalender in der Wochenplanung.
+  function sortByUrgency(list) {
+    const todayIso = isoDate(new Date());
+    return [...list].sort((a, b) => {
+      const aOverdue = a.due_date && a.due_date < todayIso;
+      const bOverdue = b.due_date && b.due_date < todayIso;
+      if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+      if (a.due_date && b.due_date && a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
+      if (a.due_date && !b.due_date) return -1;
+      if (!a.due_date && b.due_date) return 1;
+      return PRIORITY_RANK_URGENCY[a.priority] - PRIORITY_RANK_URGENCY[b.priority];
+    });
+  }
+
+  function magnetTaskCardHtml(t) {
+    const peopleNames = t.people.map(p => p.name).join(', ') || '—';
+    const projectHtml = t.project ? `<span class="mc-project" style="color:${t.project.color}">${escapeHtml(t.project.name)}</span>` : '';
+    return `
+      <div class="magnet-card" draggable="true" data-task-id="${t.id}">
+        ${projectHtml}
+        <span class="mc-title">${escapeHtml(t.title)}</span>
+        <span class="mc-person">${escapeHtml(peopleNames)}</span>
+      </div>
+    `;
+  }
+
+  // Verteilt die offenen Aufgaben auf die vier Zonen rund um den Kalender (oben/rechts/unten/
+  // links) im Reihum-Verfahren nach Dringlichkeit, sodass insgesamt die dringendsten Aufgaben
+  // am naechsten am Kalender liegen: bei "oben" und "links" steht die dringendste Aufgabe direkt
+  // am Kalenderrand (Ende der Liste), bei "rechts" und "unten" direkt am Anfang.
   function renderTaskPool() {
-    const pool = document.getElementById('calendar-task-pool');
+    const zones = {
+      top: document.getElementById('pool-zone-top'),
+      right: document.getElementById('pool-zone-right'),
+      bottom: document.getElementById('pool-zone-bottom'),
+      left: document.getElementById('pool-zone-left'),
+    };
     const openTasks = tasks.filter(t => t.status !== 'erledigt');
+    const countEl = document.getElementById('calendar-pool-count');
+    if (countEl) countEl.textContent = `(${openTasks.length})`;
+
+    Object.values(zones).forEach(z => { z.innerHTML = ''; z.classList.remove('empty'); });
     if (!openTasks.length) {
-      pool.innerHTML = '<tr><td colspan="3" class="empty-state">Keine offenen Aufgaben.</td></tr>';
+      Object.values(zones).forEach(z => z.classList.add('empty'));
       return;
     }
-    pool.innerHTML = '';
-    openTasks.forEach(t => {
-      const row = document.createElement('tr');
-      row.className = 'task-table-row';
-      row.draggable = true;
-      row.dataset.taskId = t.id;
-      const peopleNames = t.people.map(p => p.name).join(', ') || '—';
-      row.innerHTML = `
-        <td>${escapeHtml(t.title)}</td>
-        <td>${escapeHtml(peopleNames)}</td>
-        <td>${fmtDuration(t.estimated_minutes)}</td>
-      `;
-      row.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: t.id }));
+
+    const sorted = sortByUrgency(openTasks);
+    const buckets = { top: [], right: [], bottom: [], left: [] };
+    const order = ['top', 'right', 'bottom', 'left'];
+    sorted.forEach((t, i) => buckets[order[i % 4]].push(t));
+
+    // "oben" und "links" umkehren, damit die dringendste Aufgabe direkt am Kalenderrand steht
+    buckets.top.reverse();
+    buckets.left.reverse();
+
+    Object.keys(zones).forEach(side => {
+      if (!buckets[side].length) { zones[side].classList.add('empty'); return; }
+      zones[side].innerHTML = buckets[side].map(magnetTaskCardHtml).join('');
+    });
+
+    document.querySelectorAll('.magnet-card').forEach(card => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: +card.dataset.taskId }));
         e.dataTransfer.effectAllowed = 'copy';
       });
-      pool.appendChild(row);
     });
   }
 
@@ -1228,6 +1274,16 @@
     renderAllDayRow();
     renderCalendarEntries();
     renderCalendarMobileList();
+    scrollCalendarToMainView();
+  }
+
+  // Zeigt beim Oeffnen/Neuladen standardmaessig 9-20 Uhr an (Hauptzeitfenster), Rest per
+  // Scrollen erreichbar - vermeidet, dass man immer erst zur relevanten Zeit scrollen muss.
+  function scrollCalendarToMainView() {
+    const wrap = document.querySelector('.calendar-grid-wrap');
+    if (!wrap) return;
+    const offsetMinutes = (MAIN_VIEW_START_HOUR - START_HOUR) * 60;
+    wrap.scrollTop = (offsetMinutes / SLOT_MINUTES) * SLOT_HEIGHT;
   }
 
   const DE_WEEKDAY_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -1488,9 +1544,7 @@
     if (personId) params.set('person_id', personId);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    timeEntries = await api('/api/time-entries?' + params.toString());
     await loadLifetimeBalances();
-    renderTimeList();
     document.getElementById('csv-export-link').href = '/api/time-entries/export.csv?' + params.toString();
   }
 
@@ -1537,92 +1591,10 @@
     return getMonday(new Date(dateIso));
   }
 
-  function renderTimeList() {
-    const container = document.getElementById('time-list');
-    const summary = document.getElementById('time-summary');
-    if (!timeEntries.length) {
-      container.innerHTML = '<p class="empty-state">Keine Einträge im gewählten Zeitraum.</p>';
-      summary.textContent = 'Gesamt: 0 Std';
-      return;
-    }
-    const totalMinutes = timeEntries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
-    summary.textContent = `Gesamt: ${fmtDuration(totalMinutes)} über ${timeEntries.length} Einträge`;
-
-    // Nach Kalenderwoche (Mo-So) gruppieren; timeEntries kommt bereits datumsabsteigend sortiert
-    let currentWeekKey = null;
-    const parts = [];
-    timeEntries.forEach(e => {
-      const weekMonday = mondayOfIso(e.date);
-      const weekKey = isoDate(weekMonday);
-      if (weekKey !== currentWeekKey) {
-        currentWeekKey = weekKey;
-        const weekSunday = addDays(weekMonday, 6);
-        parts.push(`<div class="time-week-header">Woche ${fmtDateLabel(weekMonday)} – ${fmtDateLabel(weekSunday)}</div>`);
-      }
-      const canPushToCalendar = e.task_id && e.start_time && e.end_time && !e.running;
-      parts.push(`
-        <div class="time-row-item" data-entry-row="${e.id}">
-          <div>
-            <div class="tri-main"><strong>${escapeHtml(e.person_name)}</strong>${lifetimeBalanceBadge(e.person_id)} · ${e.date}</div>
-            <div class="tri-meta">
-              ${e.start_time && e.end_time ? `${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}` : ''}
-              ${e.break_minutes ? ` · Pause ${e.break_minutes} Min` : ''}
-              ${e.duration_minutes ? ` · ${fmtDuration(e.duration_minutes)}` : ''}
-              ${e.task_title ? ` · Aufgabe: ${escapeHtml(e.task_title)}` : ''}
-              ${e.note ? ` · ${escapeHtml(e.note)}` : ''}
-            </div>
-          </div>
-          <div class="row-actions">
-            ${canPushToCalendar ? `<button class="ghost" data-to-calendar="${e.id}">→ Kalender</button>` : ''}
-            <button class="ghost" data-edit-entry="${e.id}">Bearbeiten</button>
-            <button class="danger" data-delete="${e.id}">Löschen</button>
-          </div>
-        </div>
-      `);
-    });
-    container.innerHTML = parts.join('');
-    container.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', async () => {
-      await api(`/api/time-entries/${b.dataset.delete}`, { method: 'DELETE' });
-      await loadTimeEntries();
-      await loadWarnings();
-    }));
-    container.querySelectorAll('[data-edit-entry]').forEach(b => b.addEventListener('click', () => startEditTimeEntry(+b.dataset.editEntry)));
-    container.querySelectorAll('[data-to-calendar]').forEach(b => b.addEventListener('click', () => pushTimeEntryToCalendar(+b.dataset.toCalendar, b)));
-  }
-
-  async function pushTimeEntryToCalendar(entryId, btn) {
-    const e = timeEntries.find(x => x.id === entryId);
-    if (!e || !e.task_id || !e.start_time || !e.end_time) return;
-    btn.disabled = true;
-    try {
-      await api('/api/calendar', {
-        method: 'POST',
-        body: JSON.stringify({
-          task_id: e.task_id,
-          person_id: e.person_id,
-          date: e.date,
-          start_time: e.start_time.slice(0, 5),
-          end_time: e.end_time.slice(0, 5),
-        }),
-      });
-      btn.textContent = 'Im Kalender ✓';
-      if (document.getElementById('tab-calendar').classList.contains('active')) {
-        await loadCalendar();
-        renderAllDayRow();
-        renderCalendarEntries();
-      }
-    } catch (err) {
-      btn.disabled = false;
-      alert('Konnte nicht in den Kalender übernommen werden: ' + err.message);
-    }
-  }
-
-  function startEditTimeEntry(id) {
-    const e = timeEntries.find(x => x.id === id);
-    if (!e) return;
+  function startEditTimeEntry(e) {
     if (e.running) { alert('Eine laufende Zeiterfassung kann hier nicht bearbeitet werden. Bitte zuerst über die Aufgabe stoppen.'); return; }
-    editingTimeEntryId = id;
-    document.getElementById('time-entry-id').value = id;
+    editingTimeEntryId = e.id;
+    document.getElementById('time-entry-id').value = e.id;
     document.getElementById('time-person').value = e.person_id;
     document.getElementById('time-date').value = e.date;
     document.getElementById('time-start').value = e.start_time ? e.start_time.slice(0, 5) : '';
@@ -1634,7 +1606,7 @@
     timeSubmitBtn.textContent = 'Änderungen speichern';
     timeCancelBtn.classList.remove('hidden');
     document.getElementById('time-form-heading').textContent = 'Arbeitszeit bearbeiten';
-    timeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (typeof timeForm.scrollIntoView === 'function') timeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function resetTimeForm() {
@@ -1709,6 +1681,7 @@
 
   function renderAbsenceList() {
     const container = document.getElementById('absence-list');
+    document.getElementById('absence-list-count').textContent = `Abwesenheiten (${absences.length})`;
     if (!absences.length) {
       container.innerHTML = '<p class="empty-state">Keine Abwesenheiten erfasst.</p>';
       return;
@@ -1734,6 +1707,12 @@
       await loadReport();
     }));
   }
+  document.getElementById('absence-list-toggle').addEventListener('click', () => {
+    const list = document.getElementById('absence-list');
+    const chevron = document.getElementById('absence-list-chevron');
+    const nowHidden = list.classList.toggle('hidden');
+    chevron.classList.toggle('collapsed', nowHidden);
+  });
 
   absenceForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1846,21 +1825,60 @@
     const data = await api(`/api/reports/week-detail?person_id=${personId}&date=${weekFromIso}`);
     document.getElementById('week-detail-modal-title').textContent =
       `${data.person_name} · ${fmtDateLabel(new Date(data.days[0].date))} – ${fmtDateLabel(new Date(data.days[6].date))}`;
-    const total = data.days.reduce((sum, d) => sum + d.minutes, 0);
+    const total = data.days.reduce((sum, d) => sum + d.total_minutes, 0);
+
     document.getElementById('week-detail-modal-body').innerHTML = `
       <div class="yc-day-modal-list">
-        ${data.days.map(d => `
-          <div class="yc-day-event-row">
-            <span>${DAY_NAMES[new Date(d.date).getDay() === 0 ? 6 : new Date(d.date).getDay() - 1]}, ${fmtDateDE(d.date)}</span>
-            <strong>${d.minutes ? fmtDuration(d.minutes) : '–'}</strong>
-          </div>
-        `).join('')}
+        ${data.days.map(d => {
+          const dow = new Date(d.date).getDay();
+          const dayName = DAY_NAMES[dow === 0 ? 6 : dow - 1];
+          const entryRows = d.entries.length
+            ? d.entries.map(e => {
+                const timeText = e.start_time && e.end_time
+                  ? `${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}`
+                  : (e.running ? 'läuft noch' : '–');
+                const breakText = e.break_start && e.break_end
+                  ? ` · Pause ${e.break_start.slice(0, 5)}–${e.break_end.slice(0, 5)}`
+                  : (e.break_minutes ? ` · Pause ${e.break_minutes} Min` : '');
+                const taskText = e.task_title ? ` · ${escapeHtml(e.task_title)}` : '';
+                return `
+                  <div class="wd-entry-row">
+                    <span>${timeText}${breakText}${taskText} ${e.duration_minutes ? `<strong>(${fmtDuration(e.duration_minutes)})</strong>` : ''}</span>
+                    <span class="row-actions">
+                      <button type="button" class="ghost" data-wd-edit="${e.id}">Bearbeiten</button>
+                      <button type="button" class="danger" data-wd-delete="${e.id}">Löschen</button>
+                    </span>
+                  </div>
+                `;
+              }).join('')
+            : '<div class="wd-entry-row wd-empty">Keine Einträge</div>';
+          return `
+            <div class="wd-day">
+              <div class="wd-day-heading">${dayName}, ${fmtDateDE(d.date)} <strong>${d.total_minutes ? fmtDuration(d.total_minutes) : '–'}</strong></div>
+              ${entryRows}
+            </div>
+          `;
+        }).join('')}
         <div class="yc-day-event-row" style="border-color:var(--accent)">
-          <span><strong>Summe</strong></span>
+          <span><strong>Summe der Woche</strong></span>
           <strong>${fmtDuration(total)}</strong>
         </div>
       </div>
     `;
+
+    const allEntries = data.days.flatMap(d => d.entries);
+    document.getElementById('week-detail-modal-body').querySelectorAll('[data-wd-edit]').forEach(b => b.addEventListener('click', () => {
+      const entry = allEntries.find(e => e.id === +b.dataset.wdEdit);
+      if (entry) { weekDetailModal.classList.add('hidden'); startEditTimeEntry(entry); }
+    }));
+    document.getElementById('week-detail-modal-body').querySelectorAll('[data-wd-delete]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Diesen Zeiteintrag wirklich löschen?')) return;
+      await api(`/api/time-entries/${b.dataset.wdDelete}`, { method: 'DELETE' });
+      await loadWarnings();
+      await loadReport();
+      await openWeekDetailModal(personId, weekFromIso);
+    }));
+
     weekDetailModal.classList.remove('hidden');
   }
   document.getElementById('week-detail-modal-close').addEventListener('click', () => weekDetailModal.classList.add('hidden'));
@@ -1871,21 +1889,10 @@
   // mit hoher Prioritaet oder einem Termin innerhalb der naechsten 7 Tage, unabhaengig
   // davon, zu welchem Projekt sie gehoeren. Die projekt-gruppierte Tabelle bleibt unveraendert.
   function renderUrgentSection() {
-    const todayIso = isoDate(new Date());
     const soonIso = isoDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
     const openTasks = tasks.filter(t => t.status !== 'erledigt');
-    const urgent = openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso));
-
-    const priorityRank = { hoch: 0, mittel: 1, niedrig: 2 };
-    urgent.sort((a, b) => {
-      const aOverdue = a.due_date && a.due_date < todayIso;
-      const bOverdue = b.due_date && b.due_date < todayIso;
-      if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
-      if (a.due_date && b.due_date && a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
-      if (a.due_date && !b.due_date) return -1;
-      if (!a.due_date && b.due_date) return 1;
-      return priorityRank[a.priority] - priorityRank[b.priority];
-    });
+    const urgentUnsorted = openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso));
+    const urgent = sortByUrgency(urgentUnsorted);
 
     const card = document.getElementById('urgent-card');
     card.classList.toggle('hidden', urgent.length === 0);
@@ -2107,12 +2114,18 @@
     const projectVal = document.getElementById('yc-event-project').value;
     const recurrenceType = document.getElementById('yc-event-recurrence').value;
     const until = document.getElementById('yc-event-until').value;
+    const endDate = document.getElementById('yc-event-end-date').value;
+    if (endDate && endDate < date) { alert('Das Enddatum darf nicht vor dem Startdatum liegen.'); return; }
     const payload = {
       title, date, project_id: projectVal ? +projectVal : null,
       start_time: document.getElementById('yc-event-start-time').value || null,
       end_time: document.getElementById('yc-event-end-time').value || null,
     };
-    if (recurrenceType !== 'keine' && until) payload.recurrence = { type: recurrenceType, until };
+    if (endDate && endDate > date) {
+      payload.end_date = endDate;
+    } else if (recurrenceType !== 'keine' && until) {
+      payload.recurrence = { type: recurrenceType, until };
+    }
     await api('/api/year-events', { method: 'POST', body: JSON.stringify(payload) });
     document.getElementById('yc-event-form').reset();
     document.getElementById('yc-event-until').classList.add('hidden');

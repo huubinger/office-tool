@@ -1751,18 +1751,22 @@
     ]);
   }
 
+  // Regenbogenfarben je Monat (rein dekorativ für die Spaltenköpfe, angelehnt an
+  // klassische Jahresplaner-Poster) - unabhaengig von den Projektfarben der Termine.
+  const MONTH_COLORS = ['#3b82f6', '#0ea5e9', '#14b8a6', '#65c96f', '#a3d939', '#eab308', '#f97316', '#ef4444', '#ec4899', '#d946ef', '#a855f7', '#6366f1'];
+
   function isSchoolHoliday(dateIso) {
     return ycSchoolHolidays.some(h => dateIso >= h.from && dateIso <= h.to);
   }
 
-  function renderMonthHtml(year, monthIndex) {
-    const first = new Date(year, monthIndex, 1);
-    const startOffset = (first.getDay() + 6) % 7; // Montag = 0
+  // Lineares Monats-Spalten-Layout (wie ein Wand-Jahresplaner): jede Spalte ist ein
+  // Monat, jede Zeile ein Tag. Termine erscheinen als lesbarer Text direkt in der
+  // Zeile (nicht nur als Punkt), damit man auf einen Blick sieht, was ansteht.
+  function renderMonthColumnHtml(year, monthIndex) {
     const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
     const todayIso = isoDate(new Date());
 
-    let cells = '';
-    for (let i = 0; i < startOffset; i++) cells += '<div class="yc-day yc-empty"></div>';
+    let rows = '';
     for (let d = 1; d <= daysInMonth; d++) {
       const dateIso = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dow = new Date(year, monthIndex, d).getDay();
@@ -1771,33 +1775,33 @@
       const isSchool = isSchoolHoliday(dateIso);
       const dayEvents = ycEvents.filter(e => e.date === dateIso);
       const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
-      const dots = [
-        ...dayEvents.map(e => `<span class="yc-day-dot" style="background:${e.project_color || '#8a8d90'}"></span>`),
-        ...dayExternal.map(e => `<span class="yc-day-dot" style="background:${e.calendar_color}"></span>`),
-      ].slice(0, 6).join('');
+      const allDayItems = [
+        ...dayEvents.map(e => ({ title: e.title, color: e.project_color || '#8a8d90' })),
+        ...dayExternal.map(e => ({ title: e.title, color: e.calendar_color })),
+      ];
+      const shown = allDayItems.slice(0, 3);
+      const moreCount = allDayItems.length - shown.length;
+      const chips = shown.map(it => `<span class="yc-event-chip" style="background:${it.color}" title="${escapeHtml(it.title)}">${escapeHtml(it.title)}</span>`).join('')
+        + (moreCount > 0 ? `<span class="yc-event-more">+${moreCount} weitere</span>` : '');
 
-      const classes = ['yc-day'];
+      const classes = ['yc-day-row'];
       if (isWeekend) classes.push('yc-weekend');
       if (isSchool) classes.push('yc-school-holiday');
       if (isPublicHoliday) classes.push('yc-public-holiday');
       if (dateIso === todayIso) classes.push('yc-today');
 
-      cells += `
+      rows += `
         <div class="${classes.join(' ')}" data-yc-day="${dateIso}" title="${isPublicHoliday ? 'Feiertag' : ''}${isSchool ? ' Schulferien' : ''}">
-          <span>${d}</span>
-          <span class="yc-day-dots">${dots}</span>
+          <span class="yc-day-num">${String(d).padStart(2, '0')}</span>
+          <div class="yc-day-events">${chips}</div>
         </div>
       `;
     }
 
     return `
-      <div class="yc-month">
-        <h3>${MONTH_NAMES[monthIndex]} ${year}</h3>
-        <div class="yc-month-grid">
-          <div class="yc-dow">Mo</div><div class="yc-dow">Di</div><div class="yc-dow">Mi</div>
-          <div class="yc-dow">Do</div><div class="yc-dow">Fr</div><div class="yc-dow">Sa</div><div class="yc-dow">So</div>
-          ${cells}
-        </div>
+      <div class="yc-month-col">
+        <div class="yc-month-col-header" style="background:${MONTH_COLORS[monthIndex]}">${MONTH_NAMES[monthIndex]}</div>
+        ${rows}
       </div>
     `;
   }
@@ -1808,7 +1812,7 @@
     await loadYearCalendarData();
 
     const monthsRange = ycHalf === 'h1' ? [0, 1, 2, 3, 4, 5] : [6, 7, 8, 9, 10, 11];
-    document.getElementById('yc-months-grid').innerHTML = monthsRange.map(m => renderMonthHtml(ycYear, m)).join('');
+    document.getElementById('yc-months-grid').innerHTML = monthsRange.map(m => renderMonthColumnHtml(ycYear, m)).join('');
     document.querySelectorAll('[data-yc-day]').forEach(el => el.addEventListener('click', () => openYcDayModal(el.dataset.ycDay)));
 
     renderYcExternalList();

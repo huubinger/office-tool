@@ -592,6 +592,7 @@ form + .hint { margin-top: 8px; }
 .cml-entry-body { flex: 1; min-width: 0; }
 .cml-entry-title { font-size: 13px; font-weight: 600; color: var(--ink); }
 .cml-entry-person { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
+.cml-project-tag, .cal-entry-project { font-weight: 700; font-size: inherit; }
 .cml-entry.done .cml-entry-title { text-decoration: line-through; color: var(--ink-faint); }
 
 .calendar-grid {
@@ -698,6 +699,7 @@ form + .hint { margin-top: 8px; }
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
   padding: 3px; display: flex; flex-direction: column; gap: 3px; min-height: 30px;
 }
+.cal-allday-cell.drag-over { background: var(--accent-soft); }
 .cal-allday-chip {
   font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: var(--radius-sm); color: #fff; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.25);

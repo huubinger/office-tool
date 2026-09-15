@@ -502,6 +502,9 @@ app.put('/api/tasks/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Aufgabe nicht gefunden' });
   const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date, project_id, clear_project, start_date, clear_start_date } = req.body;
+  // 'due_time' in req.body erlaubt gezieltes Loeschen der Uhrzeit (z.B. auf null), ohne
+  // gleichzeitig das Faelligkeitsdatum zu loeschen (anders als clear_due_date, das beides loescht).
+  const nextDueTime = clear_due_date ? null : ('due_time' in req.body ? due_time : existing.due_time);
   db.prepare(`
     UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?, project_id = ?, start_date = ?
     WHERE id = ?
@@ -512,7 +515,7 @@ app.put('/api/tasks/:id', (req, res) => {
     status ?? existing.status,
     priority ?? existing.priority,
     clear_due_date ? null : (due_date ?? existing.due_date),
-    clear_due_date ? null : (due_time ?? existing.due_time),
+    nextDueTime,
     clear_project ? null : (project_id ?? existing.project_id),
     clear_start_date ? null : (start_date ?? existing.start_date),
     req.params.id
@@ -598,19 +601,21 @@ app.get('/api/calendar', (req, res) => {
   let rows;
   if (from && to) {
     rows = db.prepare(`
-      SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color
+      SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color, pr.name AS project_name, pr.color AS project_color
       FROM calendar_entries ce
       JOIN tasks t ON t.id = ce.task_id
       JOIN people p ON p.id = ce.person_id
+      LEFT JOIN projects pr ON pr.id = t.project_id
       WHERE ce.date BETWEEN ? AND ?
       ORDER BY ce.date, ce.start_time
     `).all(from, to);
   } else {
     rows = db.prepare(`
-      SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color
+      SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color, pr.name AS project_name, pr.color AS project_color
       FROM calendar_entries ce
       JOIN tasks t ON t.id = ce.task_id
       JOIN people p ON p.id = ce.person_id
+      LEFT JOIN projects pr ON pr.id = t.project_id
       ORDER BY ce.date, ce.start_time
     `).all();
   }
@@ -645,10 +650,11 @@ app.post('/api/calendar', (req, res) => {
   const ids = dates.map(d => stmt.run(task_id, person_id, d, start_time, end_time, seriesId).lastInsertRowid);
 
   const row = db.prepare(`
-    SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color
+    SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color, pr.name AS project_name, pr.color AS project_color
     FROM calendar_entries ce
     JOIN tasks t ON t.id = ce.task_id
     JOIN people p ON p.id = ce.person_id
+    LEFT JOIN projects pr ON pr.id = t.project_id
     WHERE ce.id = ?
   `).get(ids[0]);
   res.status(201).json(row);
@@ -667,10 +673,11 @@ app.put('/api/calendar/:id', (req, res) => {
       req.params.id
     );
   const row = db.prepare(`
-    SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color
+    SELECT ce.*, t.title AS task_title, t.status AS task_status, p.name AS person_name, p.color AS person_color, pr.name AS project_name, pr.color AS project_color
     FROM calendar_entries ce
     JOIN tasks t ON t.id = ce.task_id
     JOIN people p ON p.id = ce.person_id
+    LEFT JOIN projects pr ON pr.id = t.project_id
     WHERE ce.id = ?
   `).get(req.params.id);
   res.json(row);
@@ -696,6 +703,7 @@ app.get('/api/calendar/export.ics', (req, res) => {
     FROM calendar_entries ce
     JOIN tasks t ON t.id = ce.task_id
     JOIN people p ON p.id = ce.person_id
+    LEFT JOIN projects pr ON pr.id = t.project_id
     WHERE ce.date BETWEEN ? AND ?
     ORDER BY ce.date, ce.start_time
   `).all(from, to);

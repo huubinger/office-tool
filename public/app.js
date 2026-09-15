@@ -527,11 +527,11 @@
   // Kompakte Zeile fuer das Dashboard (kein Tabellenkontext dort)
   function compactTaskRowHtml(t) {
     const peopleNames = t.people.length ? t.people.map(p => escapeHtml(p.name)).join(', ') : '—';
-    const projectDot = t.project ? `<span class="color-dot" style="background:${t.project.color}" title="${escapeHtml(t.project.name)}"></span> ` : '';
+    const projectTag = t.project ? `<span class="cml-project-tag" style="color:${t.project.color}">${escapeHtml(t.project.name)}</span> ` : '';
     return `
       <div class="task-row-compact" data-task-row="${t.id}">
         <input type="checkbox" class="task-done-checkbox" data-done-toggle="${t.id}" ${t.status === 'erledigt' ? 'checked' : ''} title="Als erledigt markieren">
-        <span>${projectDot}${escapeHtml(t.title)}</span>
+        <span>${projectTag}${escapeHtml(t.title)}</span>
         <span class="task-meta">${peopleNames}</span>
       </div>
     `;
@@ -1002,6 +1002,29 @@
         });
         cell.appendChild(chip);
       });
+
+      // Erlaubt, einen bereits verplanten Termin aus dem Zeitraster wieder zurueck in die
+      // Ganztaegig-Zeile zu ziehen: entfernt die konkrete Uhrzeit, Aufgabe erscheint danach
+      // ganztaegig an dem Tag, auf den gezogen wurde.
+      cell.addEventListener('dragover', (e) => { e.preventDefault(); cell.classList.add('drag-over'); });
+      cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+      cell.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        cell.classList.remove('drag-over');
+        let payload;
+        try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
+        if (!payload || payload.type !== 'move') return;
+        const entry = calendarEntries.find(en => en.id === payload.entryId);
+        if (!entry) return;
+        await api(`/api/calendar/${entry.id}`, { method: 'DELETE' });
+        await api(`/api/tasks/${entry.task_id}`, { method: 'PUT', body: JSON.stringify({ due_date: dateIso, due_time: null }) });
+        await loadTasks();
+        await loadCalendar();
+        renderAllDayRow();
+        renderCalendarEntries();
+        renderCalendarMobileList();
+      });
+
       row.appendChild(cell);
     });
   }
@@ -1123,10 +1146,11 @@
         el.style.width = (colWidth - 4) + 'px';
         el.style.background = entry.person_color || '#4f46e5';
         const timeLabel = `${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${entry.person_name}`;
-        el.dataset.tooltip = `${entry.task_title}\n${timeLabel}`;
+        const titleWithProject = entry.project_name ? `${entry.project_name}: ${entry.task_title}` : entry.task_title;
+        el.dataset.tooltip = `${titleWithProject}\n${timeLabel}`;
         el.innerHTML = `
           <div class="ce-content">
-            <div class="ce-title">${escapeHtml(entry.task_title)}</div>
+            <div class="ce-title">${entry.project_name ? `<span class="cal-entry-project">${escapeHtml(entry.project_name)}:</span> ` : ''}${escapeHtml(entry.task_title)}</div>
             <div class="ce-time">${escapeHtml(timeLabel)}</div>
           </div>
           <div class="ce-resize-handle" data-resize="${entry.id}"></div>
@@ -1227,7 +1251,7 @@
               <span class="cml-entry-color" style="background:${e.person_color || '#4f46e5'}"></span>
               <span class="cml-entry-time">${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}</span>
               <span class="cml-entry-body">
-                <span class="cml-entry-title">${escapeHtml(e.task_title)}</span>
+                <span class="cml-entry-title">${e.project_name ? `<span class="cml-project-tag" style="color:${e.project_color}">${escapeHtml(e.project_name)}:</span> ` : ''}${escapeHtml(e.task_title)}</span>
                 <span class="cml-entry-person">${escapeHtml(e.person_name)}</span>
               </span>
             </div>
@@ -1335,7 +1359,8 @@
   const entryMenuOverlay = document.getElementById('entry-menu-overlay');
   function openEntryMenu(entry) {
     pendingEntryForMenu = entry;
-    document.getElementById('entry-menu-title').textContent = `${entry.task_title} · ${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)}`;
+    const titlePrefix = entry.project_name ? `${entry.project_name}: ` : '';
+    document.getElementById('entry-menu-title').textContent = `${titlePrefix}${entry.task_title} · ${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)}`;
     document.getElementById('entry-menu-remove-series').classList.toggle('hidden', !entry.series_id);
     entryMenuOverlay.classList.remove('hidden');
   }
@@ -1449,11 +1474,17 @@
   }
 
   document.getElementById('pdf-export-btn').addEventListener('click', () => {
-    const personId = document.getElementById('time-filter-person').value;
-    const from = document.getElementById('time-filter-from').value;
-    const to = document.getElementById('time-filter-to').value;
+    const personEl = document.getElementById('time-filter-person');
+    const fromEl = document.getElementById('time-filter-from');
+    const toEl = document.getElementById('time-filter-to');
+    const personId = personEl.value;
+    const from = fromEl.value;
+    const to = toEl.value;
     if (!personId) { alert('Bitte oben eine konkrete Person auswählen (nicht "Alle").'); return; }
-    if (!from || !to) { alert('Bitte oben Von- und Bis-Datum auswählen.'); return; }
+    if (!from && !to) { alert('Bitte oben Von- und Bis-Datum auswählen.'); return; }
+    if (!from) { alert('Bitte oben das Von-Datum auswählen.'); fromEl.focus(); return; }
+    if (!to) { alert('Bitte oben das Bis-Datum auswählen.'); toEl.focus(); return; }
+    if (to < from) { alert('Das Bis-Datum liegt vor dem Von-Datum.'); return; }
     const params = new URLSearchParams({ person_id: personId, from, to });
     window.open('/api/reports/timesheet-pdf?' + params.toString(), '_blank');
   });
@@ -2271,6 +2302,10 @@
 
   // ---------- Init ----------
   async function init() {
+    // Manche Browser stellen einen zuvor in dieses Feld eingegebenen Wert beim Neuladen
+    // der Seite automatisch wieder her, unabhaengig von autocomplete="off" - deshalb hier
+    // aktiv leeren.
+    document.getElementById('task-filter-search').value = '';
     document.getElementById('absence-from').value = isoDate(new Date());
     document.getElementById('absence-to').value = isoDate(new Date());
     document.getElementById('timeoff-date').value = isoDate(new Date());

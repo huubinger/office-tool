@@ -20,9 +20,9 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Aufgaben
       </button>
-      <button class="tab-btn" data-tab="calendar" data-title="Kalender">
+      <button class="tab-btn" data-tab="calendar" data-title="Wochenplanung">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        Kalender
+        Wochenplanung
       </button>
       <button class="tab-btn" data-tab="people" data-title="Personen/Projekte">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -44,9 +44,9 @@
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Aufgaben</span>
     </button>
-    <button class="tab-btn" data-tab="calendar" data-title="Kalender">
+    <button class="tab-btn" data-tab="calendar" data-title="Wochenplanung">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Kalender</span>
+      <span>Wochenplanung</span>
     </button>
     <button class="tab-btn" data-tab="timetracking" data-title="Zeiterfassung">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -111,7 +111,7 @@
     <div class="card filter-bar-card">
       <div class="filter-row filter-row-tasks">
         <label>Suche
-          <input type="text" id="task-filter-search" placeholder="Aufgabe, Projekt oder Person …">
+          <input type="text" id="task-filter-search" placeholder="Aufgabe, Projekt oder Person …" autocomplete="off">
         </label>
         <label>Projekt
           <select id="task-filter-project"><option value="">Alle Projekte</option></select>
@@ -150,7 +150,7 @@
       <table class="task-table">
         <thead>
           <tr>
-            <th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Start</th><th>Deadline</th><th>Dauer</th><th>Status</th><th></th>
+            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Start</th><th>Deadline</th><th>Dauer</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody id="task-list"></tbody>
@@ -477,7 +477,9 @@
       <div class="time-summary-row">
         <div id="time-summary" class="time-summary"></div>
         <a id="csv-export-link" class="ghost-link" href="#" target="_blank">CSV exportieren</a>
+        <button type="button" id="pdf-export-btn" class="ghost">PDF exportieren</button>
       </div>
+      <p class="hint">PDF-Export nutzt die Filter oben (Person muss konkret ausgewählt sein, nicht "Alle").</p>
       <div id="time-list" class="time-list"></div>
     </div>
   </section>
@@ -549,6 +551,16 @@
     <div class="form-actions">
       <button type="button" id="yc-day-modal-add">+ Termin an diesem Tag</button>
       <button type="button" id="yc-day-modal-close" class="secondary">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<div id="week-detail-modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 id="week-detail-modal-title">Tagesaufschlüsselung</h3>
+    <div id="week-detail-modal-body"></div>
+    <div class="form-actions">
+      <button type="button" id="week-detail-modal-close" class="secondary">Schließen</button>
     </div>
   </div>
 </div>

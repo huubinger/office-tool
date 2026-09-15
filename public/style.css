@@ -252,6 +252,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
 .report-multi-table tr.warn td { color: var(--danger); }
 .report-multi-table td.diff-positive { color: var(--ok); }
 .report-multi-table td.diff-negative { color: var(--danger); }
+.report-detail-row { cursor: pointer; }
+.report-detail-row:hover td { background: var(--panel-alt); }
 
 .card {
   background: var(--panel);
@@ -448,6 +450,8 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .task-table-row:hover td { background: var(--panel-alt); }
 .task-table-row.task-row-done td { color: var(--ink-faint); text-decoration: line-through; }
 .task-table td.empty-state { text-decoration: none; cursor: default; padding: 16px 12px; }
+.task-done-cell { width: 20px; padding-right: 0 !important; }
+.task-done-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--ok); }
 
 .task-assignee { display: flex; align-items: center; gap: 7px; }
 .task-avatar {
@@ -606,21 +610,34 @@ form + .hint { margin-top: 8px; }
   color: #fff;
   font-size: 11px;
   padding: 3px 6px;
-  overflow: hidden;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0,0,0,0.35);
   pointer-events: auto;
   font-weight: 500;
   text-shadow: 0 1px 1px rgba(0,0,0,0.25);
 }
-.cal-entry .ce-title { font-weight: 700; }
-.cal-entry .ce-time { opacity: 0.75; font-size: 10px; }
+.cal-entry .ce-content { height: 100%; overflow: hidden; }
+.cal-entry .ce-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-entry .ce-time { opacity: 0.75; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-entry .ce-resize-handle {
   position: absolute; left: 0; right: 0; bottom: 0; height: 6px; cursor: ns-resize;
 }
 .cal-entry.resizing, .cal-entry.dragging-source { opacity: 0.55; }
 .cal-entry.done { opacity: 0.4; filter: grayscale(70%); }
 .cal-entry.done .ce-title { text-decoration: line-through; }
+
+/* Hover-Tooltip mit vollstaendigem Text, falls Titel/Uhrzeit im Termin selbst abgeschnitten sind */
+.cal-entry:hover { z-index: 20; }
+.cal-entry::after {
+  content: attr(data-tooltip);
+  position: absolute; left: 0; top: 100%; margin-top: 4px;
+  background: #14181f; color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 6px 9px; font-size: 11px; font-weight: 500;
+  white-space: pre-line; text-shadow: none; box-shadow: var(--shadow-pop);
+  width: max-content; max-width: 220px; z-index: 30;
+  opacity: 0; pointer-events: none; transition: opacity 0.1s ease 0.15s;
+}
+.cal-entry:hover::after { opacity: 1; }
 
 .cal-allday-grid {
   display: grid;

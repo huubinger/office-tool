@@ -519,6 +519,7 @@
       : '<span class="task-meta">—</span>';
     return `
       <tr class="task-table-row ${doneClass}" data-task-row="${t.id}" style="border-left-color:${t.project ? t.project.color : 'transparent'}">
+        <td class="task-done-cell"><input type="checkbox" class="task-done-checkbox" data-done-toggle="${t.id}" ${t.status === 'erledigt' ? 'checked' : ''} title="Als erledigt markieren"></td>
         <td>${escapeHtml(t.title)}</td>
         <td>${assignee}</td>
         <td>${priorityDotHtml(t.priority || 'mittel')}</td>
@@ -546,6 +547,18 @@
   function wireTaskRowClicks(container) {
     container.querySelectorAll('[data-task-row]').forEach(el =>
       el.addEventListener('click', () => startEditTask(+el.dataset.taskRow)));
+    container.querySelectorAll('[data-done-toggle]').forEach(cb => {
+      cb.addEventListener('click', (e) => e.stopPropagation());
+      cb.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        await toggleTaskDone(+cb.dataset.doneToggle, cb.checked);
+      });
+    });
+  }
+
+  async function toggleTaskDone(id, done) {
+    await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify({ status: done ? 'erledigt' : 'offen' }) });
+    await loadTasks();
   }
 
   // Gruppiert die gefilterten Aufgaben nach Projekt und rendert je Gruppe eine farbige
@@ -554,11 +567,11 @@
     const container = document.getElementById('task-list');
     const filtered = getFilteredTasks();
     if (!tasks.length) {
-      container.innerHTML = '<tr><td colspan="8" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
+      container.innerHTML = '<tr><td colspan="9" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
       return;
     }
     if (!filtered.length) {
-      container.innerHTML = '<tr><td colspan="8" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
+      container.innerHTML = '<tr><td colspan="9" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
       return;
     }
 
@@ -583,7 +596,7 @@
       return `
         <tbody data-group="${key}">
           <tr class="task-group-header ${collapsed ? 'collapsed' : ''}" data-group-toggle="${key}" style="background:${color}33">
-            <td colspan="8">
+            <td colspan="9">
               <div class="tgh-inner">
                 <span>${escapeHtml(name)}</span>
                 <span class="task-group-count">${group.tasks.length} Aufgabe${group.tasks.length === 1 ? '' : 'n'}</span>
@@ -1096,9 +1109,13 @@
         el.style.left = (dayIdx * dw + col * colWidth + 2) + 'px';
         el.style.width = (colWidth - 4) + 'px';
         el.style.background = entry.person_color || '#4f46e5';
+        const timeLabel = `${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${entry.person_name}`;
+        el.dataset.tooltip = `${entry.task_title}\n${timeLabel}`;
         el.innerHTML = `
-          <div class="ce-title">${escapeHtml(entry.task_title)}</div>
-          <div class="ce-time">${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${escapeHtml(entry.person_name)}</div>
+          <div class="ce-content">
+            <div class="ce-title">${escapeHtml(entry.task_title)}</div>
+            <div class="ce-time">${escapeHtml(timeLabel)}</div>
+          </div>
           <div class="ce-resize-handle" data-resize="${entry.id}"></div>
         `;
 
@@ -1359,6 +1376,16 @@
     renderTimeList();
     document.getElementById('csv-export-link').href = '/api/time-entries/export.csv?' + params.toString();
   }
+
+  document.getElementById('pdf-export-btn').addEventListener('click', () => {
+    const personId = document.getElementById('time-filter-person').value;
+    const from = document.getElementById('time-filter-from').value;
+    const to = document.getElementById('time-filter-to').value;
+    if (!personId) { alert('Bitte oben eine konkrete Person auswählen (nicht "Alle").'); return; }
+    if (!from || !to) { alert('Bitte oben Von- und Bis-Datum auswählen.'); return; }
+    const params = new URLSearchParams({ person_id: personId, from, to });
+    window.open('/api/reports/timesheet-pdf?' + params.toString(), '_blank');
+  });
 
   // Kumulierte Ueber-/Unterstunden je Person laden (nur fuer Personen mit Wochensoll)
   async function loadLifetimeBalances() {
@@ -1676,7 +1703,7 @@
       const warnLabel = r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES
         ? (r.diff_minutes > 0 ? ' ⚠ Überstunden' : ' ⚠ Unterstunden') : '';
       return `
-        <tr class="${isWarn ? 'warn' : ''}">
+        <tr class="report-detail-row ${isWarn ? 'warn' : ''}" data-report-person="${r.person_id}" data-report-week="${r.weekFrom}">
           <td>${fmtDateLabel(new Date(r.weekFrom))} – ${fmtDateLabel(new Date(r.weekTo))}</td>
           <td>${escapeHtml(r.person_name)}</td>
           <td>${r.target_minutes ? fmtDuration(r.target_minutes) : '–'}</td>
@@ -1685,9 +1712,36 @@
         </tr>
       `;
     }).join('');
+    container.querySelectorAll('[data-report-person]').forEach(row => row.addEventListener('click', () =>
+      openWeekDetailModal(+row.dataset.reportPerson, row.dataset.reportWeek)));
   }
   document.getElementById('report-week-prev').addEventListener('click', () => { reportWeekStart = addDays(reportWeekStart, -7 * REPORT_WEEKS_PER_PAGE); loadReport(); });
   document.getElementById('report-week-next').addEventListener('click', () => { reportWeekStart = addDays(reportWeekStart, 7 * REPORT_WEEKS_PER_PAGE); loadReport(); });
+
+  const weekDetailModal = document.getElementById('week-detail-modal-overlay');
+  async function openWeekDetailModal(personId, weekFromIso) {
+    const data = await api(`/api/reports/week-detail?person_id=${personId}&date=${weekFromIso}`);
+    document.getElementById('week-detail-modal-title').textContent =
+      `${data.person_name} · ${fmtDateLabel(new Date(data.days[0].date))} – ${fmtDateLabel(new Date(data.days[6].date))}`;
+    const total = data.days.reduce((sum, d) => sum + d.minutes, 0);
+    document.getElementById('week-detail-modal-body').innerHTML = `
+      <div class="yc-day-modal-list">
+        ${data.days.map(d => `
+          <div class="yc-day-event-row">
+            <span>${DAY_NAMES[new Date(d.date).getDay() === 0 ? 6 : new Date(d.date).getDay() - 1]}, ${fmtDateDE(d.date)}</span>
+            <strong>${d.minutes ? fmtDuration(d.minutes) : '–'}</strong>
+          </div>
+        `).join('')}
+        <div class="yc-day-event-row" style="border-color:var(--accent)">
+          <span><strong>Summe</strong></span>
+          <strong>${fmtDuration(total)}</strong>
+        </div>
+      </div>
+    `;
+    weekDetailModal.classList.remove('hidden');
+  }
+  document.getElementById('week-detail-modal-close').addEventListener('click', () => weekDetailModal.classList.add('hidden'));
+  weekDetailModal.addEventListener('click', (e) => { if (e.target === weekDetailModal) weekDetailModal.classList.add('hidden'); });
 
   // ================= DASHBOARD =================
   // Projektuebergreifender "Dringend"-Bereich oben auf der Aufgaben-Seite: offene Aufgaben
@@ -1875,7 +1929,10 @@
       ...dayEvents.map(e => `
         <div class="yc-day-event-row">
           <span><span class="color-dot" style="background:${e.project_color || '#8a8d90'}"></span> ${escapeHtml(ycEventLabel(e))}${e.project_name ? ' · ' + escapeHtml(e.project_name) : ''}</span>
-          <button type="button" class="danger" data-delete-yc-event="${e.id}" data-yc-group="${e.recurrence_group || ''}">Löschen</button>
+          <span class="row-actions">
+            <button type="button" class="danger" data-delete-yc-event="${e.id}">Löschen</button>
+            ${e.recurrence_group ? `<button type="button" class="danger" data-delete-yc-group="${e.recurrence_group}">Ganze Serie löschen</button>` : ''}
+          </span>
         </div>
       `),
       ...dayExternal.map(e => `
@@ -1888,9 +1945,14 @@
     body.innerHTML = notes.join('') + `<div class="yc-day-modal-list">${rows.length ? rows.join('') : '<p class="empty-state">Keine Termine an diesem Tag.</p>'}</div>`;
 
     body.querySelectorAll('[data-delete-yc-event]').forEach(b => b.addEventListener('click', async () => {
-      const group = b.dataset.ycGroup;
-      if (group && !confirm('Dies ist Teil einer Wiederholungsserie. Nur diesen Termin löschen (OK) oder abbrechen?')) return;
+      if (!confirm('Diesen Termin löschen?')) return;
       await api(`/api/year-events/${b.dataset.deleteYcEvent}`, { method: 'DELETE' });
+      await renderYearCalendar();
+      openYcDayModal(dateIso);
+    }));
+    body.querySelectorAll('[data-delete-yc-group]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Die komplette Wiederholungsserie löschen? Das entfernt alle Termine dieser Reihe, nicht nur diesen Tag.')) return;
+      await api(`/api/year-events/group/${b.dataset.deleteYcGroup}`, { method: 'DELETE' });
       await renderYearCalendar();
       openYcDayModal(dateIso);
     }));

@@ -14,6 +14,7 @@ const { runBackup, getLastBackup, isConfigured: isBackupConfigured } = require('
 const { getHolidaysForYear, isHoliday } = require('./holidays');
 const { getSchoolHolidaysForYear } = require('./schulferien');
 const { fetchAndParseIcs, buildIcs } = require('./icalparser');
+const PDFDocument = require('pdfkit');
 
 const app = express();
 // Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
@@ -964,16 +965,20 @@ app.get('/api/reports/week', (req, res) => {
 
   const report = people.map(p => {
     const isBfd = p.contract_type === 'BFD';
+    // Bei BFD: Wochen komplett vor Vertragsbeginn bekommen kein Soll angesetzt (keine
+    // Minusstunden fuer Zeit vor der eigentlichen Taetigkeit).
+    const beforeContractStart = isBfd && p.contract_start && to < p.contract_start;
     let actual = actualStmt.get(p.id, from, to).m + seminarCreditMinutes(p.id, from, to);
     if (isBfd) {
       actual += weekendHolidayBonusMinutes(p.id, from, to);
       actual -= timeOffCompensationMinutes(p.id, from, to);
     }
-    const diff = p.weekly_target_minutes ? actual - p.weekly_target_minutes : null;
+    const targetMinutes = beforeContractStart ? null : (p.weekly_target_minutes || null);
+    const diff = targetMinutes ? actual - targetMinutes : null;
     return {
       person_id: p.id,
       person_name: p.name,
-      target_minutes: p.weekly_target_minutes || null,
+      target_minutes: targetMinutes,
       actual_minutes: actual,
       diff_minutes: diff,
       bfd_warning: isBfd ? bfdThresholdWarning(diff) : null,
@@ -981,6 +986,127 @@ app.get('/api/reports/week', (req, res) => {
   });
 
   res.json({ from, to, report });
+});
+
+// Tagesaufschluesselung (Mo-So) fuer eine Person in einer bestimmten Woche - fuer die
+// anklickbaren Zeilen im (Mehrwochen-)Wochenreport.
+app.get('/api/reports/week-detail', (req, res) => {
+  const personId = req.query.person_id;
+  if (!personId) return res.status(400).json({ error: 'person_id ist erforderlich' });
+  if (req.session.personId && +personId !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
+  const person = db.prepare('SELECT * FROM people WHERE id = ?').get(personId);
+  if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
+
+  const refDate = req.query.date ? new Date(req.query.date) : new Date();
+  const day = refDate.getDay();
+  const monday = new Date(refDate);
+  monday.setDate(refDate.getDate() + ((day === 0 ? -6 : 1) - day));
+
+  const dayStmt = db.prepare(`
+    SELECT COALESCE(SUM(duration_minutes), 0) AS m
+    FROM time_entries
+    WHERE person_id = ? AND date = ? AND duration_minutes IS NOT NULL
+  `);
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const iso = isoDateLocal(d);
+    days.push({ date: iso, minutes: dayStmt.get(personId, iso).m });
+  }
+  res.json({ person_name: person.name, days });
+});
+
+const DE_WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+function fmtDurationDE(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h && m) return `${h} Std ${m} Min`;
+  if (h) return `${h} Std`;
+  return `${m} Min`;
+}
+function fmtDateDE(iso) {
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+// PDF-Export der Arbeitszeit einer Person ueber einen frei waehlbaren Zeitraum:
+// Tabelle mit Datum, Wochentag, erfasster Dauer je Tag, plus Summe am Ende.
+app.get('/api/reports/timesheet-pdf', (req, res) => {
+  const { person_id, from, to } = req.query;
+  if (!person_id || !from || !to) {
+    return res.status(400).json({ error: 'person_id, from und to sind erforderlich' });
+  }
+  if (req.session.personId && +person_id !== req.session.personId) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
+  const person = db.prepare('SELECT * FROM people WHERE id = ?').get(person_id);
+  if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
+
+  const rows = db.prepare(`
+    SELECT date, SUM(duration_minutes) AS minutes
+    FROM time_entries
+    WHERE person_id = ? AND date BETWEEN ? AND ? AND duration_minutes IS NOT NULL
+    GROUP BY date
+    ORDER BY date
+  `).all(person_id, from, to);
+  const byDate = new Map(rows.map(r => [r.date, r.minutes]));
+
+  const days = [];
+  let cur = new Date(from);
+  const end = new Date(to);
+  while (cur <= end) {
+    const iso = isoDateLocal(cur);
+    days.push({ date: iso, minutes: byDate.get(iso) || 0 });
+    cur.setDate(cur.getDate() + 1);
+  }
+  const total = days.reduce((sum, d) => sum + d.minutes, 0);
+
+  res.set('Content-Type', 'application/pdf');
+  res.set('Content-Disposition', `attachment; filename="Arbeitszeit-${person.name.replace(/[^a-zA-Z0-9]/g, '_')}-${from}_bis_${to}.pdf"`);
+
+  const doc = new PDFDocument({ margin: 40, size: 'A4' });
+  doc.pipe(res);
+
+  doc.fontSize(16).text('Arbeitszeitnachweis', { align: 'left' });
+  doc.fontSize(11).moveDown(0.3);
+  doc.text(`Person: ${person.name}`);
+  doc.text(`Zeitraum: ${fmtDateDE(from)} – ${fmtDateDE(to)}`);
+  doc.moveDown();
+
+  const colDate = 40, colDay = 140, colHours = 350;
+  const tableTop = doc.y;
+  doc.fontSize(10).font('Helvetica-Bold');
+  doc.text('Datum', colDate, tableTop);
+  doc.text('Wochentag', colDay, tableTop);
+  doc.text('Arbeitszeit', colHours, tableTop);
+  doc.moveDown(0.5);
+  doc.font('Helvetica');
+  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#cccccc').stroke();
+  doc.moveDown(0.3);
+
+  days.forEach(d => {
+    const dow = DE_WEEKDAYS[new Date(d.date).getDay()];
+    const y = doc.y;
+    if (y > 780) { doc.addPage(); }
+    const rowY = doc.y;
+    doc.text(fmtDateDE(d.date), colDate, rowY);
+    doc.text(dow, colDay, rowY);
+    doc.text(d.minutes ? fmtDurationDE(d.minutes) : '–', colHours, rowY);
+    doc.moveDown(0.4);
+  });
+
+  doc.moveDown(0.3);
+  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#333333').stroke();
+  doc.moveDown(0.3);
+  doc.font('Helvetica-Bold');
+  const sumY = doc.y;
+  doc.text('Summe', colDate, sumY);
+  doc.text(fmtDurationDE(total), colHours, sumY);
+
+  doc.end();
 });
 
 // Kumulierte Ueber-/Unterstunden ueber die gesamte bisher erfasste Zeit einer Person
@@ -1004,12 +1130,18 @@ app.get('/api/reports/lifetime', (req, res) => {
     SELECT COALESCE(SUM(duration_minutes), 0) AS m FROM time_entries WHERE person_id = ? AND duration_minutes IS NOT NULL
   `).get(personId).m;
 
-  const firstMonday = getMondayOf(new Date(firstRow.d));
+  const firstMondayFromEntries = getMondayOf(new Date(firstRow.d));
+  const isBfd = person.contract_type === 'BFD';
+  // Bei BFD: nie vor dem hinterlegten Vertragsbeginn zu zaehlen anfangen, auch wenn
+  // zufaellig ein frueherer Zeiteintrag existiert - sonst wuerden Wochen vor dem
+  // eigentlichen Start faelschlich als Minusstunden in die Bilanz einfliessen.
+  const firstMonday = (isBfd && person.contract_start && new Date(person.contract_start) > firstMondayFromEntries)
+    ? getMondayOf(new Date(person.contract_start))
+    : firstMondayFromEntries;
   const currentMonday = getMondayOf(new Date());
   const weeksCounted = Math.round((currentMonday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
   const rangeFrom = isoDateLocal(firstMonday);
   const rangeTo = isoDateLocal(new Date());
-  const isBfd = person.contract_type === 'BFD';
 
   let totalActualWithCredit = totalActual + seminarCreditMinutes(personId, rangeFrom, rangeTo);
   if (isBfd) {

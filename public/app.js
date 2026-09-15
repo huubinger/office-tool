@@ -2155,6 +2155,22 @@
     window.open(`${window.location.pathname}?yc=${otherHalf}&ycyear=${ycYear}`, '_blank');
   });
 
+  // Vollbild-Umschaltung fuer den gesamten Jahreskalender-Bereich, ueber die Fullscreen-API
+  // des Browsers - nuetzlich, um mehr von den Monaten gleichzeitig zu sehen.
+  const ycFullscreenBtn = document.getElementById('yc-fullscreen-btn');
+  ycFullscreenBtn.addEventListener('click', () => {
+    const section = document.getElementById('tab-yearcalendar');
+    if (!document.fullscreenElement) {
+      section.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.();
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const isFullscreen = document.fullscreenElement === document.getElementById('tab-yearcalendar');
+    ycFullscreenBtn.textContent = isFullscreen ? '✕ Vollbild verlassen' : '⛶ Vollbild';
+  });
+
   // Beim allerersten Wechsel in den Jahreskalender (H1-Ansicht, einmal pro Browser-Sitzung)
   // automatisch ein zweites Browser-Tab mit der zweiten Jahreshaelfte oeffnen - gedacht zum
   // Rueberziehen auf einen zweiten Bildschirm fuer den vollen Jahresueberblick.

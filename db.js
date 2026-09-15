@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS year_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
   date TEXT NOT NULL,
+  start_time TEXT,
+  end_time TEXT,
   project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   recurrence_group TEXT,
   created_at TEXT DEFAULT (datetime('now'))
@@ -161,6 +163,11 @@ CREATE TABLE IF NOT EXISTS external_calendar_events (
 
 CREATE INDEX IF NOT EXISTS idx_year_events_date ON year_events(date);
 CREATE INDEX IF NOT EXISTS idx_ext_cal_events_date ON external_calendar_events(date);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_entries(date);
 CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
@@ -198,6 +205,8 @@ ensureColumn('people', 'seminar_days_total', 'INTEGER');
 ensureColumn('tasks', 'due_time', 'TEXT');
 ensureColumn('tasks', 'project_id', 'INTEGER REFERENCES projects(id)');
 ensureColumn('tasks', 'start_date', 'TEXT');
+ensureColumn('year_events', 'start_time', 'TEXT');
+ensureColumn('year_events', 'end_time', 'TEXT');
 ensureColumn('app_users', 'person_id', 'INTEGER REFERENCES people(id)');
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----

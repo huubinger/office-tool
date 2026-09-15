@@ -21,7 +21,6 @@
   let pendingMove = null; // { entryId, duration } fuer Verschieben eines bestehenden Termins
   let pendingEntryForMenu = null;
   let estimateDebounce = null;
-  let pinResolver = null;
   let taskFilters = { search: '', person: '', project: '', status: '', priority: '' };
 
   const DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
@@ -94,52 +93,10 @@
       const pageTitle = document.getElementById('page-title');
       if (pageTitle) pageTitle.textContent = btn.dataset.title || btn.textContent.trim();
       if (tab === 'calendar') renderCalendar();
-      if (tab === 'dashboard') renderDashboard();
       if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
       if (tab === 'yearcalendar') { renderYearCalendar(); maybeAutoOpenSecondHalf(); }
     });
   });
-
-  // ================= PIN-Schutz ================= 
-  const pinOverlay = document.getElementById('pin-modal-overlay');
-  const pinInput = document.getElementById('pin-modal-input');
-  const pinText = document.getElementById('pin-modal-text');
-
-  function requirePin(personId, actionLabel) {
-    const person = people.find(p => p.id === personId);
-    if (!person || !person.has_pin) return Promise.resolve(true);
-    pinText.textContent = `${person.name} hat eine PIN hinterlegt. Bitte PIN eingeben, um "${actionLabel}" fortzusetzen.`;
-    pinInput.value = '';
-    pinOverlay.classList.remove('hidden');
-    pinInput.focus();
-    return new Promise(resolve => {
-      pinResolver = { resolve, personId };
-    });
-  }
-
-  document.getElementById('pin-modal-confirm').addEventListener('click', async () => {
-    if (!pinResolver) return;
-    const { resolve, personId } = pinResolver;
-    try {
-      const result = await api(`/api/people/${personId}/verify-pin`, { method: 'POST', body: JSON.stringify({ pin: pinInput.value.trim() }) });
-      if (result.valid) {
-        pinOverlay.classList.add('hidden');
-        pinResolver = null;
-        resolve(true);
-      } else {
-        pinText.textContent = 'Falsche PIN, bitte erneut versuchen.';
-        pinInput.value = '';
-        pinInput.focus();
-      }
-    } catch (e) {
-      pinText.textContent = 'Fehler bei der PIN-Prüfung.';
-    }
-  });
-  document.getElementById('pin-modal-cancel').addEventListener('click', () => {
-    if (pinResolver) { pinResolver.resolve(false); pinResolver = null; }
-    pinOverlay.classList.add('hidden');
-  });
-  pinInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('pin-modal-confirm').click(); });
 
   // ================= QUICKSTART ================= 
   const quickstartForm = document.getElementById('quickstart-form');
@@ -148,8 +105,6 @@
     const personId = +document.getElementById('quickstart-person').value;
     const title = document.getElementById('quickstart-title').value.trim();
     if (!personId) return;
-    const ok = await requirePin(personId, 'Schnellstart');
-    if (!ok) return;
     await api('/api/time-entries/quick-start', { method: 'POST', body: JSON.stringify({ person_id: personId, title }) });
     document.getElementById('quickstart-title').value = '';
     await refreshAfterTimerChange();
@@ -161,10 +116,7 @@
   const personRoleInput = document.getElementById('person-role');
   const personColorInput = document.getElementById('person-color');
   const personIdInput = document.getElementById('person-id');
-  const personEmailInput = document.getElementById('person-email');
-  const personPinInput = document.getElementById('person-pin');
   const personWeeklyHoursInput = document.getElementById('person-weekly-hours');
-  const personPinStatus = document.getElementById('person-pin-status');
   const personSubmitBtn = document.getElementById('person-submit-btn');
   const personCancelBtn = document.getElementById('person-cancel-btn');
   const personContractTypeInput = document.getElementById('person-contract-type');
@@ -175,7 +127,6 @@
   const personContractEndInput = document.getElementById('person-contract-end');
   const contractFileInput = document.getElementById('contract-file-input');
   const contractParseHint = document.getElementById('contract-parse-hint');
-  let clearPinFlag = false;
 
   personContractTypeInput.addEventListener('change', () => {
     bfdFieldsBlock.classList.toggle('hidden', !personContractTypeInput.value);
@@ -258,8 +209,8 @@
         <div class="person-row-main">
           <span class="color-dot" style="background:${p.color}"></span>
           <div>
-            <div><strong>${escapeHtml(p.name)}</strong>${p.active ? '' : ' <span class="status-badge">inaktiv</span>'}${p.has_pin ? ' <span class="status-badge">🔒 PIN</span>' : ''}${p.contract_type ? ` <span class="status-badge">${escapeHtml(p.contract_type)}</span>` : ''}</div>
-            <div class="task-meta">${escapeHtml(p.role || '')}${p.email ? ' · ' + escapeHtml(p.email) : ''}${weeklyHours ? ' · Soll ' + weeklyHours + ' Std/Woche' : ''}${contractMeta}</div>
+            <div><strong>${escapeHtml(p.name)}</strong>${p.active ? '' : ' <span class="status-badge">inaktiv</span>'}${p.contract_type ? ` <span class="status-badge">${escapeHtml(p.contract_type)}</span>` : ''}</div>
+            <div class="task-meta">${escapeHtml(p.role || '')}${weeklyHours ? ' · Soll ' + weeklyHours + ' Std/Woche' : ''}${contractMeta}</div>
           </div>
         </div>
         <div class="row-actions">
@@ -277,13 +228,10 @@
     const p = people.find(x => x.id === id);
     if (!p) return;
     editingPersonId = id;
-    clearPinFlag = false;
     personIdInput.value = id;
     personNameInput.value = p.name;
     personRoleInput.value = p.role || '';
     personColorInput.value = p.color || '#4f46e5';
-    personEmailInput.value = p.email || '';
-    personPinInput.value = '';
     personWeeklyHoursInput.value = p.weekly_target_minutes ? p.weekly_target_minutes / 60 : '';
     personContractTypeInput.value = p.contract_type || '';
     personVacationDaysInput.value = p.vacation_days_total || '';
@@ -294,31 +242,14 @@
     contractParseHint.classList.add('hidden');
     personSubmitBtn.textContent = 'Änderungen speichern';
     personCancelBtn.classList.remove('hidden');
-    renderPinStatus(p);
-  }
-
-  function renderPinStatus(p) {
-    if (p && p.has_pin) {
-      personPinStatus.innerHTML = 'PIN ist gesetzt. Neue PIN eingeben zum Ändern, oder <a href="#" id="clear-pin-link">PIN entfernen</a>.';
-      const link = document.getElementById('clear-pin-link');
-      if (link) link.addEventListener('click', (e) => {
-        e.preventDefault();
-        clearPinFlag = true;
-        personPinStatus.textContent = 'PIN wird beim Speichern entfernt.';
-      });
-    } else {
-      personPinStatus.textContent = '';
-    }
   }
 
   function resetPersonForm() {
     editingPersonId = null;
-    clearPinFlag = false;
     personForm.reset();
     personColorInput.value = '#4f46e5';
     personSubmitBtn.textContent = 'Person anlegen';
     personCancelBtn.classList.add('hidden');
-    personPinStatus.textContent = '';
     bfdFieldsBlock.classList.add('hidden');
     contractParseHint.classList.add('hidden');
   }
@@ -330,7 +261,6 @@
       name: personNameInput.value.trim(),
       role: personRoleInput.value.trim(),
       color: personColorInput.value,
-      email: personEmailInput.value.trim(),
       weekly_target_minutes: personWeeklyHoursInput.value ? Math.round(+personWeeklyHoursInput.value * 60) : null,
       contract_type: personContractTypeInput.value || null,
       vacation_days_total: personVacationDaysInput.value ? +personVacationDaysInput.value : null,
@@ -338,8 +268,6 @@
       contract_start: personContractStartInput.value || null,
       contract_end: personContractEndInput.value || null,
     };
-    if (personPinInput.value.trim()) payload.pin = personPinInput.value.trim();
-    if (clearPinFlag) payload.clear_pin = true;
     if (!payload.name) return;
     if (editingPersonId) {
       await api(`/api/people/${editingPersonId}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -462,9 +390,9 @@
   async function loadTasks() {
     tasks = await api('/api/tasks');
     renderTaskList();
+    renderUrgentSection();
     fillTaskSelect();
     if (document.getElementById('tab-calendar').classList.contains('active')) renderCalendar();
-    if (document.getElementById('tab-dashboard').classList.contains('active')) renderDashboard();
   }
 
   function renderTaskPeopleCheckboxes() {
@@ -498,8 +426,6 @@
   }
 
   async function startTimer(taskId, personId) {
-    const ok = await requirePin(personId, 'Zeit starten');
-    if (!ok) return;
     await api('/api/time-entries/start', { method: 'POST', body: JSON.stringify({ task_id: taskId, person_id: personId }) });
     await refreshAfterTimerChange();
   }
@@ -948,25 +874,26 @@
     const pool = document.getElementById('calendar-task-pool');
     const openTasks = tasks.filter(t => t.status !== 'erledigt');
     if (!openTasks.length) {
-      pool.innerHTML = '<p class="empty-state">Keine offenen Aufgaben.</p>';
+      pool.innerHTML = '<tr><td colspan="3" class="empty-state">Keine offenen Aufgaben.</td></tr>';
       return;
     }
     pool.innerHTML = '';
     openTasks.forEach(t => {
-      const card = document.createElement('div');
-      card.className = 'task-card';
-      card.draggable = true;
-      card.dataset.taskId = t.id;
-      const peopleNames = t.people.map(p => p.name).join(', ') || 'niemand zugeordnet';
-      card.innerHTML = `
-        <div class="tc-title">${escapeHtml(t.title)}</div>
-        <div class="tc-meta">${fmtDuration(t.estimated_minutes)} · ${escapeHtml(peopleNames)}</div>
+      const row = document.createElement('tr');
+      row.className = 'task-table-row';
+      row.draggable = true;
+      row.dataset.taskId = t.id;
+      const peopleNames = t.people.map(p => p.name).join(', ') || '—';
+      row.innerHTML = `
+        <td>${escapeHtml(t.title)}</td>
+        <td>${escapeHtml(peopleNames)}</td>
+        <td>${fmtDuration(t.estimated_minutes)}</td>
       `;
-      card.addEventListener('dragstart', (e) => {
+      row.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: t.id }));
         e.dataTransfer.effectAllowed = 'copy';
       });
-      pool.appendChild(card);
+      pool.appendChild(row);
     });
   }
 
@@ -1059,28 +986,83 @@
     cell.addEventListener('drop', async (e) => {
       e.preventDefault();
       cell.classList.remove('drag-over');
-      let payload;
-      try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
-      if (!payload) return;
-
-      if (payload.type === 'schedule') {
-        openScheduleModal(payload.taskId, cell.dataset.date, +cell.dataset.slot);
-      } else if (payload.type === 'move') {
-        const entry = calendarEntries.find(en => en.id === payload.entryId);
-        if (!entry) return;
-        const durationMin = timeToMinutes(entry.end_time) - timeToMinutes(entry.start_time);
-        const newStart = slotIndexToTime(+cell.dataset.slot);
-        const newEnd = minutesToTime(timeToMinutes(newStart) + durationMin);
-        await api(`/api/calendar/${entry.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ date: cell.dataset.date, start_time: newStart, end_time: newEnd }),
-        });
-        await loadCalendar();
-        renderCalendarEntries();
-      }
+      await handleCalendarDrop(e, cell.dataset.date, +cell.dataset.slot);
     });
     // Klick auf eine leere Zeitzelle legt direkt eine neue Aufgabe samt Kalendertermin an
     cell.addEventListener('click', () => openQuickCreateModal(cell.dataset.date, +cell.dataset.slot));
+  }
+
+  // Gemeinsame Drop-Logik, sowohl von leeren Zeitzellen als auch von bereits belegten
+  // Terminen aus aufrufbar - damit sich auch bei einer Zeitüberschneidung noch ein
+  // weiterer Termin (z.B. fuer eine andere Person) daneben anlegen laesst.
+  async function handleCalendarDrop(e, dateIso, slotIndex) {
+    let payload;
+    try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
+    if (!payload) return;
+
+    if (payload.type === 'schedule') {
+      openScheduleModal(payload.taskId, dateIso, slotIndex);
+    } else if (payload.type === 'move') {
+      const entry = calendarEntries.find(en => en.id === payload.entryId);
+      if (!entry) return;
+      const durationMin = timeToMinutes(entry.end_time) - timeToMinutes(entry.start_time);
+      const newStart = slotIndexToTime(slotIndex);
+      const newEnd = minutesToTime(timeToMinutes(newStart) + durationMin);
+      await api(`/api/calendar/${entry.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ date: dateIso, start_time: newStart, end_time: newEnd }),
+      });
+      await loadCalendar();
+      renderCalendarEntries();
+    }
+  }
+
+  // Rechnet aus einer Maus-Y-Position innerhalb der Termin-Ebene den zugehoerigen Zeit-Slot aus -
+  // wird gebraucht, damit ein Drop direkt auf einem bestehenden Termin (statt auf freier Flaeche)
+  // trotzdem funktioniert und nicht vom bereits liegenden Termin blockiert wird.
+  function slotFromOverlayY(clientY) {
+    const overlay = document.getElementById('calendar-entries-overlay');
+    const rect = overlay.getBoundingClientRect();
+    const relY = clientY - rect.top;
+    return Math.max(0, Math.min(SLOTS_PER_DAY - 1, Math.floor(relY / SLOT_HEIGHT)));
+  }
+
+  // Weist ueberlappenden Terminen an einem Tag Spalten zu (wie bei Google Kalender),
+  // damit mehrere Termine zur gleichen Zeit nebeneinander statt uebereinander liegen -
+  // wichtig, wenn mehrere Personen zeitgleich an unterschiedlichen Aufgaben arbeiten.
+  function layoutOverlappingEntries(dayEntries) {
+    const sorted = [...dayEntries].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+    let group = [];
+    let groupEnd = -1;
+    const groups = [];
+
+    sorted.forEach(entry => {
+      const start = timeToMinutes(entry.start_time);
+      const end = timeToMinutes(entry.end_time);
+      if (group.length && start >= groupEnd) {
+        groups.push(group);
+        group = [];
+        groupEnd = -1;
+      }
+      group.push(entry);
+      groupEnd = Math.max(groupEnd, end);
+    });
+    if (group.length) groups.push(group);
+
+    const positioned = [];
+    groups.forEach(g => {
+      const columnEnds = []; // letztes Ende je Spalte
+      g.forEach(entry => {
+        const start = timeToMinutes(entry.start_time);
+        const end = timeToMinutes(entry.end_time);
+        let col = columnEnds.findIndex(colEnd => colEnd <= start);
+        if (col === -1) { col = columnEnds.length; columnEnds.push(end); }
+        else columnEnds[col] = end;
+        positioned.push({ entry, col });
+      });
+      positioned.filter(p => g.includes(p.entry)).forEach(p => { p.groupColumns = columnEnds.length; });
+    });
+    return positioned;
   }
 
   function renderCalendarEntries() {
@@ -1093,80 +1075,95 @@
 
     const dayIso = days.map(isoDate);
 
-    calendarEntries.forEach(entry => {
-      const dayIdx = dayIso.indexOf(entry.date);
-      if (dayIdx === -1) return;
-      const startMin = timeToMinutes(entry.start_time) - START_HOUR * 60;
-      const endMin = timeToMinutes(entry.end_time) - START_HOUR * 60;
-      if (endMin <= 0 || startMin >= SLOTS_PER_DAY * SLOT_MINUTES) return;
-      const top = Math.max(0, (startMin / SLOT_MINUTES) * SLOT_HEIGHT);
-      const height = Math.max(SLOT_HEIGHT - 2, ((endMin - startMin) / SLOT_MINUTES) * SLOT_HEIGHT - 2);
+    dayIso.forEach((iso, dayIdx) => {
+      const dayEntries = calendarEntries.filter(e => e.date === iso);
+      const positioned = layoutOverlappingEntries(dayEntries);
 
-      const el = document.createElement('div');
-      el.className = 'cal-entry' + (entry.task_status === 'erledigt' ? ' done' : '');
-      el.draggable = true;
-      el.dataset.entryId = entry.id;
-      el.style.top = top + 'px';
-      el.style.height = height + 'px';
-      el.style.left = (dayIdx * dw + 2) + 'px';
-      el.style.width = (dw - 4) + 'px';
-      el.style.background = entry.person_color || '#4f46e5';
-      el.innerHTML = `
-        <div class="ce-title">${escapeHtml(entry.task_title)}</div>
-        <div class="ce-time">${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${escapeHtml(entry.person_name)}</div>
-        <div class="ce-resize-handle" data-resize="${entry.id}"></div>
-      `;
+      positioned.forEach(({ entry, col, groupColumns }) => {
+        const startMin = timeToMinutes(entry.start_time) - START_HOUR * 60;
+        const endMin = timeToMinutes(entry.end_time) - START_HOUR * 60;
+        if (endMin <= 0 || startMin >= SLOTS_PER_DAY * SLOT_MINUTES) return;
+        const top = Math.max(0, (startMin / SLOT_MINUTES) * SLOT_HEIGHT);
+        const height = Math.max(SLOT_HEIGHT - 2, ((endMin - startMin) / SLOT_MINUTES) * SLOT_HEIGHT - 2);
+        const colWidth = dw / groupColumns;
 
-      let suppressClick = false;
+        const el = document.createElement('div');
+        el.className = 'cal-entry' + (entry.task_status === 'erledigt' ? ' done' : '');
+        el.draggable = true;
+        el.dataset.entryId = entry.id;
+        el.style.top = top + 'px';
+        el.style.height = height + 'px';
+        el.style.left = (dayIdx * dw + col * colWidth + 2) + 'px';
+        el.style.width = (colWidth - 4) + 'px';
+        el.style.background = entry.person_color || '#4f46e5';
+        el.innerHTML = `
+          <div class="ce-title">${escapeHtml(entry.task_title)}</div>
+          <div class="ce-time">${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${escapeHtml(entry.person_name)}</div>
+          <div class="ce-resize-handle" data-resize="${entry.id}"></div>
+        `;
 
-      el.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('application/json', JSON.stringify({ type: 'move', entryId: entry.id }));
-        e.dataTransfer.effectAllowed = 'move';
-        el.classList.add('dragging-source');
-      });
-      el.addEventListener('dragend', () => el.classList.remove('dragging-source'));
+        let suppressClick = false;
 
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (suppressClick) { suppressClick = false; return; }
-        openEntryMenu(entry);
-      });
+        el.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'move', entryId: entry.id }));
+          e.dataTransfer.effectAllowed = 'move';
+          el.classList.add('dragging-source');
+        });
+        el.addEventListener('dragend', () => el.classList.remove('dragging-source'));
 
-      const handle = el.querySelector('.ce-resize-handle');
-      handle.addEventListener('mousedown', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        suppressClick = true;
-        el.draggable = false;
-        el.classList.add('resizing');
-        const startY = ev.clientY;
-        const startHeight = el.offsetHeight;
+        // Drop direkt auf einem bestehenden Termin muss trotzdem funktionieren, damit sich
+        // ein weiterer Termin zur gleichen Zeit daneben anlegen laesst (nicht blockiert sein).
+        el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drag-over'); });
+        el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+        el.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          el.classList.remove('drag-over');
+          await handleCalendarDrop(e, iso, slotFromOverlayY(e.clientY));
+        });
 
-        function onMouseMove(mv) {
-          const deltaSlots = Math.round((mv.clientY - startY) / SLOT_HEIGHT);
-          const newHeight = Math.max(SLOT_HEIGHT - 2, startHeight + deltaSlots * SLOT_HEIGHT);
-          el.style.height = newHeight + 'px';
-        }
-        async function onMouseUp() {
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-          el.classList.remove('resizing');
-          el.draggable = true;
-          const finalHeight = el.offsetHeight;
-          const slotsSpan = Math.max(1, Math.round((finalHeight + 2) / SLOT_HEIGHT));
-          const newEndMin = timeToMinutes(entry.start_time) + slotsSpan * SLOT_MINUTES;
-          const newEnd = minutesToTime(newEndMin);
-          if (newEnd !== entry.end_time) {
-            await api(`/api/calendar/${entry.id}`, { method: 'PUT', body: JSON.stringify({ end_time: newEnd }) });
-            await loadCalendar();
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (suppressClick) { suppressClick = false; return; }
+          openEntryMenu(entry);
+        });
+
+        const handle = el.querySelector('.ce-resize-handle');
+        handle.addEventListener('mousedown', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          suppressClick = true;
+          el.draggable = false;
+          el.classList.add('resizing');
+          const startY = ev.clientY;
+          const startHeight = el.offsetHeight;
+
+          function onMouseMove(mv) {
+            const deltaSlots = Math.round((mv.clientY - startY) / SLOT_HEIGHT);
+            const newHeight = Math.max(SLOT_HEIGHT - 2, startHeight + deltaSlots * SLOT_HEIGHT);
+            el.style.height = newHeight + 'px';
           }
-          renderCalendarEntries();
-        }
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      });
+          async function onMouseUp() {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            el.classList.remove('resizing');
+            el.draggable = true;
+            const finalHeight = el.offsetHeight;
+            const slotsSpan = Math.max(1, Math.round((finalHeight + 2) / SLOT_HEIGHT));
+            const newEndMin = timeToMinutes(entry.start_time) + slotsSpan * SLOT_MINUTES;
+            const newEnd = minutesToTime(newEndMin);
+            if (newEnd !== entry.end_time) {
+              await api(`/api/calendar/${entry.id}`, { method: 'PUT', body: JSON.stringify({ end_time: newEnd }) });
+              await loadCalendar();
+            }
+            renderCalendarEntries();
+          }
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+        });
 
-      overlay.appendChild(el);
+        overlay.appendChild(el);
+      });
     });
   }
 
@@ -1504,8 +1501,6 @@
     e.preventDefault();
     const personId = +document.getElementById('time-person').value;
     if (!personId) return;
-    const ok = await requirePin(personId, editingTimeEntryId ? 'Arbeitszeit ändern' : 'Arbeitszeit eintragen');
-    if (!ok) return;
     const payload = {
       person_id: personId,
       date: document.getElementById('time-date').value,
@@ -1652,72 +1647,74 @@
   // ================= WOCHENREPORT =================
   const OVERTIME_WARN_THRESHOLD_MINUTES = 60; // ab 1 Std Abweichung wird die Zeile als Warnung hervorgehoben
 
+  const REPORT_WEEKS_PER_PAGE = 8;
+
   async function loadReport() {
-    const data = await api('/api/reports/week?date=' + isoDate(reportWeekStart));
-    document.getElementById('report-week-label').textContent = `${fmtDateLabel(new Date(data.from))} – ${fmtDateLabel(new Date(data.to))}`;
+    const weekStarts = [];
+    for (let i = REPORT_WEEKS_PER_PAGE - 1; i >= 0; i--) weekStarts.push(addDays(reportWeekStart, -7 * i));
+    const results = await Promise.all(weekStarts.map(ws => api('/api/reports/week?date=' + isoDate(ws))));
+
+    document.getElementById('report-week-label').textContent =
+      `${fmtDateLabel(new Date(results[0].from))} – ${fmtDateLabel(new Date(results[results.length - 1].to))}`;
+
+    const rows = [];
+    [...results].reverse().forEach(data => {
+      const report = currentUser.is_admin ? data.report : data.report.filter(r => r.person_id === currentUser.person_id);
+      report.forEach(r => rows.push({ ...r, weekFrom: data.from, weekTo: data.to }));
+    });
+
     const container = document.getElementById('report-table');
-    const report = currentUser.is_admin ? data.report : data.report.filter(r => r.person_id === currentUser.person_id);
-    if (!report.length) {
-      container.innerHTML = '<p class="empty-state">Keine aktiven Personen.</p>';
+    if (!rows.length) {
+      container.innerHTML = '<tr><td colspan="5" class="empty-state">Keine Daten in diesem Zeitraum.</td></tr>';
       return;
     }
-    container.innerHTML = report.map(r => {
+    container.innerHTML = rows.map(r => {
       const sign = r.diff_minutes > 0 ? '+' : (r.diff_minutes < 0 ? '-' : '');
       const diffText = r.diff_minutes === null ? '–' : sign + fmtDuration(Math.abs(r.diff_minutes));
-      const diffClass = r.diff_minutes === null ? '' : (r.diff_minutes >= 0 ? 'positive' : 'negative');
+      const diffClass = r.diff_minutes === null ? '' : (r.diff_minutes >= 0 ? 'diff-positive' : 'diff-negative');
       const isWarn = (r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES) || r.bfd_warning;
       const warnLabel = r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES
         ? (r.diff_minutes > 0 ? ' ⚠ Überstunden' : ' ⚠ Unterstunden') : '';
       return `
-        <div class="report-row ${isWarn ? 'warn' : ''}">
-          <strong>${escapeHtml(r.person_name)}</strong>
-          <span>Soll: ${r.target_minutes ? fmtDuration(r.target_minutes) : '–'}</span>
-          <span>Ist: ${fmtDuration(r.actual_minutes)}</span>
-          <span class="rr-diff ${diffClass}">${diffText}${warnLabel}</span>
-          ${r.bfd_warning ? `<div class="bfd-warning-line">⚠ BFD: ${escapeHtml(r.bfd_warning)}</div>` : ''}
-        </div>
+        <tr class="${isWarn ? 'warn' : ''}">
+          <td>${fmtDateLabel(new Date(r.weekFrom))} – ${fmtDateLabel(new Date(r.weekTo))}</td>
+          <td>${escapeHtml(r.person_name)}</td>
+          <td>${r.target_minutes ? fmtDuration(r.target_minutes) : '–'}</td>
+          <td>${fmtDuration(r.actual_minutes)}</td>
+          <td class="${diffClass}">${diffText}${warnLabel}${r.bfd_warning ? ` · ⚠ BFD: ${escapeHtml(r.bfd_warning)}` : ''}</td>
+        </tr>
       `;
     }).join('');
   }
-  document.getElementById('report-week-prev').addEventListener('click', () => { reportWeekStart = addDays(reportWeekStart, -7); loadReport(); });
-  document.getElementById('report-week-next').addEventListener('click', () => { reportWeekStart = addDays(reportWeekStart, 7); loadReport(); });
+  document.getElementById('report-week-prev').addEventListener('click', () => { reportWeekStart = addDays(reportWeekStart, -7 * REPORT_WEEKS_PER_PAGE); loadReport(); });
+  document.getElementById('report-week-next').addEventListener('click', () => { reportWeekStart = addDays(reportWeekStart, 7 * REPORT_WEEKS_PER_PAGE); loadReport(); });
 
   // ================= DASHBOARD =================
-  function renderDashboard() {
+  // Projektuebergreifender "Dringend"-Bereich oben auf der Aufgaben-Seite: offene Aufgaben
+  // mit hoher Prioritaet oder einem Termin innerhalb der naechsten 7 Tage, unabhaengig
+  // davon, zu welchem Projekt sie gehoeren. Die projekt-gruppierte Tabelle bleibt unveraendert.
+  function renderUrgentSection() {
+    const todayIso = isoDate(new Date());
+    const soonIso = isoDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
     const openTasks = tasks.filter(t => t.status !== 'erledigt');
-
-    const workloadByPerson = new Map();
-    openTasks.forEach(t => {
-      t.people.forEach(p => {
-        const cur = workloadByPerson.get(p.id) || { name: p.name, color: p.color, minutes: 0 };
-        cur.minutes += t.estimated_minutes || 0;
-        workloadByPerson.set(p.id, cur);
-      });
-    });
-    const workloadArr = Array.from(workloadByPerson.values()).sort((a, b) => b.minutes - a.minutes);
-    const maxMinutes = Math.max(1, ...workloadArr.map(w => w.minutes));
-
-    const workloadContainer = document.getElementById('workload-list');
-    workloadContainer.innerHTML = workloadArr.length ? workloadArr.map(w => `
-      <div class="workload-row">
-        <div class="wl-label"><span>${escapeHtml(w.name)}</span><span>${fmtDuration(w.minutes)}</span></div>
-        <div class="wl-bar-track"><div class="wl-bar-fill" style="width:${(w.minutes / maxMinutes) * 100}%;background:${w.color}"></div></div>
-      </div>
-    `).join('') : '<p class="empty-state">Keine offenen Aufgaben.</p>';
+    const urgent = openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso));
 
     const priorityRank = { hoch: 0, mittel: 1, niedrig: 2 };
-    const upcoming = [...openTasks].sort((a, b) => {
-      if (a.due_date && b.due_date) return a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0;
-      if (a.due_date) return -1;
-      if (b.due_date) return 1;
+    urgent.sort((a, b) => {
+      const aOverdue = a.due_date && a.due_date < todayIso;
+      const bOverdue = b.due_date && b.due_date < todayIso;
+      if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+      if (a.due_date && b.due_date && a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
+      if (a.due_date && !b.due_date) return -1;
+      if (!a.due_date && b.due_date) return 1;
       return priorityRank[a.priority] - priorityRank[b.priority];
-    }).slice(0, 10);
+    });
 
-    const upcomingContainer = document.getElementById('upcoming-list');
-    upcomingContainer.innerHTML = upcoming.length
-      ? upcoming.map(compactTaskRowHtml).join('')
-      : '<p class="empty-state">Keine offenen Aufgaben.</p>';
-    wireTaskRowClicks(upcomingContainer);
+    const card = document.getElementById('urgent-card');
+    card.classList.toggle('hidden', urgent.length === 0);
+    if (!urgent.length) return;
+    document.getElementById('urgent-list').innerHTML = urgent.map(compactTaskRowHtml).join('');
+    wireTaskRowClicks(document.getElementById('urgent-list'));
   }
 
   // ================= JAHRESKALENDER =================
@@ -1759,9 +1756,18 @@
     return ycSchoolHolidays.some(h => dateIso >= h.from && dateIso <= h.to);
   }
 
+  // Baut das Label fuer einen Jahreskalender-Termin inkl. Uhrzeit-Praefix, z.B. "18:00–20:00 Probe"
+  function ycEventLabel(e) {
+    if (e.start_time && e.end_time) return `${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)} ${e.title}`;
+    if (e.start_time) return `${e.start_time.slice(0, 5)} ${e.title}`;
+    return e.title;
+  }
+
   // Lineares Monats-Spalten-Layout (wie ein Wand-Jahresplaner): jede Spalte ist ein
   // Monat, jede Zeile ein Tag. Termine erscheinen als lesbarer Text direkt in der
   // Zeile (nicht nur als Punkt), damit man auf einen Blick sieht, was ansteht.
+  const DOW_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
   function renderMonthColumnHtml(year, monthIndex) {
     const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
     const todayIso = isoDate(new Date());
@@ -1776,7 +1782,7 @@
       const dayEvents = ycEvents.filter(e => e.date === dateIso);
       const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
       const allDayItems = [
-        ...dayEvents.map(e => ({ title: e.title, color: e.project_color || '#8a8d90' })),
+        ...dayEvents.map(e => ({ title: ycEventLabel(e), color: e.project_color || '#8a8d90' })),
         ...dayExternal.map(e => ({ title: e.title, color: e.calendar_color })),
       ];
       const shown = allDayItems.slice(0, 3);
@@ -1792,7 +1798,7 @@
 
       rows += `
         <div class="${classes.join(' ')}" data-yc-day="${dateIso}" title="${isPublicHoliday ? 'Feiertag' : ''}${isSchool ? ' Schulferien' : ''}">
-          <span class="yc-day-num">${String(d).padStart(2, '0')}</span>
+          <span class="yc-day-num">${String(d).padStart(2, '0')} <span class="yc-day-dow">${DOW_SHORT[dow]}</span></span>
           <div class="yc-day-events">${chips}</div>
         </div>
       `;
@@ -1816,6 +1822,7 @@
     document.querySelectorAll('[data-yc-day]').forEach(el => el.addEventListener('click', () => openYcDayModal(el.dataset.ycDay)));
 
     renderYcExternalList();
+    loadYcShareLink();
   }
 
   function renderYcExternalList() {
@@ -1867,7 +1874,7 @@
     const rows = [
       ...dayEvents.map(e => `
         <div class="yc-day-event-row">
-          <span><span class="color-dot" style="background:${e.project_color || '#8a8d90'}"></span> ${escapeHtml(e.title)}${e.project_name ? ' · ' + escapeHtml(e.project_name) : ''}</span>
+          <span><span class="color-dot" style="background:${e.project_color || '#8a8d90'}"></span> ${escapeHtml(ycEventLabel(e))}${e.project_name ? ' · ' + escapeHtml(e.project_name) : ''}</span>
           <button type="button" class="danger" data-delete-yc-event="${e.id}" data-yc-group="${e.recurrence_group || ''}">Löschen</button>
         </div>
       `),
@@ -1915,7 +1922,11 @@
     const projectVal = document.getElementById('yc-event-project').value;
     const recurrenceType = document.getElementById('yc-event-recurrence').value;
     const until = document.getElementById('yc-event-until').value;
-    const payload = { title, date, project_id: projectVal ? +projectVal : null };
+    const payload = {
+      title, date, project_id: projectVal ? +projectVal : null,
+      start_time: document.getElementById('yc-event-start-time').value || null,
+      end_time: document.getElementById('yc-event-end-time').value || null,
+    };
     if (recurrenceType !== 'keine' && until) payload.recurrence = { type: recurrenceType, until };
     await api('/api/year-events', { method: 'POST', body: JSON.stringify(payload) });
     document.getElementById('yc-event-form').reset();
@@ -1941,6 +1952,21 @@
 
   document.getElementById('yc-year-prev').addEventListener('click', () => { ycYear--; renderYearCalendar(); });
   document.getElementById('yc-year-next').addEventListener('click', () => { ycYear++; renderYearCalendar(); });
+
+  async function loadYcShareLink() {
+    const data = await api('/api/year-calendar/share-info');
+    document.getElementById('yc-share-link').value = data.url;
+  }
+  document.getElementById('yc-share-copy').addEventListener('click', () => {
+    const input = document.getElementById('yc-share-link');
+    input.select();
+    navigator.clipboard?.writeText(input.value).catch(() => {});
+  });
+  document.getElementById('yc-share-regenerate').addEventListener('click', async () => {
+    if (!confirm('Neuen Link erzeugen? Der alte Link funktioniert danach nicht mehr — bereits eingebundene Kalender-Apps müssten neu verknüpft werden.')) return;
+    const data = await api('/api/year-calendar/share-info/regenerate', { method: 'POST' });
+    document.getElementById('yc-share-link').value = data.url;
+  });
 
   document.getElementById('yc-open-other-half').addEventListener('click', (e) => {
     e.preventDefault();

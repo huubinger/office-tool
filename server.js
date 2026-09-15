@@ -10,11 +10,10 @@ const cron = require('node-cron');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { runReminderCheck } = require('./reminders');
 const { runBackup, getLastBackup, isConfigured: isBackupConfigured } = require('./backup');
 const { getHolidaysForYear, isHoliday } = require('./holidays');
 const { getSchoolHolidaysForYear } = require('./schulferien');
-const { fetchAndParseIcs } = require('./icalparser');
+const { fetchAndParseIcs, buildIcs } = require('./icalparser');
 
 const app = express();
 // Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
@@ -47,7 +46,7 @@ app.use(session({
   },
 }));
 
-const PUBLIC_PATHS = new Set(['/login.html', '/login.js', '/style.css', '/api/login']);
+const PUBLIC_PATHS = new Set(['/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics']);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
   if (req.session && req.session.userId) return next();
@@ -149,14 +148,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 3000;
 
 // ---------- Helpers ----------
-function hashPin(pin) {
-  return crypto.createHash('sha256').update(String(pin) + (process.env.PIN_PEPPER || 'office-tool')).digest('hex');
-}
-
 function sanitizePerson(p) {
   if (!p) return p;
-  const { pin_hash, ...rest } = p;
-  return { ...rest, has_pin: !!pin_hash };
+  const { pin_hash, email, ...rest } = p;
+  return rest;
 }
 
 const actualMinutesStmt = db.prepare(`
@@ -357,22 +352,20 @@ app.get('/api/people', (req, res) => {
 
 app.post('/api/people', (req, res) => {
   const {
-    name, role, color, email, pin, weekly_target_minutes,
+    name, role, color, weekly_target_minutes,
     contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total,
   } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name ist erforderlich' });
   const info = db.prepare(`
     INSERT INTO people (
-      name, role, color, email, pin_hash, weekly_target_minutes,
+      name, role, color, weekly_target_minutes,
       contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name.trim(),
     role || null,
     color || '#4f46e5',
-    email || null,
-    pin ? hashPin(pin) : null,
     weekly_target_minutes || null,
     contract_type || null,
     vacation_days_total || null,
@@ -386,18 +379,14 @@ app.post('/api/people', (req, res) => {
 
 app.put('/api/people/:id', (req, res) => {
   const {
-    name, role, color, active, email, pin, weekly_target_minutes, clear_pin,
+    name, role, color, active, weekly_target_minutes,
     contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total,
   } = req.body;
   const existing = db.prepare('SELECT * FROM people WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Person nicht gefunden' });
 
-  let newPinHash = existing.pin_hash;
-  if (clear_pin) newPinHash = null;
-  else if (pin) newPinHash = hashPin(pin);
-
   db.prepare(`
-    UPDATE people SET name = ?, role = ?, color = ?, active = ?, email = ?, pin_hash = ?, weekly_target_minutes = ?,
+    UPDATE people SET name = ?, role = ?, color = ?, active = ?, weekly_target_minutes = ?,
       contract_type = ?, vacation_days_total = ?, probation_weeks = ?, contract_start = ?, contract_end = ?, seminar_days_total = ?
     WHERE id = ?
   `).run(
@@ -405,8 +394,6 @@ app.put('/api/people/:id', (req, res) => {
     role ?? existing.role,
     color ?? existing.color,
     active === undefined ? existing.active : (active ? 1 : 0),
-    email ?? existing.email,
-    newPinHash,
     weekly_target_minutes === undefined ? existing.weekly_target_minutes : weekly_target_minutes,
     contract_type === undefined ? existing.contract_type : contract_type,
     vacation_days_total === undefined ? existing.vacation_days_total : vacation_days_total,
@@ -422,14 +409,6 @@ app.put('/api/people/:id', (req, res) => {
 app.delete('/api/people/:id', (req, res) => {
   db.prepare('DELETE FROM people WHERE id = ?').run(req.params.id);
   res.status(204).end();
-});
-
-app.post('/api/people/:id/verify-pin', (req, res) => {
-  const person = db.prepare('SELECT * FROM people WHERE id = ?').get(req.params.id);
-  if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
-  if (!person.pin_hash) return res.json({ valid: true }); // keine PIN gesetzt -> kein Schutz noetig
-  const { pin } = req.body;
-  res.json({ valid: !!pin && hashPin(pin) === person.pin_hash });
 });
 
 // Standardregularien BFD, als Vorschlag zum Uebernehmen (kein Automatismus ohne Bestaetigung)
@@ -1119,21 +1098,6 @@ app.delete('/api/absences/:id', (req, res) => {
   res.status(204).end();
 });
 
-// ---------- Faellige-Aufgaben-Erinnerung (E-Mail) ----------
-app.post('/api/reminders/run', async (req, res) => {
-  try {
-    const results = await runReminderCheck();
-    res.json({ ok: true, results });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Taeglich um 07:30 Uhr auf faellige Aufgaben pruefen und E-Mails verschicken
-cron.schedule('30 7 * * *', () => {
-  runReminderCheck().catch(err => console.error('[Erinnerung] Fehler beim geplanten Lauf:', err.message));
-}, { timezone: 'Europe/Berlin' });
-
 // ---------- Dropbox-Backup der Datenbank ----------
 app.get('/api/backup/status', (req, res) => {
   res.json({ configured: isBackupConfigured(), last_backup: getLastBackup() });
@@ -1175,7 +1139,7 @@ app.get('/api/year-events', (req, res) => {
 // Legt einen Termin an - bei angegebener Wiederholung werden mehrere Eintraege
 // (eine Serie mit gemeinsamer recurrence_group) erzeugt.
 app.post('/api/year-events', (req, res) => {
-  const { title, date, project_id, recurrence } = req.body || {};
+  const { title, date, project_id, recurrence, start_time, end_time } = req.body || {};
   if (!title || !title.trim() || !date) {
     return res.status(400).json({ error: 'title und date sind erforderlich' });
   }
@@ -1199,8 +1163,8 @@ app.post('/api/year-events', (req, res) => {
   }
 
   const recurrenceGroup = dates.length > 1 ? crypto.randomBytes(8).toString('hex') : null;
-  const stmt = db.prepare('INSERT INTO year_events (title, date, project_id, recurrence_group) VALUES (?, ?, ?, ?)');
-  const insertedIds = dates.map(d => stmt.run(title.trim(), d, project_id || null, recurrenceGroup).lastInsertRowid);
+  const stmt = db.prepare('INSERT INTO year_events (title, date, start_time, end_time, project_id, recurrence_group) VALUES (?, ?, ?, ?, ?, ?)');
+  const insertedIds = dates.map(d => stmt.run(title.trim(), d, start_time || null, end_time || null, project_id || null, recurrenceGroup).lastInsertRowid);
 
   res.status(201).json({ count: insertedIds.length, ids: insertedIds, recurrence_group: recurrenceGroup });
 });
@@ -1287,6 +1251,46 @@ app.get('/api/external-calendar-events', (req, res) => {
     ORDER BY e.date
   `).all(String(year));
   res.json(rows);
+});
+
+// ---------- Abo-Link (geheimer Link, damit der gesamte Jahreskalender in Google/Apple/
+// Outlook-Kalender eingebunden werden kann, ohne dass sich die Kalender-App einloggen muss) ----------
+function getOrCreateShareToken() {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = 'year_calendar_share_token'").get();
+  if (row) return row.value;
+  const token = crypto.randomBytes(24).toString('hex');
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('year_calendar_share_token', ?)").run(token);
+  return token;
+}
+
+app.get('/api/year-calendar/share-info', (req, res) => {
+  const token = getOrCreateShareToken();
+  res.json({ url: `${req.protocol}://${req.get('host')}/api/year-calendar.ics?token=${token}` });
+});
+
+app.post('/api/year-calendar/share-info/regenerate', (req, res) => {
+  const token = crypto.randomBytes(24).toString('hex');
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('year_calendar_share_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(token);
+  res.json({ url: `${req.protocol}://${req.get('host')}/api/year-calendar.ics?token=${token}` });
+});
+
+// Oeffentlicher iCal-Feed (kein Login, dafuer geheimer Token in der URL) - kombiniert
+// alle manuell angelegten Jahreskalender-Termine und alle abonnierten externen Termine.
+app.get('/api/year-calendar.ics', (req, res) => {
+  const expected = getOrCreateShareToken();
+  if (!req.query.token || req.query.token !== expected) {
+    return res.status(403).send('Ungueltiger oder fehlender Token.');
+  }
+  const yearEvents = db.prepare('SELECT * FROM year_events').all();
+  const externalEvents = db.prepare('SELECT * FROM external_calendar_events').all();
+  const combined = [
+    ...yearEvents.map(e => ({ uid: `ye-${e.id}`, title: e.title, date: e.date, start_time: e.start_time, end_time: e.end_time })),
+    ...externalEvents.map(e => ({ uid: `ext-${e.id}`, title: e.title, date: e.date })),
+  ];
+  const ics = buildIcs(combined, 'Jahreskalender');
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.send(ics);
 });
 
 // Externe Kalender einmal taeglich automatisch aktualisieren

@@ -241,6 +241,18 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
   .panel-grid { grid-template-columns: 1fr; }
 }
 
+.time-entry-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 14px;
+  align-items: start;
+}
+.report-multi-table td, .report-multi-table th { white-space: nowrap; }
+.report-multi-table tr.warn td { color: var(--danger); }
+.report-multi-table td.diff-positive { color: var(--ok); }
+.report-multi-table td.diff-negative { color: var(--danger); }
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -397,6 +409,8 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .quickadd-submit { flex-shrink: 0; height: 38px; white-space: nowrap; }
 
 .filter-bar-card { padding: 12px 16px; margin-bottom: 14px; }
+.urgent-card { border-left: 3px solid var(--danger); margin-bottom: 14px; }
+.urgent-card h2 { color: var(--danger); }
 .filter-row.filter-row-tasks {
   margin-bottom: 0;
   display: grid;
@@ -512,27 +526,13 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .project-color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
 
 /* ---------- Calendar ---------- */
-.calendar-layout { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: start; }
-@media (max-width: 900px) { .calendar-layout { grid-template-columns: 1fr; } }
-
-.calendar-sidebar { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 16px; position: sticky; top: 88px; }
+.calendar-main-full { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 16px; overflow-x: auto; margin-bottom: 14px; }
 .hint { font-size: 12px; color: var(--ink-soft); margin: -4px 0 10px; }
-.task-pool { display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto; }
+form + .hint { margin-top: 8px; }
 
-.task-card {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  background: var(--panel-alt);
-  cursor: grab;
-  font-size: 12.5px;
-}
-.task-card:active { cursor: grabbing; }
-.task-card .tc-title { font-weight: 600; color: var(--ink); }
-.task-card .tc-meta { color: var(--ink-soft); margin-top: 3px; }
+.calendar-pool-card .task-table-row { cursor: grab; }
+.calendar-pool-card .task-table-row:active { cursor: grabbing; }
 
-.calendar-main { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 16px; overflow-x: auto; }
 .calendar-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; gap: 12px; flex-wrap: wrap; }
 .calendar-nav button { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; }
 .calendar-nav-left, .calendar-nav-right { display: flex; align-items: center; gap: 10px; }
@@ -590,6 +590,7 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .cal-cell:hover { background: var(--accent-soft); }
 .cal-cell.drag-over { background: var(--accent-soft); }
 .cal-cell.hour-mark { border-bottom-color: #384049; }
+.cal-entry.drag-over { outline: 2px dashed #fff; outline-offset: -2px; }
 
 .cal-entries-overlay {
   position: absolute;
@@ -827,7 +828,8 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .yc-day-row.yc-weekend { background: var(--bg); }
 .yc-day-row.yc-school-holiday { background: var(--accent-soft); }
 .yc-day-row.yc-today { box-shadow: inset 2px 0 0 var(--accent); }
-.yc-day-num { flex-shrink: 0; width: 16px; font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.yc-day-num { flex-shrink: 0; width: 34px; font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.yc-day-dow { color: var(--ink-faint); font-size: 8.5px; text-transform: uppercase; }
 .yc-day-row.yc-public-holiday .yc-day-num { color: var(--danger); font-weight: 700; }
 .yc-day-events { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .yc-event-chip {

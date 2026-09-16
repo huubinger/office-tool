@@ -207,6 +207,7 @@ ensureColumn('tasks', 'due_time', 'TEXT');
 ensureColumn('tasks', 'project_id', 'INTEGER REFERENCES projects(id)');
 ensureColumn('tasks', 'start_date', 'TEXT');
 ensureColumn('tasks', 'recurrence_group', 'TEXT');
+ensureColumn('tasks', 'manual_rank', 'REAL');
 ensureColumn('year_events', 'start_time', 'TEXT');
 ensureColumn('year_events', 'end_time', 'TEXT');
 ensureColumn('calendar_entries', 'series_id', 'TEXT');

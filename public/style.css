@@ -572,6 +572,7 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 }
 .pool-sidebar h2 { flex-shrink: 0; font-size: 13.5px; margin-bottom: 8px; }
 .pool-sidebar-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.pool-sidebar-scroll.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; border-radius: var(--radius-sm); }
 
 @media (max-width: 1100px) {
   .calendar-3col-layout { grid-template-columns: 1fr; }

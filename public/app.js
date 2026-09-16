@@ -953,10 +953,27 @@
   // Links neben dem Kalender: dringende Aufgaben (gleiches Kriterium wie der "Dringend"-Bereich
   // bei den Aufgaben), rechts: alle uebrigen offenen Aufgaben. Beide Spalten scrollen unabhaengig
   // und sind genauso hoch wie der Kalender in der Mitte.
+  // Verbindet die automatische Dringlichkeits-Sortierung mit manuell per Drag&Drop gesetzten
+  // Positionen (manual_rank): Aufgaben ohne manual_rank bleiben an ihrer automatischen Position,
+  // manuell einsortierte Aufgaben behalten ihren fest gesetzten Platz dazwischen.
+  function mergeManualOrder(autoSortedTasks) {
+    const withKeys = autoSortedTasks.map((t, i) => ({
+      task: t,
+      key: (t.manual_rank !== null && t.manual_rank !== undefined) ? t.manual_rank : i * 1000,
+    }));
+    withKeys.sort((a, b) => a.key - b.key);
+    return withKeys;
+  }
+
+  let currentUrgentMerged = [];
+
   function renderTaskPool() {
     const openTasks = tasks.filter(t => t.status !== 'erledigt');
     const soonIso = isoDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-    const urgent = sortByUrgency(openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso)));
+    const urgentAuto = sortByUrgency(openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso)));
+    const urgentMerged = mergeManualOrder(urgentAuto);
+    currentUrgentMerged = urgentMerged;
+    const urgent = urgentMerged.map(x => x.task);
     const urgentIds = new Set(urgent.map(t => t.id));
     const other = openTasks.filter(t => !urgentIds.has(t.id));
 
@@ -973,6 +990,94 @@
         e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: +card.dataset.taskId }));
         e.dataTransfer.effectAllowed = 'copy';
       });
+    });
+  }
+
+  // Manuelles Umsortieren innerhalb "Dringend" per Drag&Drop: beim Ablegen wird anhand der
+  // Maus-Position die Einfuegestelle bestimmt und eine manual_rank zwischen den Nachbar-Werten
+  // gesetzt (Bruch-Indexierung) - die automatische Sortierung bleibt fuer alle anderen bestehen.
+  // Wird nur EINMAL eingerichtet (nicht bei jedem renderTaskPool), liest aber immer den
+  // aktuellen Stand ueber currentUrgentMerged.
+  function setupUrgentReorder() {
+    const zone = document.getElementById('pool-zone-urgent');
+    if (!zone) return;
+
+    zone.addEventListener('dragover', (e) => {
+      if (!currentUrgentMerged.length) return;
+      e.preventDefault();
+    });
+
+    zone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      let payload;
+      try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
+      if (!payload || payload.type !== 'schedule') return;
+      const draggedId = payload.taskId;
+      const isAlreadyInUrgent = currentUrgentMerged.some(x => x.task.id === draggedId);
+      if (!isAlreadyInUrgent) return; // von ausserhalb (z.B. Weitere Aufgaben) -> kein Reorder hier
+
+      const cards = [...zone.querySelectorAll('.magnet-card')];
+      let insertIndex = cards.length;
+      for (let i = 0; i < cards.length; i++) {
+        const rect = cards[i].getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) { insertIndex = i; break; }
+      }
+      const draggedCurrentIndex = currentUrgentMerged.findIndex(x => x.task.id === draggedId);
+      const remaining = currentUrgentMerged.filter(x => x.task.id !== draggedId);
+      let adjIndex = insertIndex;
+      if (draggedCurrentIndex !== -1 && draggedCurrentIndex < insertIndex) adjIndex -= 1;
+      const before = remaining[adjIndex - 1];
+      const after = remaining[adjIndex];
+      let newRank;
+      if (!before && !after) newRank = 0;
+      else if (!before) newRank = after.key - 1000;
+      else if (!after) newRank = before.key + 1000;
+      else newRank = (before.key + after.key) / 2;
+
+      await api(`/api/tasks/${draggedId}`, { method: 'PUT', body: JSON.stringify({ manual_rank: newRank }) });
+      const task = tasks.find(t => t.id === draggedId);
+      if (task) task.manual_rank = newRank;
+      renderTaskPool();
+    });
+  }
+
+  // Erlaubt, einen Termin aus dem Zeitraster oder einen Ganztaegig-Chip auf "Weitere Aufgaben"
+  // zu ziehen: entfernt den hinterlegten Termin (bzw. das Faelligkeitsdatum), die Aufgabe wird
+  // wieder unverplant und taucht in der Aufgaben-Uebersicht auf.
+  function setupPoolOtherDropTarget() {
+    const zone = document.getElementById('pool-zone-other');
+    if (!zone) return;
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      let payload;
+      try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
+      if (!payload) return;
+
+      if (payload.type === 'move') {
+        // Kompletter Kalendertermin (alle zugeordneten Personen fuer diesen Slot) entfernen.
+        const entry = calendarEntries.find(en => en.id === payload.entryId);
+        if (!entry) return;
+        const group = calendarEntries.filter(e2 =>
+          e2.task_id === entry.task_id && e2.date === entry.date &&
+          e2.start_time === entry.start_time && e2.end_time === entry.end_time
+        );
+        await Promise.all(group.map(e2 => api(`/api/calendar/${e2.id}`, { method: 'DELETE' })));
+        await loadCalendar();
+        renderAllDayRow();
+        renderCalendarEntries();
+        renderCalendarMobileList();
+      } else if (payload.type === 'schedule' && payload.source === 'allday') {
+        // Ganztaegig-Chip hierher gezogen: Faelligkeitsdatum der Aufgabe entfernen.
+        await api(`/api/tasks/${payload.taskId}`, { method: 'PUT', body: JSON.stringify({ clear_due_date: true }) });
+        await loadTasks();
+        renderAllDayRow();
+      } else {
+        return;
+      }
+      renderTaskPool();
     });
   }
 
@@ -1061,7 +1166,7 @@
         chip.draggable = true;
         chip.addEventListener('click', () => startEditTask(t.id));
         chip.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: t.id }));
+          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: t.id, source: 'allday' }));
           e.dataTransfer.effectAllowed = 'copy';
         });
         cell.appendChild(chip);
@@ -2505,6 +2610,8 @@
     document.getElementById('absence-to').value = isoDate(new Date());
     document.getElementById('timeoff-date').value = isoDate(new Date());
     document.getElementById('yc-event-date').value = isoDate(new Date());
+    setupPoolOtherDropTarget();
+    setupUrgentReorder();
     resetPersonForm();
     resetTimeForm();
     initYearCalendarFromUrl();

@@ -534,12 +534,12 @@ app.delete('/api/tasks/series/:group', (req, res) => {
 app.put('/api/tasks/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Aufgabe nicht gefunden' });
-  const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date, project_id, clear_project, start_date, clear_start_date } = req.body;
+  const { title, description, estimated_minutes, status, person_ids, priority, due_date, due_time, clear_due_date, project_id, clear_project, start_date, clear_start_date, manual_rank, clear_manual_rank } = req.body;
   // 'due_time' in req.body erlaubt gezieltes Loeschen der Uhrzeit (z.B. auf null), ohne
   // gleichzeitig das Faelligkeitsdatum zu loeschen (anders als clear_due_date, das beides loescht).
   const nextDueTime = clear_due_date ? null : ('due_time' in req.body ? due_time : existing.due_time);
   db.prepare(`
-    UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?, project_id = ?, start_date = ?
+    UPDATE tasks SET title = ?, description = ?, estimated_minutes = ?, status = ?, priority = ?, due_date = ?, due_time = ?, project_id = ?, start_date = ?, manual_rank = ?
     WHERE id = ?
   `).run(
     title ?? existing.title,
@@ -551,6 +551,7 @@ app.put('/api/tasks/:id', (req, res) => {
     nextDueTime,
     clear_project ? null : (project_id ?? existing.project_id),
     clear_start_date ? null : (start_date ?? existing.start_date),
+    clear_manual_rank ? null : (manual_rank ?? existing.manual_rank),
     req.params.id
   );
   if (Array.isArray(person_ids)) {

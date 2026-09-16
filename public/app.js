@@ -18,7 +18,6 @@
   let lifetimeBalances = new Map(); // person_id -> lifetime report response
   let pendingDrop = null; // { taskId } fuer Neuplanung aus dem Pool
   let pendingMove = null; // { entryId, duration } fuer Verschieben eines bestehenden Termins
-  let pendingEntryForMenu = null;
   let estimateDebounce = null;
   let taskFilters = { search: '', person: '', project: '', status: '', priority: '' };
 
@@ -701,6 +700,8 @@
       cb.checked = t.people.some(p => p.id === +cb.value);
     });
     document.getElementById('task-form-heading').textContent = 'Aufgabe bearbeiten';
+    document.getElementById('task-delete-series-btn').classList.toggle('hidden', !t.recurrence_group);
+    document.getElementById('task-delete-series-btn').dataset.group = t.recurrence_group || '';
     renderTaskTimersInForm(t);
     hideEstimateHint();
     taskModalOverlay.classList.remove('hidden');
@@ -710,11 +711,20 @@
     editingTaskId = null;
     taskModalOverlay.classList.add('hidden');
     taskForm.reset();
+    document.getElementById('task-delete-series-btn').classList.add('hidden');
   }
   document.getElementById('task-cancel-btn').addEventListener('click', closeTaskModal);
   taskModalOverlay.addEventListener('click', (e) => { if (e.target === taskModalOverlay) closeTaskModal(); });
   document.getElementById('task-delete-btn').addEventListener('click', async () => {
     if (editingTaskId) await deleteTask(editingTaskId);
+  });
+  document.getElementById('task-delete-series-btn').addEventListener('click', async (e) => {
+    const group = e.target.dataset.group;
+    if (!group) return;
+    if (!confirm('Die gesamte Wiederholungsserie löschen? Das entfernt alle Aufgaben dieser Reihe.')) return;
+    await api(`/api/tasks/series/${group}`, { method: 'DELETE' });
+    closeTaskModal();
+    await loadTasks();
   });
 
   // ---------- Dauer-Schätzung anhand früherer, ähnlicher Aufgaben ----------
@@ -795,6 +805,10 @@
   // (Projekt, Titel, eine zustaendige Person, Prioritaet, Start, Deadline, Dauer in Minuten).
   // Weitere Details (Beschreibung, mehrere Personen, Uhrzeit, Status) lassen sich danach
   // per Klick auf die Aufgabe im Detail-Formular ergaenzen.
+  document.getElementById('qa-recurrence').addEventListener('change', (e) => {
+    document.getElementById('qa-recurrence-until').classList.toggle('hidden', e.target.value === 'keine');
+  });
+
   document.getElementById('task-quickadd-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const title = document.getElementById('qa-title').value.trim();
@@ -802,6 +816,8 @@
     const projectVal = document.getElementById('qa-project').value;
     const personVal = document.getElementById('qa-person').value;
     const dueDate = document.getElementById('qa-due-date').value || null;
+    const recurrenceType = document.getElementById('qa-recurrence').value;
+    const recurrenceUntil = document.getElementById('qa-recurrence-until').value;
     const payload = {
       title,
       project_id: projectVal ? +projectVal : null,
@@ -811,9 +827,14 @@
       due_date: dueDate,
       estimated_minutes: document.getElementById('qa-duration').value ? +document.getElementById('qa-duration').value : 60,
     };
+    if (recurrenceType !== 'keine' && recurrenceUntil) {
+      if (!dueDate) { alert('Für eine Wiederholung wird eine Deadline als Ausgangspunkt benötigt.'); return; }
+      payload.recurrence = { type: recurrenceType, until: recurrenceUntil };
+    }
     await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
     document.getElementById('task-quickadd-form').reset();
     document.getElementById('qa-priority').value = 'mittel';
+    document.getElementById('qa-recurrence-until').classList.add('hidden');
     await loadTasks();
     if (document.getElementById('tab-calendar').classList.contains('active')) await renderCalendar();
   });
@@ -1157,6 +1178,19 @@
     return positioned;
   }
 
+  // Fasst Termine zusammen, die zur selben Aufgabe, demselben Tag und derselben Uhrzeit
+  // gehoeren (mehrere Personen am selben Termin) - werden als EIN mehrfarbiger Balken
+  // dargestellt statt sich die Spaltenbreite mit schmalen Einzel-Terminen zu teilen.
+  function groupSameSlotEntries(dayEntries) {
+    const groups = new Map();
+    dayEntries.forEach(e => {
+      const key = `${e.task_id}|${e.start_time}|${e.end_time}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    });
+    return [...groups.values()];
+  }
+
   function renderCalendarEntries() {
     const overlay = document.getElementById('calendar-entries-overlay');
     overlay.innerHTML = '';
@@ -1169,9 +1203,16 @@
 
     dayIso.forEach((iso, dayIdx) => {
       const dayEntries = calendarEntries.filter(e => e.date === iso);
-      const positioned = layoutOverlappingEntries(dayEntries);
+      const slotGroups = groupSameSlotEntries(dayEntries);
+      // layoutOverlappingEntries arbeitet mit dem jeweils ersten Eintrag jeder Gruppe als
+      // Stellvertreter fuer Start-/Endzeit, damit sich mehrpersonige Termine wie ein Block
+      // verhalten statt in mehrere schmale Spalten aufgeteilt zu werden.
+      const representatives = slotGroups.map(g => g[0]);
+      const positioned = layoutOverlappingEntries(representatives);
+      const groupByRepId = new Map(slotGroups.map(g => [g[0].id, g]));
 
       positioned.forEach(({ entry, col, groupColumns }) => {
+        const group = groupByRepId.get(entry.id);
         const startMin = timeToMinutes(entry.start_time) - START_HOUR * 60;
         const endMin = timeToMinutes(entry.end_time) - START_HOUR * 60;
         if (endMin <= 0 || startMin >= SLOTS_PER_DAY * SLOT_MINUTES) return;
@@ -1180,15 +1221,26 @@
         const colWidth = dw / groupColumns;
 
         const el = document.createElement('div');
-        el.className = 'cal-entry' + (entry.task_status === 'erledigt' ? ' done' : '');
+        const anyDone = group.some(e => e.task_status === 'erledigt');
+        el.className = 'cal-entry' + (anyDone ? ' done' : '');
         el.draggable = true;
         el.dataset.entryId = entry.id;
         el.style.top = top + 'px';
         el.style.height = height + 'px';
         el.style.left = (dayIdx * dw + col * colWidth + 2) + 'px';
         el.style.width = (colWidth - 4) + 'px';
-        el.style.background = entry.person_color || '#4f46e5';
-        const timeLabel = `${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${entry.person_name}`;
+
+        const colors = group.slice(0, 3).map(e => e.person_color || '#4f46e5');
+        if (colors.length === 1) {
+          el.style.background = colors[0];
+        } else {
+          const stripe = 100 / colors.length;
+          const stops = colors.map((c, i) => `${c} ${i * stripe}%, ${c} ${(i + 1) * stripe}%`).join(', ');
+          el.style.background = `linear-gradient(to right, ${stops})`;
+        }
+
+        const peopleNames = group.map(e => e.person_name).join(', ');
+        const timeLabel = `${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${peopleNames}`;
         const titleWithProject = entry.project_name ? `${entry.project_name}: ${entry.task_title}` : entry.task_title;
         el.dataset.tooltip = `${titleWithProject}\n${timeLabel}`;
         el.innerHTML = `
@@ -1222,7 +1274,7 @@
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           if (suppressClick) { suppressClick = false; return; }
-          openEntryMenu(entry);
+          openEntryMenu(group);
         });
 
         const handle = el.querySelector('.ce-resize-handle');
@@ -1250,7 +1302,8 @@
             const newEndMin = timeToMinutes(entry.start_time) + slotsSpan * SLOT_MINUTES;
             const newEnd = minutesToTime(newEndMin);
             if (newEnd !== entry.end_time) {
-              await api(`/api/calendar/${entry.id}`, { method: 'PUT', body: JSON.stringify({ end_time: newEnd }) });
+              // Bei mehrpersonigen Terminen alle zugehoerigen Eintraege gemeinsam verlaengern/kuerzen.
+              await Promise.all(group.map(e => api(`/api/calendar/${e.id}`, { method: 'PUT', body: JSON.stringify({ end_time: newEnd }) })));
               await loadCalendar();
             }
             renderCalendarEntries();
@@ -1316,7 +1369,13 @@
     container.innerHTML = html;
     container.querySelectorAll('[data-cml-entry]').forEach(el => {
       const entry = calendarEntries.find(e => e.id === +el.dataset.cmlEntry);
-      if (entry) el.addEventListener('click', () => openEntryMenu(entry));
+      if (entry) el.addEventListener('click', () => {
+        const group = calendarEntries.filter(e =>
+          e.task_id === entry.task_id && e.date === entry.date &&
+          e.start_time === entry.start_time && e.end_time === entry.end_time
+        );
+        openEntryMenu(group);
+      });
     });
   }
 
@@ -1431,36 +1490,125 @@
 
   // ---------- Termin-Menü (Klick auf bestehenden Kalendereintrag) ----------
   const entryMenuOverlay = document.getElementById('entry-menu-overlay');
-  function openEntryMenu(entry) {
-    pendingEntryForMenu = entry;
-    const titlePrefix = entry.project_name ? `${entry.project_name}: ` : '';
-    document.getElementById('entry-menu-title').textContent = `${titlePrefix}${entry.task_title} · ${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)}`;
-    document.getElementById('entry-menu-remove-series').classList.toggle('hidden', !entry.series_id);
+  let pendingEntryGroup = null;
+
+  function renderEntryMenuPeopleList() {
+    const container = document.getElementById('entry-menu-people-list');
+    const activePeople = people.filter(p => p.active);
+    container.innerHTML = pendingEntryGroup.map(e => {
+      const options = activePeople.map(p => `<option value="${p.id}" ${p.id === e.person_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+      return `
+        <div class="yc-day-event-row" data-people-row="${e.id}">
+          <span class="color-dot" style="background:${e.person_color}"></span>
+          <select class="entry-menu-person-select" data-entry-id="${e.id}" style="flex:1">${options}</select>
+          <button type="button" class="danger" data-remove-person-entry="${e.id}" title="Person von diesem Termin entfernen">✕</button>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll('.entry-menu-person-select').forEach(sel => sel.addEventListener('change', async () => {
+      const entryId = +sel.dataset.entryId;
+      await api(`/api/calendar/${entryId}`, { method: 'PUT', body: JSON.stringify({ person_id: +sel.value }) });
+      await loadCalendar();
+      renderCalendarEntries();
+      renderCalendarMobileList();
+      const entry = calendarEntries.find(e => e.id === entryId);
+      if (entry) {
+        pendingEntryGroup = pendingEntryGroup.map(e => e.id === entryId ? entry : e);
+        renderEntryMenuPeopleList();
+        fillEntryMenuAddPersonSelect();
+      }
+    }));
+    container.querySelectorAll('[data-remove-person-entry]').forEach(b => b.addEventListener('click', async () => {
+      if (pendingEntryGroup.length <= 1) { alert('Die letzte Person kann hier nicht entfernt werden - nutze stattdessen "Aus Kalender entfernen".'); return; }
+      const entryId = +b.dataset.removePersonEntry;
+      await api(`/api/calendar/${entryId}`, { method: 'DELETE' });
+      pendingEntryGroup = pendingEntryGroup.filter(e => e.id !== entryId);
+      await loadCalendar();
+      renderCalendarEntries();
+      renderCalendarMobileList();
+      renderEntryMenuPeopleList();
+      fillEntryMenuAddPersonSelect();
+    }));
+  }
+
+  function fillEntryMenuAddPersonSelect() {
+    const sel = document.getElementById('entry-menu-add-person');
+    const assignedIds = new Set(pendingEntryGroup.map(e => e.person_id));
+    const available = people.filter(p => p.active && !assignedIds.has(p.id));
+    sel.innerHTML = '<option value="">— Person wählen —</option>' +
+      available.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  }
+
+  function openEntryMenu(group) {
+    pendingEntryGroup = group;
+    const first = group[0];
+    const titlePrefix = first.project_name ? `${first.project_name}: ` : '';
+    document.getElementById('entry-menu-title').textContent = `${titlePrefix}${first.task_title} · ${first.start_time.slice(0, 5)}–${first.end_time.slice(0, 5)}`;
+    document.getElementById('entry-menu-remove-series').classList.toggle('hidden', !group.some(e => e.series_id));
+    renderEntryMenuPeopleList();
+    fillEntryMenuAddPersonSelect();
     entryMenuOverlay.classList.remove('hidden');
   }
   function closeEntryMenu() {
     entryMenuOverlay.classList.add('hidden');
-    pendingEntryForMenu = null;
+    pendingEntryGroup = null;
   }
   document.getElementById('entry-menu-cancel').addEventListener('click', closeEntryMenu);
   entryMenuOverlay.addEventListener('click', (e) => { if (e.target === entryMenuOverlay) closeEntryMenu(); });
+
+  document.getElementById('entry-menu-add-person-btn').addEventListener('click', async () => {
+    const sel = document.getElementById('entry-menu-add-person');
+    const newPersonId = +sel.value;
+    if (!newPersonId) return;
+    const first = pendingEntryGroup[0];
+    const task = tasks.find(t => t.id === first.task_id);
+    if (task) {
+      const mergedIds = [...new Set([...task.people.map(p => p.id), newPersonId])];
+      await api(`/api/tasks/${first.task_id}`, { method: 'PUT', body: JSON.stringify({ person_ids: mergedIds }) });
+    }
+    const newEntry = await api('/api/calendar', {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: first.task_id, person_id: newPersonId,
+        date: first.date, start_time: first.start_time, end_time: first.end_time,
+      }),
+    });
+    await loadTasks();
+    await loadCalendar();
+    renderAllDayRow();
+    renderCalendarEntries();
+    renderCalendarMobileList();
+    pendingEntryGroup = [...pendingEntryGroup, newEntry];
+    renderEntryMenuPeopleList();
+    fillEntryMenuAddPersonSelect();
+  });
+
+  document.getElementById('entry-menu-edit-task').addEventListener('click', () => {
+    if (!pendingEntryGroup) return;
+    const taskId = pendingEntryGroup[0].task_id;
+    closeEntryMenu();
+    startEditTask(taskId);
+  });
   document.getElementById('entry-menu-done').addEventListener('click', async () => {
-    if (!pendingEntryForMenu) return;
-    await markTaskDone(pendingEntryForMenu.task_id);
+    if (!pendingEntryGroup) return;
+    await markTaskDone(pendingEntryGroup[0].task_id);
     closeEntryMenu();
   });
   document.getElementById('entry-menu-remove').addEventListener('click', async () => {
-    if (!pendingEntryForMenu) return;
-    await api(`/api/calendar/${pendingEntryForMenu.id}`, { method: 'DELETE' });
+    if (!pendingEntryGroup) return;
+    // Entfernt den gesamten Termin (alle zugeordneten Personen), nicht nur eine einzelne.
+    await Promise.all(pendingEntryGroup.map(e => api(`/api/calendar/${e.id}`, { method: 'DELETE' })));
     closeEntryMenu();
     await loadCalendar();
     renderCalendarEntries();
     renderCalendarMobileList();
   });
   document.getElementById('entry-menu-remove-series').addEventListener('click', async () => {
-    if (!pendingEntryForMenu || !pendingEntryForMenu.series_id) return;
+    const withSeries = pendingEntryGroup && pendingEntryGroup.find(e => e.series_id);
+    if (!withSeries) return;
     if (!confirm('Den gesamten mehrtägigen Termin (alle Tage) entfernen?')) return;
-    await api(`/api/calendar/series/${pendingEntryForMenu.series_id}`, { method: 'DELETE' });
+    await api(`/api/calendar/series/${withSeries.series_id}`, { method: 'DELETE' });
     closeEntryMenu();
     await loadCalendar();
     renderCalendarEntries();

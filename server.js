@@ -230,10 +230,12 @@ function getMondayOf(date) {
 }
 
 // Rechnet Seminartage (Abwesenheitstyp 'Seminar') als 8h/Werktag in die Arbeitszeit ein
-function seminarCreditMinutes(personId, from, to) {
+// Rechnet Abwesenheitstage (Urlaub, Krank, Seminar, Sonstiges) als 8h/Werktag in die
+// Arbeitszeit ein - gilt fuer alle Abwesenheitsarten, nicht nur Seminar.
+function absenceCreditMinutes(personId, from, to) {
   const rows = db.prepare(`
     SELECT date_from, date_to FROM absences
-    WHERE person_id = ? AND type = 'Seminar' AND date_to >= ? AND date_from <= ?
+    WHERE person_id = ? AND date_to >= ? AND date_from <= ?
   `).all(personId, from, to);
   let minutes = 0;
   rows.forEach(r => {
@@ -484,18 +486,49 @@ app.get('/api/tasks', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { title, description, estimated_minutes, person_ids, priority, due_date, due_time, project_id, start_date } = req.body;
+  const { title, description, estimated_minutes, person_ids, priority, due_date, due_time, project_id, start_date, recurrence } = req.body;
   if (!title || !title.trim()) return res.status(400).json({ error: 'Titel ist erforderlich' });
-  const info = db.prepare(`
-    INSERT INTO tasks (title, description, estimated_minutes, priority, due_date, due_time, project_id, start_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(title.trim(), description || null, estimated_minutes || 60, priority || 'mittel', due_date || null, due_time || null, project_id || null, start_date || null);
-  const taskId = info.lastInsertRowid;
-  if (Array.isArray(person_ids)) {
-    const stmt = db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)');
-    for (const pid of person_ids) stmt.run(taskId, pid);
+
+  // Wiederholung (woechentlich/monatlich/jaehrlich) erzeugt mehrere verknuepfte Aufgaben mit
+  // jeweils verschobenem Faelligkeitsdatum - braucht ein due_date als Ausgangspunkt.
+  const dueDates = [due_date || null];
+  if (recurrence && recurrence.type && recurrence.type !== 'keine' && recurrence.until && due_date) {
+    const step = { weekly: 7, monthly: 'month', yearly: 'year' }[recurrence.type];
+    if (step) {
+      let current = new Date(due_date);
+      const until = new Date(recurrence.until);
+      while (true) {
+        if (step === 'month') current.setMonth(current.getMonth() + 1);
+        else if (step === 'year') current.setFullYear(current.getFullYear() + 1);
+        else current.setDate(current.getDate() + step);
+        if (current > until) break;
+        dueDates.push(isoDateLocal(current));
+        if (dueDates.length > 200) break; // Sicherheitsgrenze
+      }
+    }
   }
-  res.status(201).json(getTaskWithAssignments(taskId));
+  const recurrenceGroup = dueDates.length > 1 ? crypto.randomBytes(8).toString('hex') : null;
+
+  const stmt = db.prepare(`
+    INSERT INTO tasks (title, description, estimated_minutes, priority, due_date, due_time, project_id, start_date, recurrence_group)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const assignStmt = db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)');
+  const taskIds = dueDates.map(d => {
+    const info = stmt.run(title.trim(), description || null, estimated_minutes || 60, priority || 'mittel', d, due_time || null, project_id || null, start_date || null, recurrenceGroup);
+    const taskId = info.lastInsertRowid;
+    if (Array.isArray(person_ids)) {
+      for (const pid of person_ids) assignStmt.run(taskId, pid);
+    }
+    return taskId;
+  });
+
+  res.status(201).json(getTaskWithAssignments(taskIds[0]));
+});
+
+app.delete('/api/tasks/series/:group', (req, res) => {
+  db.prepare('DELETE FROM tasks WHERE recurrence_group = ?').run(req.params.group);
+  res.status(204).end();
 });
 
 app.put('/api/tasks/:id', (req, res) => {
@@ -967,10 +1000,10 @@ app.get('/api/reports/week', (req, res) => {
 
   const report = people.map(p => {
     const isBfd = p.contract_type === 'BFD';
-    // Bei BFD: Wochen komplett vor Vertragsbeginn bekommen kein Soll angesetzt (keine
-    // Minusstunden fuer Zeit vor der eigentlichen Taetigkeit).
-    const beforeContractStart = isBfd && p.contract_start && to < p.contract_start;
-    let actual = actualStmt.get(p.id, from, to).m + seminarCreditMinutes(p.id, from, to);
+    // Wochen komplett vor dem hinterlegten Vertragsbeginn bekommen kein Soll angesetzt (keine
+    // Minusstunden fuer Zeit vor der eigentlichen Taetigkeit) - gilt fuer alle Vertragsarten.
+    const beforeContractStart = p.contract_start && to < p.contract_start;
+    let actual = actualStmt.get(p.id, from, to).m + absenceCreditMinutes(p.id, from, to);
     if (isBfd) {
       actual += weekendHolidayBonusMinutes(p.id, from, to);
       actual -= timeOffCompensationMinutes(p.id, from, to);
@@ -1051,21 +1084,25 @@ app.get('/api/reports/timesheet-pdf', (req, res) => {
   const person = db.prepare('SELECT * FROM people WHERE id = ?').get(person_id);
   if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
 
-  const rows = db.prepare(`
-    SELECT date, SUM(duration_minutes) AS minutes
+  const entryRows = db.prepare(`
+    SELECT date, start_time, end_time, break_start, break_end, break_minutes, duration_minutes
     FROM time_entries
     WHERE person_id = ? AND date BETWEEN ? AND ? AND duration_minutes IS NOT NULL
-    GROUP BY date
-    ORDER BY date
+    ORDER BY date, start_time
   `).all(person_id, from, to);
-  const byDate = new Map(rows.map(r => [r.date, r.minutes]));
+  const byDate = new Map();
+  entryRows.forEach(r => {
+    if (!byDate.has(r.date)) byDate.set(r.date, []);
+    byDate.get(r.date).push(r);
+  });
 
   const days = [];
   let cur = new Date(from);
   const end = new Date(to);
   while (cur <= end) {
     const iso = isoDateLocal(cur);
-    days.push({ date: iso, minutes: byDate.get(iso) || 0 });
+    const entries = byDate.get(iso) || [];
+    days.push({ date: iso, entries, minutes: entries.reduce((s, e) => s + (e.duration_minutes || 0), 0) });
     cur.setDate(cur.getDate() + 1);
   }
   const total = days.reduce((sum, d) => sum + d.minutes, 0);
@@ -1082,35 +1119,72 @@ app.get('/api/reports/timesheet-pdf', (req, res) => {
   doc.text(`Zeitraum: ${fmtDateDE(from)} – ${fmtDateDE(to)}`);
   doc.moveDown();
 
-  const colDate = 40, colDay = 140, colHours = 350;
-  const tableTop = doc.y;
-  doc.fontSize(10).font('Helvetica-Bold');
-  doc.text('Datum', colDate, tableTop);
-  doc.text('Wochentag', colDay, tableTop);
-  doc.text('Arbeitszeit', colHours, tableTop);
-  doc.moveDown(0.5);
-  doc.font('Helvetica');
-  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#cccccc').stroke();
-  doc.moveDown(0.3);
+  const colDate = 40, colDay = 100, colStart = 165, colEnd = 215, colBreak = 265, colDuration = 350;
+  const pageBottom = 780;
+
+  function drawHeader() {
+    const y = doc.y;
+    doc.fontSize(9.5).font('Helvetica-Bold');
+    doc.text('Datum', colDate, y);
+    doc.text('Wochentag', colDay, y);
+    doc.text('Beginn', colStart, y);
+    doc.text('Ende', colEnd, y);
+    doc.text('Pause', colBreak, y);
+    doc.text('Dauer', colDuration, y);
+    doc.moveDown(0.5);
+    doc.font('Helvetica').fontSize(9.5);
+    doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#cccccc').stroke();
+    doc.moveDown(0.3);
+  }
+  drawHeader();
 
   days.forEach(d => {
+    if (doc.y > pageBottom) { doc.addPage(); drawHeader(); }
     const dow = DE_WEEKDAYS[new Date(d.date).getDay()];
-    const y = doc.y;
-    if (y > 780) { doc.addPage(); }
-    const rowY = doc.y;
-    doc.text(fmtDateDE(d.date), colDate, rowY);
-    doc.text(dow, colDay, rowY);
-    doc.text(d.minutes ? fmtDurationDE(d.minutes) : '–', colHours, rowY);
-    doc.moveDown(0.4);
+
+    if (!d.entries.length) {
+      const rowY = doc.y;
+      doc.text(fmtDateDE(d.date), colDate, rowY);
+      doc.text(dow, colDay, rowY);
+      doc.text('–', colStart, rowY);
+      doc.moveDown(0.4);
+      return;
+    }
+
+    d.entries.forEach((e, i) => {
+      if (doc.y > pageBottom) { doc.addPage(); drawHeader(); }
+      const rowY = doc.y;
+      doc.text(i === 0 ? fmtDateDE(d.date) : '', colDate, rowY);
+      doc.text(i === 0 ? dow : '', colDay, rowY);
+      doc.text(e.start_time ? e.start_time.slice(0, 5) : '–', colStart, rowY);
+      doc.text(e.end_time ? e.end_time.slice(0, 5) : '–', colEnd, rowY);
+      const breakText = e.break_start && e.break_end
+        ? `${e.break_start.slice(0, 5)}–${e.break_end.slice(0, 5)}`
+        : (e.break_minutes ? `${e.break_minutes} Min` : '–');
+      doc.text(breakText, colBreak, rowY);
+      doc.text(e.duration_minutes ? fmtDurationDE(e.duration_minutes) : '–', colDuration, rowY);
+      doc.moveDown(0.4);
+    });
+
+    if (d.entries.length > 1) {
+      if (doc.y > pageBottom) { doc.addPage(); drawHeader(); }
+      const sumRowY = doc.y;
+      doc.font('Helvetica-Oblique');
+      doc.text('Tagessumme', colDay, sumRowY);
+      doc.text(fmtDurationDE(d.minutes), colDuration, sumRowY);
+      doc.font('Helvetica');
+      doc.moveDown(0.4);
+    }
   });
 
+  if (doc.y > pageBottom) { doc.addPage(); }
   doc.moveDown(0.3);
   doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor('#333333').stroke();
   doc.moveDown(0.3);
-  doc.font('Helvetica-Bold');
+  doc.font('Helvetica-Bold').fontSize(11);
   const sumY = doc.y;
-  doc.text('Summe', colDate, sumY);
-  doc.text(fmtDurationDE(total), colHours, sumY);
+  doc.text('Gesamtsumme', colDate, sumY);
+  doc.text(fmtDurationDE(total), colDuration, sumY);
 
   doc.end();
 });
@@ -1138,10 +1212,10 @@ app.get('/api/reports/lifetime', (req, res) => {
 
   const firstMondayFromEntries = getMondayOf(new Date(firstRow.d));
   const isBfd = person.contract_type === 'BFD';
-  // Bei BFD: nie vor dem hinterlegten Vertragsbeginn zu zaehlen anfangen, auch wenn
-  // zufaellig ein frueherer Zeiteintrag existiert - sonst wuerden Wochen vor dem
-  // eigentlichen Start faelschlich als Minusstunden in die Bilanz einfliessen.
-  const firstMonday = (isBfd && person.contract_start && new Date(person.contract_start) > firstMondayFromEntries)
+  // Nie vor dem hinterlegten Vertragsbeginn zu zaehlen anfangen, auch wenn zufaellig ein
+  // frueherer Zeiteintrag existiert - sonst wuerden Wochen vor dem eigentlichen Start
+  // faelschlich als Minusstunden in die Bilanz einfliessen. Gilt fuer alle Vertragsarten.
+  const firstMonday = (person.contract_start && new Date(person.contract_start) > firstMondayFromEntries)
     ? getMondayOf(new Date(person.contract_start))
     : firstMondayFromEntries;
   const currentMonday = getMondayOf(new Date());
@@ -1149,7 +1223,7 @@ app.get('/api/reports/lifetime', (req, res) => {
   const rangeFrom = isoDateLocal(firstMonday);
   const rangeTo = isoDateLocal(new Date());
 
-  let totalActualWithCredit = totalActual + seminarCreditMinutes(personId, rangeFrom, rangeTo);
+  let totalActualWithCredit = totalActual + absenceCreditMinutes(personId, rangeFrom, rangeTo);
   if (isBfd) {
     totalActualWithCredit += weekendHolidayBonusMinutes(personId, rangeFrom, rangeTo);
     totalActualWithCredit -= timeOffCompensationMinutes(personId, rangeFrom, rangeTo);

@@ -94,6 +94,13 @@
         <input type="date" id="qa-start-date" title="Startdatum">
         <input type="date" id="qa-due-date" title="Deadline">
         <input type="number" id="qa-duration" min="5" step="5" placeholder="Dauer (Min)" title="Geschätzte Dauer in Minuten">
+        <select id="qa-recurrence" title="Wiederholung">
+          <option value="keine">Keine Wiederholung</option>
+          <option value="weekly">Wöchentlich</option>
+          <option value="monthly">Monatlich</option>
+          <option value="yearly">Jährlich</option>
+        </select>
+        <input type="date" id="qa-recurrence-until" class="hidden" title="Wiederholen bis (braucht eine Deadline als Ausgangspunkt)">
       </form>
     </div>
 
@@ -205,6 +212,7 @@
           <input type="time" id="task-due-time">
         </label>
         <p class="hint" id="task-schedule-hint">Mit Uhrzeit wird die Aufgabe direkt in den Kalender übernommen; ohne Uhrzeit erscheint sie dort ganztägig.</p>
+        <button type="button" id="task-delete-series-btn" class="danger-btn hidden">Ganze Serie löschen (alle Wiederholungen)</button>
         <label>Zugeordnete Personen
           <div id="task-people-checkboxes" class="checkbox-list"></div>
         </label>
@@ -596,9 +604,18 @@
 </div>
 
 <div id="entry-menu-overlay" class="modal-overlay hidden">
-  <div class="modal">
+  <div class="modal modal-wide">
     <h3 id="entry-menu-title">Termin</h3>
+    <label>Zugeordnete Person(en)</label>
+    <div id="entry-menu-people-list" class="yc-day-modal-list"></div>
+    <label>Weitere Person hinzufügen (bekommt denselben Termin zur gleichen Uhrzeit)
+      <div class="inline-select-row">
+        <select id="entry-menu-add-person"><option value="">— Person wählen —</option></select>
+        <button type="button" id="entry-menu-add-person-btn" class="ghost">+ Hinzufügen</button>
+      </div>
+    </label>
     <div class="form-actions entry-menu-actions">
+      <button id="entry-menu-edit-task" class="ghost">✎ Aufgabe bearbeiten</button>
       <button id="entry-menu-done">✓ Als erledigt markieren</button>
       <button id="entry-menu-remove" class="danger-btn">Aus Kalender entfernen</button>
       <button id="entry-menu-remove-series" class="danger-btn hidden">Ganze Serie entfernen (mehrtägig)</button>

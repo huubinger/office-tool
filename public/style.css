@@ -315,6 +315,20 @@ form input[type="color"] {
 .inline-select-row select, .inline-form-row input { margin-top: 0 !important; flex: 1; }
 .inline-select-row button, .inline-form-row button { flex-shrink: 0; padding: 8px 12px; font-size: 12.5px; }
 
+.searchable-select-wrap { position: relative; margin-top: 5px; }
+.searchable-select-wrap input[type="text"] { margin-top: 0; width: 100%; }
+.searchable-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; z-index: 50;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-pop); max-height: 220px; overflow-y: auto;
+}
+.searchable-option {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 13px;
+  cursor: pointer; color: var(--ink);
+}
+.searchable-option:hover { background: var(--panel-alt); }
+.searchable-option-empty { padding: 7px 10px; font-size: 12.5px; color: var(--ink-faint); font-style: italic; }
+
 .checkbox-list {
   margin-top: 6px;
   display: flex;
@@ -561,7 +575,7 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
   grid-template-columns: minmax(150px, 190px) 1fr minmax(150px, 190px);
   gap: 10px;
   margin-bottom: 14px;
-  --calendar-box-height: 760px;
+  --calendar-box-height: 960px;
 }
 .calendar-3col-layout .calendar-main-full { margin-bottom: 0; }
 
@@ -670,7 +684,7 @@ form + .hint { margin-top: 8px; }
 }
 .cal-head .cal-head-date { font-weight: 400; color: var(--ink-soft); font-size: 11px; }
 .cal-time-label {
-  height: 24px;
+  height: 32px;
   font-size: 10px;
   color: var(--ink-faint);
   border-right: 1px solid var(--line);
@@ -678,10 +692,10 @@ form + .hint { margin-top: 8px; }
   text-align: right;
   padding: 0 5px 0 0;
   box-sizing: border-box;
-  line-height: 24px;
+  line-height: 32px;
 }
 .cal-cell {
-  height: 24px;
+  height: 32px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   box-sizing: border-box;
@@ -713,8 +727,13 @@ form + .hint { margin-top: 8px; }
   text-shadow: 0 1px 1px rgba(0,0,0,0.25);
 }
 .cal-entry .ce-content { height: 100%; overflow: hidden; }
-.cal-entry .ce-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-entry .ce-time { opacity: 0.75; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-entry .ce-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
+.cal-entry .ce-time { opacity: 0.75; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
+.ce-done-check {
+  position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; z-index: 5;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.ce-done-checkbox { width: 12px; height: 12px; margin: 0; cursor: pointer; }
 .cal-entry .ce-resize-handle {
   position: absolute; left: 0; right: 0; bottom: 0; height: 6px; cursor: ns-resize;
 }

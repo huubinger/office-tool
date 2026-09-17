@@ -27,7 +27,7 @@
   const MAIN_VIEW_START_HOUR = 9;
   const MAIN_VIEW_END_HOUR = 22;
   const SLOT_MINUTES = 30;
-  const SLOT_HEIGHT = 24;
+  const SLOT_HEIGHT = 32;
   const SLOTS_PER_DAY = ((END_HOUR - START_HOUR) * 60) / SLOT_MINUTES;
   const WEEK_DAY_WIDTH = 140;
   const DAY_VIEW_WIDTH = 640;
@@ -111,7 +111,7 @@
   const bfdFieldsBlock = document.getElementById('bfd-fields');
   const personVacationDaysInput = document.getElementById('person-vacation-days');
   const personProbationWeeksInput = document.getElementById('person-probation-weeks');
-  const personContractStartInput = document.getElementById('person-contract-start');
+  const personContractStartInput = document.getElementById('person-contract-start-general');
   const personContractEndInput = document.getElementById('person-contract-end');
   const contractFileInput = document.getElementById('contract-file-input');
   const contractParseHint = document.getElementById('contract-parse-hint');
@@ -178,6 +178,19 @@
     renderTaskPeopleCheckboxes();
     fillPersonSelects();
   }
+
+  async function loadToolStartDate() {
+    try {
+      const data = await api('/api/settings/tool-start-date');
+      document.getElementById('tool-start-date-input').value = data.tool_start_date;
+    } catch (e) { /* ignorieren */ }
+  }
+  document.getElementById('tool-start-date-save').addEventListener('click', async () => {
+    const val = document.getElementById('tool-start-date-input').value;
+    if (!val) return;
+    await api('/api/settings/tool-start-date', { method: 'PUT', body: JSON.stringify({ tool_start_date: val }) });
+    await loadReport();
+  });
 
   function renderPeopleList() {
     const container = document.getElementById('people-list');
@@ -278,10 +291,18 @@
     const activePeople = people.filter(p => p.active);
     const optionsHtml = activePeople.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
 
-    document.getElementById('time-person').innerHTML = optionsHtml;
-    document.getElementById('absence-person').innerHTML = optionsHtml;
-    document.getElementById('timeoff-person').innerHTML = optionsHtml;
-    document.getElementById('time-filter-person').innerHTML = '<option value="">Alle</option>' + optionsHtml;
+    // In der Zeiterfassung steht die eingeloggte Person immer zuerst in den Auswahlfeldern,
+    // damit man sie nicht erst in einer langen Liste suchen muss.
+    const meFirst = currentUser.person_id
+      ? [...activePeople].sort((a, b) => (a.id === currentUser.person_id ? -1 : b.id === currentUser.person_id ? 1 : 0))
+      : activePeople;
+    const timeTrackingOptionsHtml = meFirst.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+
+    document.getElementById('time-person').innerHTML = timeTrackingOptionsHtml;
+    document.getElementById('absence-person').innerHTML = timeTrackingOptionsHtml;
+    document.getElementById('timeoff-person').innerHTML = timeTrackingOptionsHtml;
+    document.getElementById('time-filter-person').innerHTML = '<option value="">Alle</option>' + timeTrackingOptionsHtml;
+    if (currentUser.person_id) document.getElementById('time-person').value = String(currentUser.person_id);
     document.getElementById('task-filter-person').innerHTML = '<option value="">Alle Personen</option>' + optionsHtml;
     document.getElementById('qa-person').innerHTML = '<option value="">Zuständig</option>' + optionsHtml;
   }
@@ -293,12 +314,101 @@
     fillProjectSelects();
   }
 
+  const searchablePickers = new Map();
+
+  // Verwandelt ein Textfeld + verstecktes Feld in ein durchsuchbares Projekt-Dropdown: Tippen
+  // filtert die Projektliste live, Auswahl per Klick schreibt die Projekt-ID ins versteckte
+  // Feld - der ganze bestehende Code, der z.B. document.getElementById('task-project').value
+  // liest, funktioniert dadurch unveraendert weiter.
+  function initSearchableProjectPicker(inputId, hiddenId, initialValue, opts) {
+    const input = document.getElementById(inputId);
+    const hidden = document.getElementById(hiddenId);
+    if (!input || !hidden) return;
+    const emptyLabel = (opts && opts.emptyLabel) || '— kein Projekt —';
+    const allowEmpty = !(opts && opts.allowEmpty === false);
+    searchablePickers.set(inputId, { input, hidden, emptyLabel, allowEmpty });
+
+    let dropdown = input.nextElementSibling;
+    if (!dropdown || !dropdown.classList.contains('searchable-dropdown')) {
+      dropdown = document.createElement('div');
+      dropdown.className = 'searchable-dropdown hidden';
+      input.after(dropdown);
+    }
+
+    function renderOptions(filterText) {
+      const ft = filterText.trim().toLowerCase();
+      const filtered = projects.filter(p => p.name.toLowerCase().includes(ft));
+      let html = '';
+      if (allowEmpty && emptyLabel.toLowerCase().includes(ft)) {
+        html += `<div class="searchable-option" data-value="">${escapeHtml(emptyLabel)}</div>`;
+      }
+      html += filtered.map(p => `<div class="searchable-option" data-value="${p.id}"><span class="color-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}</div>`).join('');
+      dropdown.innerHTML = html || '<div class="searchable-option-empty">Keine Treffer</div>';
+      dropdown.classList.remove('hidden');
+      dropdown.querySelectorAll('.searchable-option[data-value]').forEach(opt => {
+        opt.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          selectValue(opt.dataset.value);
+        });
+      });
+    }
+
+    function selectValue(val) {
+      hidden.value = val;
+      const p = val ? projects.find(pr => pr.id === +val) : null;
+      input.value = p ? p.name : (allowEmpty ? emptyLabel : '');
+      dropdown.classList.add('hidden');
+      hidden.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    input.addEventListener('focus', () => { input.select(); renderOptions(''); });
+    input.addEventListener('input', () => renderOptions(input.value === emptyLabel ? '' : input.value));
+    input.addEventListener('blur', () => setTimeout(() => dropdown.classList.add('hidden'), 150));
+
+    if (initialValue) {
+      const p = projects.find(pr => pr.id === +initialValue);
+      hidden.value = String(initialValue);
+      input.value = p ? p.name : '';
+    } else {
+      hidden.value = '';
+      input.value = allowEmpty ? '' : '';
+    }
+  }
+
+  // Alle bereits initialisierten Picker nach dem (Neu-)Laden der Projekte aktualisieren: falls
+  // sich ein Projektname geaendert hat oder ein Projekt geloescht wurde, Anzeige nachziehen.
+  function refreshSearchableProjectPickers() {
+    searchablePickers.forEach(({ input, hidden, emptyLabel, allowEmpty }) => {
+      if (hidden.value) {
+        const p = projects.find(pr => pr.id === +hidden.value);
+        if (p) { input.value = p.name; }
+        else { hidden.value = ''; input.value = allowEmpty ? '' : ''; }
+      }
+    });
+  }
+
   function fillProjectSelects() {
-    const optionsHtml = projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-    document.getElementById('task-project').innerHTML = '<option value="">— keins —</option>' + optionsHtml;
-    document.getElementById('task-filter-project').innerHTML = '<option value="">Alle Projekte</option>' + optionsHtml;
-    document.getElementById('qa-project').innerHTML = '<option value="">Projekt auswählen</option>' + optionsHtml;
-    document.getElementById('yc-event-project').innerHTML = '<option value="">— kein Projekt —</option>' + optionsHtml;
+    if (!searchablePickers.has('task-project-search')) {
+      initSearchableProjectPicker('task-project-search', 'task-project', '', { emptyLabel: '— keins —' });
+      initSearchableProjectPicker('task-filter-project-search', 'task-filter-project', '', { emptyLabel: 'Alle Projekte' });
+      initSearchableProjectPicker('qa-project-search', 'qa-project', '', { emptyLabel: 'Projekt auswählen' });
+      initSearchableProjectPicker('yc-event-project-search', 'yc-event-project', '', { emptyLabel: '— kein Projekt —' });
+    } else {
+      refreshSearchableProjectPickers();
+    }
+  }
+
+  // Setzt sowohl das versteckte Feld als auch das sichtbare Suchfeld eines Projekt-Pickers -
+  // fuer Stellen im Code, die den Wert programmatisch setzen (nicht per Klick in der Liste).
+  function setSearchableProjectValue(hiddenId, value) {
+    const hidden = document.getElementById(hiddenId);
+    if (!hidden) return;
+    hidden.value = value || '';
+    const config = [...searchablePickers.values()].find(c => c.hidden === hidden);
+    if (config) {
+      const p = value ? projects.find(pr => pr.id === +value) : null;
+      config.input.value = p ? p.name : (config.allowEmpty ? '' : '');
+    }
   }
 
   function renderProjectList() {
@@ -353,7 +463,7 @@
     try {
       const project = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
       await loadProjects();
-      document.getElementById('task-project').value = project.id;
+      setSearchableProjectValue('task-project', project.id);
     } catch (err) {
       alert(err.message);
     }
@@ -367,7 +477,6 @@
   const taskDurationInput = document.getElementById('task-duration');
   const taskStatusInput = document.getElementById('task-status');
   const taskPriorityInput = document.getElementById('task-priority');
-  const taskStartDateInput = document.getElementById('task-start-date');
   const taskDueDateInput = document.getElementById('task-due-date');
   const taskDueTimeInput = document.getElementById('task-due-time');
   const taskModalOverlay = document.getElementById('task-modal-overlay');
@@ -485,7 +594,6 @@
     const sorted = [...list];
     sorted.sort((a, b) => {
       if (taskSort === 'deadline') return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : (a.due_date || '9999') > (b.due_date || '9999') ? 1 : 0;
-      if (taskSort === 'start') return (a.start_date || '9999') < (b.start_date || '9999') ? -1 : (a.start_date || '9999') > (b.start_date || '9999') ? 1 : 0;
       if (taskSort === 'priority') return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
       return a.title.localeCompare(b.title, 'de');
     });
@@ -515,7 +623,6 @@
         <td>${escapeHtml(t.title)}</td>
         <td>${assignee}</td>
         <td>${priorityDotHtml(t.priority || 'mittel')}</td>
-        <td>${t.start_date ? fmtDateDE(t.start_date) : '–'}</td>
         <td>${t.due_date ? fmtDateDE(t.due_date) : '–'}</td>
         <td>${fmtDuration(t.estimated_minutes)}</td>
         <td>${statusPillHtml(t.status)}</td>
@@ -560,11 +667,11 @@
     const container = document.getElementById('task-list');
     const filtered = getFilteredTasks();
     if (!tasks.length) {
-      container.innerHTML = '<tr><td colspan="9" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
+      container.innerHTML = '<tr><td colspan="8" class="empty-state">Noch keine Aufgaben angelegt.</td></tr>';
       return;
     }
     if (!filtered.length) {
-      container.innerHTML = '<tr><td colspan="9" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
+      container.innerHTML = '<tr><td colspan="8" class="empty-state">Keine Aufgaben passen zu den Filtern.</td></tr>';
       return;
     }
 
@@ -589,7 +696,7 @@
       return `
         <tbody data-group="${key}">
           <tr class="task-group-header ${collapsed ? 'collapsed' : ''}" data-group-toggle="${key}" style="background:${color}33">
-            <td colspan="9">
+            <td colspan="8">
               <div class="tgh-inner">
                 <span>${escapeHtml(name)}</span>
                 <span class="task-group-count">${group.tasks.length} Aufgabe${group.tasks.length === 1 ? '' : 'n'}</span>
@@ -692,10 +799,9 @@
     taskDurationInput.value = t.estimated_minutes || '';
     taskStatusInput.value = t.status;
     taskPriorityInput.value = t.priority || 'mittel';
-    taskStartDateInput.value = t.start_date || '';
     taskDueDateInput.value = t.due_date || '';
     taskDueTimeInput.value = t.due_time || '';
-    document.getElementById('task-project').value = t.project ? t.project.id : '';
+    setSearchableProjectValue('task-project', t.project ? t.project.id : '');
     document.querySelectorAll('#task-people-checkboxes input').forEach(cb => {
       cb.checked = t.people.some(p => p.id === +cb.value);
     });
@@ -711,6 +817,7 @@
     editingTaskId = null;
     taskModalOverlay.classList.add('hidden');
     taskForm.reset();
+    setSearchableProjectValue('task-project', '');
     document.getElementById('task-delete-series-btn').classList.add('hidden');
   }
   document.getElementById('task-cancel-btn').addEventListener('click', closeTaskModal);
@@ -779,8 +886,6 @@
       estimated_minutes: taskDurationInput.value ? +taskDurationInput.value : null,
       status: taskStatusInput.value,
       priority: taskPriorityInput.value,
-      start_date: taskStartDateInput.value || null,
-      clear_start_date: !taskStartDateInput.value,
       due_date: dueDate,
       due_time: dueDate ? dueTime : null,
       clear_due_date: !dueDate,
@@ -823,16 +928,16 @@
       project_id: projectVal ? +projectVal : null,
       person_ids: personVal ? [+personVal] : [],
       priority: document.getElementById('qa-priority').value,
-      start_date: document.getElementById('qa-start-date').value || null,
       due_date: dueDate,
       estimated_minutes: document.getElementById('qa-duration').value ? +document.getElementById('qa-duration').value : 60,
     };
     if (recurrenceType !== 'keine' && recurrenceUntil) {
-      if (!dueDate) { alert('Für eine Wiederholung wird eine Deadline als Ausgangspunkt benötigt.'); return; }
+      if (!dueDate) { alert('Für eine Wiederholung wird ein Datum als Ausgangspunkt benötigt.'); return; }
       payload.recurrence = { type: recurrenceType, until: recurrenceUntil };
     }
     await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
     document.getElementById('task-quickadd-form').reset();
+    setSearchableProjectValue('qa-project', '');
     document.getElementById('qa-priority').value = 'mittel';
     document.getElementById('qa-recurrence-until').classList.add('hidden');
     await loadTasks();
@@ -968,7 +1073,10 @@
   let currentUrgentMerged = [];
 
   function renderTaskPool() {
-    const openTasks = tasks.filter(t => t.status !== 'erledigt');
+    // Aufgaben, die in der aktuell sichtbaren Woche bereits einen Kalendertermin haben, sind
+    // schon eingeplant und verschwinden aus den beiden Listen - sonst stehen sie doppelt da.
+    const scheduledTaskIds = new Set(calendarEntries.map(e => e.task_id));
+    const openTasks = tasks.filter(t => t.status !== 'erledigt' && !scheduledTaskIds.has(t.id));
     const soonIso = isoDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
     const urgentAuto = sortByUrgency(openTasks.filter(t => t.priority === 'hoch' || (t.due_date && t.due_date <= soonIso)));
     const urgentMerged = mergeManualOrder(urgentAuto);
@@ -998,20 +1106,48 @@
   // gesetzt (Bruch-Indexierung) - die automatische Sortierung bleibt fuer alle anderen bestehen.
   // Wird nur EINMAL eingerichtet (nicht bei jedem renderTaskPool), liest aber immer den
   // aktuellen Stand ueber currentUrgentMerged.
+  // Entfernt einen Kalendertermin bzw. das Faelligkeitsdatum eines Ganztaegig-Chips, wenn er auf
+  // eine der beiden Aufgaben-Spalten (Dringend/Weitere Aufgaben) gezogen wird. Gibt true zurueck,
+  // wenn das Payload so behandelt wurde (und die Aufrufer-Funktion sich um renderTaskPool() kuemmern muss).
+  async function unscheduleFromDropPayload(payload) {
+    if (payload.type === 'move') {
+      const entry = calendarEntries.find(en => en.id === payload.entryId);
+      if (!entry) return false;
+      const group = calendarEntries.filter(e2 =>
+        e2.task_id === entry.task_id && e2.date === entry.date &&
+        e2.start_time === entry.start_time && e2.end_time === entry.end_time
+      );
+      await Promise.all(group.map(e2 => api(`/api/calendar/${e2.id}`, { method: 'DELETE' })));
+      await loadCalendar();
+      renderAllDayRow();
+      renderCalendarEntries();
+      renderCalendarMobileList();
+      return true;
+    }
+    if (payload.type === 'schedule' && payload.source === 'allday') {
+      await api(`/api/tasks/${payload.taskId}`, { method: 'PUT', body: JSON.stringify({ clear_due_date: true }) });
+      await loadTasks();
+      renderAllDayRow();
+      return true;
+    }
+    return false;
+  }
+
   function setupUrgentReorder() {
     const zone = document.getElementById('pool-zone-urgent');
     if (!zone) return;
 
-    zone.addEventListener('dragover', (e) => {
-      if (!currentUrgentMerged.length) return;
-      e.preventDefault();
-    });
+    zone.addEventListener('dragover', (e) => e.preventDefault());
 
     zone.addEventListener('drop', async (e) => {
       e.preventDefault();
       let payload;
       try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
-      if (!payload || payload.type !== 'schedule') return;
+      if (!payload) return;
+
+      if (await unscheduleFromDropPayload(payload)) { renderTaskPool(); return; }
+      if (payload.type !== 'schedule') return;
+
       const draggedId = payload.taskId;
       const isAlreadyInUrgent = currentUrgentMerged.some(x => x.task.id === draggedId);
       if (!isAlreadyInUrgent) return; // von ausserhalb (z.B. Weitere Aufgaben) -> kein Reorder hier
@@ -1055,29 +1191,7 @@
       let payload;
       try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
       if (!payload) return;
-
-      if (payload.type === 'move') {
-        // Kompletter Kalendertermin (alle zugeordneten Personen fuer diesen Slot) entfernen.
-        const entry = calendarEntries.find(en => en.id === payload.entryId);
-        if (!entry) return;
-        const group = calendarEntries.filter(e2 =>
-          e2.task_id === entry.task_id && e2.date === entry.date &&
-          e2.start_time === entry.start_time && e2.end_time === entry.end_time
-        );
-        await Promise.all(group.map(e2 => api(`/api/calendar/${e2.id}`, { method: 'DELETE' })));
-        await loadCalendar();
-        renderAllDayRow();
-        renderCalendarEntries();
-        renderCalendarMobileList();
-      } else if (payload.type === 'schedule' && payload.source === 'allday') {
-        // Ganztaegig-Chip hierher gezogen: Faelligkeitsdatum der Aufgabe entfernen.
-        await api(`/api/tasks/${payload.taskId}`, { method: 'PUT', body: JSON.stringify({ clear_due_date: true }) });
-        await loadTasks();
-        renderAllDayRow();
-      } else {
-        return;
-      }
-      renderTaskPool();
+      if (await unscheduleFromDropPayload(payload)) renderTaskPool();
     });
   }
 
@@ -1223,8 +1337,13 @@
     } else if (payload.type === 'move') {
       const entry = calendarEntries.find(en => en.id === payload.entryId);
       if (!entry) return;
+      // Immer die exakte Maus-Y-Position auswerten (statt der Zellen-Slot-Nummer) und dabei
+      // den Greif-Versatz abziehen, damit der Termin exakt dort einrastet, wo sein Anfang
+      // tatsaechlich abgelegt wurde - unabhaengig davon, wo innerhalb des Termins gegriffen wurde.
+      const grabOffsetSlots = Math.round((payload.grabOffsetY || 0) / SLOT_HEIGHT);
+      const preciseSlot = Math.max(0, Math.min(SLOTS_PER_DAY - 1, slotFromOverlayY(e.clientY) - grabOffsetSlots));
       const durationMin = timeToMinutes(entry.end_time) - timeToMinutes(entry.start_time);
-      const newStart = slotIndexToTime(slotIndex);
+      const newStart = slotIndexToTime(preciseSlot);
       const newEnd = minutesToTime(timeToMinutes(newStart) + durationMin);
       await api(`/api/calendar/${entry.id}`, {
         method: 'PUT',
@@ -1348,18 +1467,32 @@
         const timeLabel = `${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)} · ${peopleNames}`;
         const titleWithProject = entry.project_name ? `${entry.project_name}: ${entry.task_title}` : entry.task_title;
         el.dataset.tooltip = `${titleWithProject}\n${timeLabel}`;
+        const anyDoneForCheckbox = group.some(e => e.task_status === 'erledigt');
         el.innerHTML = `
           <div class="ce-content">
+            <label class="ce-done-check" title="Als erledigt markieren">
+              <input type="checkbox" class="ce-done-checkbox" ${anyDoneForCheckbox ? 'checked' : ''}>
+            </label>
             <div class="ce-title">${entry.project_name ? `<span class="cal-entry-project">${escapeHtml(entry.project_name)}:</span> ` : ''}${escapeHtml(entry.task_title)}</div>
             <div class="ce-time">${escapeHtml(timeLabel)}</div>
           </div>
           <div class="ce-resize-handle" data-resize="${entry.id}"></div>
         `;
 
+        const doneCheckbox = el.querySelector('.ce-done-checkbox');
+        doneCheckbox.addEventListener('click', (ev) => ev.stopPropagation());
+        doneCheckbox.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          await toggleTaskDone(entry.task_id, doneCheckbox.checked);
+        });
+
         let suppressClick = false;
 
         el.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'move', entryId: entry.id }));
+          // Position innerhalb des Termins merken, an der er gegriffen wurde - sonst landet
+          // er beim Ablegen leicht verschoben (Versatz zwischen Mausposition und Terminanfang).
+          const grabOffsetY = e.clientY - el.getBoundingClientRect().top;
+          e.dataTransfer.setData('application/json', JSON.stringify({ type: 'move', entryId: entry.id, grabOffsetY }));
           e.dataTransfer.effectAllowed = 'move';
           el.classList.add('dragging-source');
         });
@@ -1423,9 +1556,9 @@
   }
 
   async function renderCalendar() {
-    renderTaskPool();
     renderCalendarGrid();
     await loadCalendar();
+    renderTaskPool();
     renderAllDayRow();
     renderCalendarEntries();
     renderCalendarMobileList();
@@ -1523,10 +1656,6 @@
 
     const peopleOptions = (task.people.length ? task.people : people.filter(p => p.active))
       .map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-    const projectOptions = projects.map(p =>
-      `<option value="${p.id}" ${task.project && task.project.id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
-    ).join('');
-
     modalBody.innerHTML = `
       <label>Aufgabe<br><strong>${escapeHtml(task.title)}</strong></label>
       <label>Datum <input type="date" id="modal-date" value="${date}"></label>
@@ -1537,10 +1666,11 @@
         <select id="modal-person">${peopleOptions || '<option value="">— keine Person angelegt —</option>'}</select>
       </label>
       <label>Projekt
-        <select id="modal-project"><option value="">— kein Projekt —</option>${projectOptions}</select>
+        <div class="searchable-select-wrap"><input type="text" id="modal-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="modal-project"></div>
       </label>
       <p class="hint">Bei mehrtägigen Terminen gilt dieselbe Uhrzeit an jedem Tag im Zeitraum.</p>
     `;
+    initSearchableProjectPicker('modal-project-search', 'modal-project', task.project ? task.project.id : '');
     pendingDrop = { taskId };
     modalOverlay.classList.remove('hidden');
   }
@@ -2378,6 +2508,7 @@
     }
     await api('/api/year-events', { method: 'POST', body: JSON.stringify(payload) });
     document.getElementById('yc-event-form').reset();
+    setSearchableProjectValue('yc-event-project', '');
     document.getElementById('yc-event-until').classList.add('hidden');
     await renderYearCalendar();
   });
@@ -2617,6 +2748,7 @@
     initYearCalendarFromUrl();
     await loadAccount();
     await loadPeople();
+    await loadToolStartDate();
     await loadProjects();
     await loadActiveTimers();
     await loadTasks();

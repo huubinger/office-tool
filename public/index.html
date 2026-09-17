@@ -83,7 +83,7 @@
     <div class="quickadd-bar card">
       <form id="task-quickadd-form">
         <button type="submit" class="quickadd-plus" title="Anlegen">+</button>
-        <select id="qa-project"><option value="">Projekt auswählen</option></select>
+        <div class="searchable-select-wrap"><input type="text" id="qa-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="qa-project"></div>
         <input type="text" id="qa-title" placeholder="Aufgabe eingeben …" required>
         <select id="qa-person"><option value="">Zuständig</option></select>
         <select id="qa-priority">
@@ -91,8 +91,7 @@
           <option value="mittel" selected>Mittel</option>
           <option value="hoch">Hoch</option>
         </select>
-        <input type="date" id="qa-start-date" title="Startdatum">
-        <input type="date" id="qa-due-date" title="Deadline">
+        <input type="date" id="qa-due-date" title="Datum, an dem die Aufgabe erledigt werden soll">
         <input type="number" id="qa-duration" min="5" step="5" placeholder="Dauer (Min)" title="Geschätzte Dauer in Minuten">
         <select id="qa-recurrence" title="Wiederholung">
           <option value="keine">Keine Wiederholung</option>
@@ -100,7 +99,7 @@
           <option value="monthly">Monatlich</option>
           <option value="yearly">Jährlich</option>
         </select>
-        <input type="date" id="qa-recurrence-until" class="hidden" title="Wiederholen bis (braucht eine Deadline als Ausgangspunkt)">
+        <input type="date" id="qa-recurrence-until" class="hidden" title="Wiederholen bis (braucht ein Datum als Ausgangspunkt)">
       </form>
     </div>
 
@@ -116,7 +115,7 @@
           <input type="text" id="task-filter-search" placeholder="Aufgabe, Projekt oder Person …" autocomplete="off">
         </label>
         <label>Projekt
-          <select id="task-filter-project"><option value="">Alle Projekte</option></select>
+          <div class="searchable-select-wrap"><input type="text" id="task-filter-project-search" placeholder="Alle Projekte" autocomplete="off"><input type="hidden" id="task-filter-project"></div>
         </label>
         <label>Person
           <select id="task-filter-person"><option value="">Alle Personen</option></select>
@@ -139,8 +138,7 @@
         </label>
         <label>Sortieren nach
           <select id="task-sort">
-            <option value="deadline">Deadline</option>
-            <option value="start">Start</option>
+            <option value="deadline">Datum</option>
             <option value="priority">Priorität</option>
             <option value="title">Aufgabe</option>
           </select>
@@ -152,7 +150,7 @@
       <table class="task-table">
         <thead>
           <tr>
-            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Start</th><th>Deadline</th><th>Dauer</th><th>Status</th><th></th>
+            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Datum</th><th>Dauer</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody id="task-list"></tbody>
@@ -167,7 +165,7 @@
       <table class="task-table hidden" id="done-tasks-table">
         <thead>
           <tr>
-            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Start</th><th>Deadline</th><th>Dauer</th><th>Status</th><th></th>
+            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Datum</th><th>Dauer</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody id="done-task-list"></tbody>
@@ -200,14 +198,9 @@
           </label>
         </div>
         <div id="task-estimate-hint" class="estimate-hint hidden"></div>
-        <div class="time-row">
-          <label>Startdatum
-            <input type="date" id="task-start-date">
-          </label>
-          <label>Deadline
-            <input type="date" id="task-due-date">
-          </label>
-        </div>
+        <label>Datum (wann die Aufgabe erledigt werden soll)
+          <input type="date" id="task-due-date">
+        </label>
         <label>Uhrzeit (optional)
           <input type="time" id="task-due-time">
         </label>
@@ -218,7 +211,7 @@
         </label>
         <label>Projekt
           <div class="inline-select-row">
-            <select id="task-project"><option value="">— keins —</option></select>
+            <div class="searchable-select-wrap"><input type="text" id="task-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="task-project"></div>
             <button type="button" id="task-project-add-btn" class="ghost" title="Neues Projekt anlegen">+ Neu</button>
           </div>
         </label>
@@ -280,6 +273,13 @@
 
   <!-- ===================== PERSONEN ===================== -->
   <section id="tab-people" class="tab-panel">
+    <div class="card">
+      <h2>Einstellungen</h2>
+      <label>Tool-Start-Datum (Wochen davor bekommen im Wochenreport keine Soll/Ist-Warnung, da die Zeiterfassung damals noch nicht genutzt wurde)
+        <input type="date" id="tool-start-date-input">
+      </label>
+      <button type="button" id="tool-start-date-save" class="ghost">Speichern</button>
+    </div>
     <div class="panel-grid">
       <div class="card">
         <h2>Neue Person</h2>
@@ -305,6 +305,10 @@
             </select>
           </label>
 
+          <label>Vertragsbeginn (für alle Vertragsarten nutzbar — Wochen davor bekommen kein Soll im Wochenreport)
+            <input type="date" id="person-contract-start-general">
+          </label>
+
           <div id="bfd-fields" class="hidden">
             <div class="estimate-hint">
               <span>BFD-Standardwerte: 40 Std/Woche, 28 Urlaubstage, 6 Wochen Probezeit</span>
@@ -325,9 +329,6 @@
               </label>
             </div>
             <div class="time-row">
-              <label>Vertragsbeginn
-                <input type="date" id="person-contract-start">
-              </label>
               <label>Vertragsende
                 <input type="date" id="person-contract-end">
               </label>
@@ -530,7 +531,7 @@
         <input type="date" id="yc-event-end-date" title="Enddatum (optional, für durchgehende Mehrtages-Blöcke wie Urlaub)">
         <input type="time" id="yc-event-start-time" title="Von (optional)">
         <input type="time" id="yc-event-end-time" title="Bis (optional)">
-        <select id="yc-event-project"><option value="">— kein Projekt —</option></select>
+        <div class="searchable-select-wrap"><input type="text" id="yc-event-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="yc-event-project"></div>
         <select id="yc-event-recurrence">
           <option value="keine">Keine Wiederholung</option>
           <option value="weekly">Wöchentlich</option>

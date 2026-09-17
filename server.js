@@ -999,11 +999,13 @@ app.get('/api/reports/week', (req, res) => {
     WHERE person_id = ? AND date BETWEEN ? AND ? AND duration_minutes IS NOT NULL
   `);
 
+  const toolStartDate = getToolStartDate();
   const report = people.map(p => {
     const isBfd = p.contract_type === 'BFD';
-    // Wochen komplett vor dem hinterlegten Vertragsbeginn bekommen kein Soll angesetzt (keine
-    // Minusstunden fuer Zeit vor der eigentlichen Taetigkeit) - gilt fuer alle Vertragsarten.
-    const beforeContractStart = p.contract_start && to < p.contract_start;
+    // Wochen komplett vor dem hinterlegten Vertragsbeginn ODER vor dem globalen Tool-Start-Datum
+    // bekommen kein Soll angesetzt (keine Minusstunden fuer Zeit vor der eigentlichen Taetigkeit
+    // bzw. bevor das Tool ueberhaupt benutzt wurde) - gilt fuer alle Vertragsarten.
+    const beforeContractStart = (p.contract_start && to < p.contract_start) || to < toolStartDate;
     let actual = actualStmt.get(p.id, from, to).m + absenceCreditMinutes(p.id, from, to);
     if (isBfd) {
       actual += weekendHolidayBonusMinutes(p.id, from, to);
@@ -1213,12 +1215,13 @@ app.get('/api/reports/lifetime', (req, res) => {
 
   const firstMondayFromEntries = getMondayOf(new Date(firstRow.d));
   const isBfd = person.contract_type === 'BFD';
-  // Nie vor dem hinterlegten Vertragsbeginn zu zaehlen anfangen, auch wenn zufaellig ein
-  // frueherer Zeiteintrag existiert - sonst wuerden Wochen vor dem eigentlichen Start
-  // faelschlich als Minusstunden in die Bilanz einfliessen. Gilt fuer alle Vertragsarten.
-  const firstMonday = (person.contract_start && new Date(person.contract_start) > firstMondayFromEntries)
-    ? getMondayOf(new Date(person.contract_start))
-    : firstMondayFromEntries;
+  // Nie vor dem hinterlegten Vertragsbeginn ODER vor dem globalen Tool-Start-Datum zu zaehlen
+  // anfangen, auch wenn zufaellig ein frueherer Zeiteintrag existiert - sonst wuerden Wochen vor
+  // dem eigentlichen Start bzw. vor der Tool-Nutzung faelschlich als Minusstunden einfliessen.
+  const toolStartMonday = getMondayOf(new Date(getToolStartDate()));
+  let firstMonday = firstMondayFromEntries;
+  if (person.contract_start && new Date(person.contract_start) > firstMonday) firstMonday = getMondayOf(new Date(person.contract_start));
+  if (toolStartMonday > firstMonday) firstMonday = toolStartMonday;
   const currentMonday = getMondayOf(new Date());
   const weeksCounted = Math.round((currentMonday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
   const rangeFrom = isoDateLocal(firstMonday);
@@ -1489,6 +1492,25 @@ function getOrCreateShareToken() {
 app.get('/api/year-calendar/share-info', (req, res) => {
   const token = getOrCreateShareToken();
   res.json({ url: `${req.protocol}://${req.get('host')}/api/year-calendar.ics?token=${token}` });
+});
+
+// Globales Tool-Start-Datum: Wochen davor bekommen im Wochenreport kein Soll angesetzt (die
+// Zeiterfassung wurde vor diesem Datum schlicht noch nicht benutzt, daher keine Warnungen).
+function getToolStartDate() {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = 'tool_start_date'").get();
+  return row ? row.value : '2026-09-01';
+}
+
+app.get('/api/settings/tool-start-date', (req, res) => {
+  res.json({ tool_start_date: getToolStartDate() });
+});
+
+app.put('/api/settings/tool-start-date', (req, res) => {
+  const { tool_start_date } = req.body;
+  if (!tool_start_date) return res.status(400).json({ error: 'tool_start_date ist erforderlich' });
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('tool_start_date', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(tool_start_date);
+  res.json({ tool_start_date });
 });
 
 app.post('/api/year-calendar/share-info/regenerate', (req, res) => {

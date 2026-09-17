@@ -1145,7 +1145,20 @@
       try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
       if (!payload) return;
 
-      if (await unscheduleFromDropPayload(payload)) { renderTaskPool(); return; }
+      if (payload.type === 'move' || (payload.type === 'schedule' && payload.source === 'allday')) {
+        // Auf "Dringend" abgelegt: Termin/Faelligkeitsdatum entfernen UND Prioritaet auf "hoch"
+        // setzen, damit die Aufgabe tatsaechlich dort landet statt automatisch bei "Weitere
+        // Aufgaben" zu verschwinden (Dringend-Zugehoerigkeit richtet sich nach Prioritaet/Termin).
+        const taskId = payload.type === 'move'
+          ? (calendarEntries.find(en => en.id === payload.entryId) || {}).task_id
+          : payload.taskId;
+        const unscheduled = await unscheduleFromDropPayload(payload);
+        if (unscheduled && taskId) {
+          await api(`/api/tasks/${taskId}`, { method: 'PUT', body: JSON.stringify({ priority: 'hoch' }) });
+          await loadTasks();
+        }
+        if (unscheduled) { renderTaskPool(); return; }
+      }
       if (payload.type !== 'schedule') return;
 
       const draggedId = payload.taskId;

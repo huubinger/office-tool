@@ -45,4 +45,56 @@ async function fetchAndParseIcs(url) {
   return parseIcsText(text);
 }
 
-module.exports = { parseIcsText, fetchAndParseIcs };
+// Erzeugt eine gueltige .ics-Datei (RFC5545) aus einer Liste von Terminen. Jeder Termin
+// braucht mindestens { uid, title, date }; optional start_time/end_time (HH:MM) fuer
+// Termine mit Uhrzeit - ohne Uhrzeit wird ein ganztaegiger Termin erzeugt.
+function icsEscapeText(str) {
+  return String(str ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n');
+}
+
+function icsDateTime(dateIso, timeHms) {
+  const datePart = dateIso.replace(/-/g, '');
+  if (!timeHms) return datePart;
+  const timePart = timeHms.replace(/:/g, '').padEnd(6, '0');
+  return `${datePart}T${timePart}`;
+}
+
+function icsDatePlusOneDay(dateIso) {
+  const d = new Date(dateIso);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function buildIcs(events, calendarName) {
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Office-Tool//Jahreskalender//DE',
+    'CALSCALE:GREGORIAN',
+    `X-WR-CALNAME:${icsEscapeText(calendarName)}`,
+  ];
+  events.forEach(e => {
+    if (!e.date) return;
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${e.uid}@office-tool`);
+    lines.push(`DTSTAMP:${dtstamp}`);
+    if (e.start_time) {
+      lines.push(`DTSTART:${icsDateTime(e.date, e.start_time)}`);
+      if (e.end_time) lines.push(`DTEND:${icsDateTime(e.date, e.end_time)}`);
+    } else {
+      lines.push(`DTSTART;VALUE=DATE:${icsDateTime(e.date)}`);
+      lines.push(`DTEND;VALUE=DATE:${icsDatePlusOneDay(e.date)}`);
+    }
+    lines.push(`SUMMARY:${icsEscapeText(e.title)}`);
+    lines.push('END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+module.exports = { parseIcsText, fetchAndParseIcs, buildIcs };

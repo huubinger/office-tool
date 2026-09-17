@@ -46,15 +46,19 @@
     </button>
     <button class="tab-btn" data-tab="calendar" data-title="Wochenplanung">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Wochenplanung</span>
+      <span>Woche</span>
     </button>
     <button class="tab-btn" data-tab="timetracking" data-title="Zeiterfassung">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Zeit</span>
     </button>
+    <button class="tab-btn" data-tab="yearcalendar" data-title="Jahreskalender">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>
+      <span>Jahr</span>
+    </button>
     <button class="tab-btn" data-tab="people" data-title="Personen/Projekte">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Personen/Projekte</span>
+      <span>Personen</span>
     </button>
   </nav>
 
@@ -162,14 +166,16 @@
         <span id="done-tasks-count">Erledigt (0)</span>
         <span class="task-group-chevron" id="done-tasks-chevron">▾</span>
       </button>
-      <table class="task-table hidden" id="done-tasks-table">
-        <thead>
-          <tr>
-            <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Datum</th><th>Dauer</th><th>Status</th><th></th>
-          </tr>
-        </thead>
-        <tbody id="done-task-list"></tbody>
-      </table>
+      <div class="task-table-scroll-wrap">
+        <table class="task-table hidden" id="done-tasks-table">
+          <thead>
+            <tr>
+              <th></th><th>Aufgabe</th><th>Zuständig</th><th>Priorität</th><th>Datum</th><th>Dauer</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="done-task-list"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 

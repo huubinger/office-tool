@@ -467,7 +467,7 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .task-group-header.collapsed .task-group-chevron { transform: rotate(-90deg); }
 .task-group-chevron.collapsed { transform: rotate(-90deg); }
 
-.done-tasks-card { padding: 0; margin-top: 14px; overflow: hidden; }
+.done-tasks-card { padding: 0; margin-top: 14px; border-radius: var(--radius); overflow: hidden; }
 .done-tasks-toggle {
   width: 100%; display: flex; align-items: center; gap: 8px; justify-content: flex-start;
   background: var(--panel-alt); border: none; color: var(--ink-soft); font-weight: 600;
@@ -475,6 +475,7 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 }
 .done-tasks-toggle:hover { background: var(--panel); }
 #done-tasks-table { margin-top: 0; }
+.done-tasks-card .task-table-scroll-wrap { overflow-x: auto; }
 
 #absence-list-toggle {
   border-radius: var(--radius-sm); margin: 4px 0 8px; padding: 9px 12px;
@@ -642,6 +643,10 @@ form + .hint { margin-top: 8px; }
 @media (max-width: 700px) {
   #calendar-allday-grid, .calendar-grid-wrap, .calendar-header-row { display: none; }
   .calendar-mobile-list { display: block; }
+  /* Die mobile Listenansicht hat eine variable Hoehe je nach Terminanzahl - die feste
+     Kalender-Box-Hoehe (fuer den Gleichstand mit den Seitenspalten am Desktop gedacht)
+     wuerde hier sonst Leerraum oder abgeschnittenen Inhalt verursachen. */
+  .calendar-3col-layout .calendar-main-full { height: auto; max-height: none; }
 }
 
 .cml-day { margin-bottom: 14px; }

@@ -133,7 +133,7 @@ h2 { font-size: 15px; }
 /* ---------- Topbar ---------- */
 .topbar {
   background: var(--bg);
-  padding: 16px 24px;
+  padding: calc(16px + env(safe-area-inset-top)) 24px 16px;
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;

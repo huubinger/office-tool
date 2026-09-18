@@ -47,7 +47,11 @@ app.use(session({
   },
 }));
 
-const PUBLIC_PATHS = new Set(['/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics']);
+const PUBLIC_PATHS = new Set([
+  '/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics',
+  '/manifest.json', '/favicon.png',
+  '/icons/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png',
+]);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
   if (req.session && req.session.userId) return next();

@@ -260,6 +260,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
 .report-multi-table tbody tr td { border-bottom: 1px solid var(--line); padding-top: 9px; padding-bottom: 9px; }
 .report-multi-table tbody tr:nth-child(even) td { background: var(--panel-alt); }
 .report-multi-table tbody tr.warn:nth-child(even) td { background: var(--danger-soft); }
+.report-detail-row { cursor: pointer; }
+.report-detail-row:hover td { background: var(--panel) !important; }
 
 @media (max-width: 820px) {
   /* App-Version: zweizeilig statt 5 Spalten nebeneinander - Woche+Person auf Zeile 1,
@@ -281,8 +283,6 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
   .report-multi-table tbody tr td:nth-child(4)::before { content: 'Ist '; color: var(--ink-faint); }
   .report-multi-table tbody tr td:last-child { white-space: normal; min-width: 0; }
 }
-.report-detail-row { cursor: pointer; }
-.report-detail-row:hover td { background: var(--panel) !important; }
 
 .card {
   background: var(--panel);
@@ -612,6 +612,12 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .project-color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
 
 /* ---------- Calendar ---------- */
+.tap-schedule-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--ink); font-weight: 500;
+}
+
 .calendar-3col-layout {
   display: grid;
   grid-template-columns: minmax(150px, 190px) 1fr minmax(150px, 190px);

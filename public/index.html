@@ -247,6 +247,10 @@
 
   <!-- ===================== KALENDER ===================== -->
   <section id="tab-calendar" class="tab-panel">
+    <div id="tap-schedule-banner" class="tap-schedule-banner hidden">
+      <span id="tap-schedule-banner-text"></span>
+      <button type="button" id="tap-schedule-cancel" class="ghost">Abbrechen</button>
+    </div>
     <div class="calendar-3col-layout">
       <div class="pool-sidebar" id="pool-sidebar-urgent">
         <h2>Dringend <span id="pool-urgent-count" class="task-meta">(0)</span></h2>
@@ -621,6 +625,7 @@
       </div>
     </label>
     <div class="form-actions entry-menu-actions">
+      <button id="entry-menu-move" class="ghost">↔ Termin verschieben</button>
       <button id="entry-menu-edit-task" class="ghost">✎ Aufgabe bearbeiten</button>
       <button id="entry-menu-done">✓ Als erledigt markieren</button>
       <button id="entry-menu-remove" class="danger-btn">Aus Kalender entfernen</button>

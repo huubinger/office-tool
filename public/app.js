@@ -1101,6 +1101,23 @@
         e.dataTransfer.setData('application/json', JSON.stringify({ type: 'schedule', taskId: +card.dataset.taskId }));
         e.dataTransfer.effectAllowed = 'copy';
       });
+      // Tippen (Touch-Alternative zum Ziehen): Aufgabe auswaehlen, dann Zielort antippen.
+      // Ist bereits ein VERSCHIEBEN-Vorgang aktiv, zaehlt ein Tipp auf irgendeine Karte hier
+      // als "in diese Liste verschieben" (= Termin entfernen), nicht als neue Auswahl.
+      card.addEventListener('click', async (e) => {
+        const taskId = +card.dataset.taskId;
+        if (tapSelectedPayload && tapSelectedPayload.type === 'move') {
+          e.stopPropagation();
+          await applyTapUnschedule();
+          return;
+        }
+        if (tapSelectedPayload && tapSelectedPayload.type === 'schedule' && tapSelectedPayload.taskId === taskId) {
+          clearTapSelection();
+          return;
+        }
+        const task = tasks.find(t => t.id === taskId);
+        startTapSelection({ type: 'schedule', taskId }, task ? task.title : 'Aufgabe');
+      });
     });
   }
 
@@ -1191,6 +1208,22 @@
       if (task) task.manual_rank = newRank;
       renderTaskPool();
     });
+
+    // Tippen (Touch-Alternative): ein per "Verschieben" ausgewaehlter Termin landet hier als
+    // dringende Aufgabe (gleiche Wirkung wie das Ablegen per Drag&Drop oben).
+    zone.addEventListener('click', async (e) => {
+      if (e.target !== zone) return; // Klicks auf Karten haben ihren eigenen Handler
+      if (!tapSelectedPayload || tapSelectedPayload.type !== 'move') return;
+      const payload = tapSelectedPayload;
+      const taskId = (calendarEntries.find(en => en.id === payload.entryId) || {}).task_id;
+      clearTapSelection();
+      const unscheduled = await unscheduleFromDropPayload(payload);
+      if (unscheduled && taskId) {
+        await api(`/api/tasks/${taskId}`, { method: 'PUT', body: JSON.stringify({ priority: 'hoch' }) });
+        await loadTasks();
+      }
+      if (unscheduled) renderTaskPool();
+    });
   }
 
   // Erlaubt, einen Termin aus dem Zeitraster oder einen Ganztaegig-Chip auf "Weitere Aufgaben"
@@ -1208,6 +1241,10 @@
       try { payload = JSON.parse(e.dataTransfer.getData('application/json')); } catch (err) { return; }
       if (!payload) return;
       if (await unscheduleFromDropPayload(payload)) renderTaskPool();
+    });
+    // Tippen auf leere Flaeche der Zone (nicht auf eine Karte, die hat ihren eigenen Handler).
+    zone.addEventListener('click', async () => {
+      if (tapSelectedPayload && tapSelectedPayload.type === 'move') await applyTapUnschedule();
     });
   }
 
@@ -1328,6 +1365,76 @@
     });
   }
 
+  // ---------- Tippen-statt-Ziehen: Touch-Alternative zum Drag & Drop ----------
+  // Auf Touch-Geraeten funktioniert natives HTML5-Drag&Drop nicht. Als Alternative: Aufgabe/
+  // Termin antippen zum Auswaehlen, dann den Zielort antippen (Zeitzelle oder Dringend/Weitere
+  // Aufgaben). Nutzt dieselbe Payload-Form wie beim Ziehen, damit die Zielort-Logik geteilt wird.
+  let tapSelectedPayload = null;
+  const tapBanner = document.getElementById('tap-schedule-banner');
+
+  function startTapSelection(payload, label) {
+    tapSelectedPayload = payload;
+    document.getElementById('tap-schedule-banner-text').textContent = `${label} ausgewählt — jetzt eine Uhrzeit im Kalender oder "Dringend"/"Weitere Aufgaben" antippen.`;
+    tapBanner.classList.remove('hidden');
+  }
+  function clearTapSelection() {
+    tapSelectedPayload = null;
+    tapBanner.classList.add('hidden');
+  }
+  document.getElementById('tap-schedule-cancel').addEventListener('click', clearTapSelection);
+
+  async function applyTapTarget(dateIso, slotIndex) {
+    const payload = tapSelectedPayload;
+    if (!payload) return false;
+    clearTapSelection();
+    if (payload.type === 'schedule') {
+      openScheduleModal(payload.taskId, dateIso, slotIndex);
+    } else if (payload.type === 'move') {
+      const entry = calendarEntries.find(en => en.id === payload.entryId);
+      if (!entry) return true;
+      const durationMin = timeToMinutes(entry.end_time) - timeToMinutes(entry.start_time);
+      const newStart = slotIndexToTime(slotIndex);
+      const newEnd = minutesToTime(timeToMinutes(newStart) + durationMin);
+      await api(`/api/calendar/${entry.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ date: dateIso, start_time: newStart, end_time: newEnd }),
+      });
+      await loadCalendar();
+      renderCalendarEntries();
+      renderCalendarMobileList();
+    }
+    return true;
+  }
+
+  // Variante fuer die mobile Listenansicht (kein Zeitraster, nur Tage): bei "schedule" oeffnet
+  // sich das Einplanungs-Fenster mit dem angetippten Tag (Uhrzeit dort waehlen); bei "move"
+  // bleibt die bisherige Uhrzeit erhalten, nur der Tag aendert sich.
+  async function applyTapTargetDate(dateIso) {
+    const payload = tapSelectedPayload;
+    if (!payload) return false;
+    clearTapSelection();
+    if (payload.type === 'schedule') {
+      const defaultSlot = Math.round(((9 - START_HOUR) * 60) / SLOT_MINUTES); // 09:00 als Vorschlag
+      openScheduleModal(payload.taskId, dateIso, defaultSlot);
+    } else if (payload.type === 'move') {
+      const entry = calendarEntries.find(en => en.id === payload.entryId);
+      if (!entry) return true;
+      await api(`/api/calendar/${entry.id}`, { method: 'PUT', body: JSON.stringify({ date: dateIso }) });
+      await loadCalendar();
+      renderCalendarEntries();
+      renderCalendarMobileList();
+    }
+    return true;
+  }
+
+  async function applyTapUnschedule() {
+    const payload = tapSelectedPayload;
+    if (!payload) return false;
+    clearTapSelection();
+    if (await unscheduleFromDropPayload(payload)) renderTaskPool();
+    return true;
+  }
+
   function attachDropHandlers(cell) {
     cell.addEventListener('dragover', (e) => { e.preventDefault(); cell.classList.add('drag-over'); });
     cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
@@ -1336,8 +1443,12 @@
       cell.classList.remove('drag-over');
       await handleCalendarDrop(e, cell.dataset.date, +cell.dataset.slot);
     });
-    // Klick auf eine leere Zeitzelle legt direkt eine neue Aufgabe samt Kalendertermin an
-    cell.addEventListener('click', () => openQuickCreateModal(cell.dataset.date, +cell.dataset.slot));
+    // Klick: wenn gerade eine Aufgabe/ein Termin per Antippen ausgewaehlt ist, hierher
+    // einplanen/verschieben - sonst wie gehabt eine neue Aufgabe an dieser Zeitzelle anlegen.
+    cell.addEventListener('click', async () => {
+      if (tapSelectedPayload) { await applyTapTarget(cell.dataset.date, +cell.dataset.slot); return; }
+      openQuickCreateModal(cell.dataset.date, +cell.dataset.slot);
+    });
   }
 
   // Gemeinsame Drop-Logik, sowohl von leeren Zeitzellen als auch von bereits belegten
@@ -1617,10 +1728,16 @@
             </div>
           `).join('')
         : '<p class="empty-state">Keine Termine.</p>';
-      return `<div class="cml-day"><div class="cml-day-heading">${heading}</div>${rows}</div>`;
+      return `<div class="cml-day"><div class="cml-day-heading" data-cml-day-target="${iso}">${heading}</div>${rows}</div>`;
     }).join('');
 
     container.innerHTML = html;
+    container.querySelectorAll('[data-cml-day-target]').forEach(el => {
+      el.addEventListener('click', async () => {
+        if (!tapSelectedPayload) return;
+        await applyTapTargetDate(el.dataset.cmlDayTarget);
+      });
+    });
     container.querySelectorAll('[data-cml-entry]').forEach(el => {
       const entry = calendarEntries.find(e => e.id === +el.dataset.cmlEntry);
       if (entry) el.addEventListener('click', () => {
@@ -1835,6 +1952,12 @@
     fillEntryMenuAddPersonSelect();
   });
 
+  document.getElementById('entry-menu-move').addEventListener('click', () => {
+    if (!pendingEntryGroup) return;
+    const entry = pendingEntryGroup[0];
+    closeEntryMenu();
+    startTapSelection({ type: 'move', entryId: entry.id }, `${entry.task_title} (${entry.start_time.slice(0, 5)}–${entry.end_time.slice(0, 5)})`);
+  });
   document.getElementById('entry-menu-edit-task').addEventListener('click', () => {
     if (!pendingEntryGroup) return;
     const taskId = pendingEntryGroup[0].task_id;
@@ -1997,8 +2120,6 @@
     document.getElementById('time-end').value = e.end_time ? e.end_time.slice(0, 5) : '';
     document.getElementById('time-break-start').value = e.break_start ? e.break_start.slice(0, 5) : '';
     document.getElementById('time-break-end').value = e.break_end ? e.break_end.slice(0, 5) : '';
-    // Felder "Bezug zu Aufgabe" und "Notiz" wurden aus dem Formular entfernt, aber falls ein
-    // aelterer Eintrag noch Werte dafuer hat, bleiben die beim Speichern erhalten statt geloescht.
     editingTimeEntryTaskId = e.task_id || null;
     editingTimeEntryNote = e.note || null;
     timeSubmitBtn.textContent = 'Änderungen speichern';

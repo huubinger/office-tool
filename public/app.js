@@ -15,6 +15,8 @@
   let editingTaskId = null;
   let editingPersonId = null;
   let editingTimeEntryId = null;
+  let editingTimeEntryTaskId = null;
+  let editingTimeEntryNote = null;
   let lifetimeBalances = new Map(); // person_id -> lifetime report response
   let pendingDrop = null; // { taskId } fuer Neuplanung aus dem Pool
   let pendingMove = null; // { entryId, duration } fuer Verschieben eines bestehenden Termins
@@ -634,11 +636,14 @@
   // Kompakte Zeile fuer das Dashboard (kein Tabellenkontext dort)
   function compactTaskRowHtml(t) {
     const peopleNames = t.people.length ? t.people.map(p => escapeHtml(p.name)).join(', ') : '—';
-    const projectTag = t.project ? `<span class="cml-project-tag" style="color:${t.project.color}">${escapeHtml(t.project.name)}</span> ` : '';
+    const projectLine = t.project ? `<span class="crc-project" style="color:${t.project.color}">${escapeHtml(t.project.name)}</span>` : '';
     return `
       <div class="task-row-compact" data-task-row="${t.id}">
         <input type="checkbox" class="task-done-checkbox" data-done-toggle="${t.id}" ${t.status === 'erledigt' ? 'checked' : ''} title="Als erledigt markieren">
-        <span>${projectTag}${escapeHtml(t.title)}</span>
+        <span class="crc-text">
+          ${projectLine}
+          <span class="crc-title">${escapeHtml(t.title)}</span>
+        </span>
         <span class="task-meta">${peopleNames}</span>
       </div>
     `;
@@ -996,9 +1001,7 @@
   }
 
   function fillTaskSelect() {
-    const sel = document.getElementById('time-task');
-    sel.innerHTML = '<option value="">— keine —</option>' +
-      tasks.map(t => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join('');
+    // Feld "Bezug zu Aufgabe" bei der Zeiterfassung wurde entfernt - keine Befuellung mehr noetig.
   }
 
   // ================= CALENDAR =================
@@ -1994,8 +1997,10 @@
     document.getElementById('time-end').value = e.end_time ? e.end_time.slice(0, 5) : '';
     document.getElementById('time-break-start').value = e.break_start ? e.break_start.slice(0, 5) : '';
     document.getElementById('time-break-end').value = e.break_end ? e.break_end.slice(0, 5) : '';
-    document.getElementById('time-task').value = e.task_id || '';
-    document.getElementById('time-note').value = e.note || '';
+    // Felder "Bezug zu Aufgabe" und "Notiz" wurden aus dem Formular entfernt, aber falls ein
+    // aelterer Eintrag noch Werte dafuer hat, bleiben die beim Speichern erhalten statt geloescht.
+    editingTimeEntryTaskId = e.task_id || null;
+    editingTimeEntryNote = e.note || null;
     timeSubmitBtn.textContent = 'Änderungen speichern';
     timeCancelBtn.classList.remove('hidden');
     document.getElementById('time-form-heading').textContent = 'Arbeitszeit bearbeiten';
@@ -2004,6 +2009,8 @@
 
   function resetTimeForm() {
     editingTimeEntryId = null;
+    editingTimeEntryTaskId = null;
+    editingTimeEntryNote = null;
     timeForm.reset();
     document.getElementById('time-date').value = isoDate(new Date());
     timeSubmitBtn.textContent = 'Eintragen';
@@ -2023,8 +2030,8 @@
       end_time: document.getElementById('time-end').value || null,
       break_start: document.getElementById('time-break-start').value || null,
       break_end: document.getElementById('time-break-end').value || null,
-      task_id: document.getElementById('time-task').value || null,
-      note: document.getElementById('time-note').value.trim(),
+      task_id: editingTimeEntryTaskId,
+      note: editingTimeEntryNote || '',
     };
     if (!payload.date) return;
     if (editingTimeEntryId) {
@@ -2389,17 +2396,56 @@
     `;
   }
 
+  function isMobileViewport() { return window.innerWidth <= 820; }
+
+  let ycMobileMonthsShown = 0;
+  const YC_MOBILE_INITIAL_MONTHS = 3;
+  const YC_MOBILE_LOAD_MORE = 2;
+
   async function renderYearCalendar() {
     document.getElementById('yc-year-label').textContent = ycYear;
     document.getElementById('yc-half-label').textContent = ycHalf === 'h1' ? 'Januar – Juni' : 'Juli – Dezember';
     await loadYearCalendarData();
 
-    const monthsRange = ycHalf === 'h1' ? [0, 1, 2, 3, 4, 5] : [6, 7, 8, 9, 10, 11];
-    document.getElementById('yc-months-grid').innerHTML = monthsRange.map(m => renderMonthColumnHtml(ycYear, m)).join('');
-    document.querySelectorAll('[data-yc-day]').forEach(el => el.addEventListener('click', () => openYcDayModal(el.dataset.ycDay)));
+    if (isMobileViewport()) {
+      // App-Version: keine Jahreshaelften-Umschaltung, stattdessen alle 12 Monate des Jahres
+      // fortlaufend untereinander, anfangs nur ein paar, weitere werden beim Runterscrollen
+      // automatisch angehaengt (siehe setupYcInfiniteScroll).
+      ycMobileMonthsShown = Math.min(YC_MOBILE_INITIAL_MONTHS, 12);
+      renderYcMobileMonths();
+    } else {
+      const monthsRange = ycHalf === 'h1' ? [0, 1, 2, 3, 4, 5] : [6, 7, 8, 9, 10, 11];
+      document.getElementById('yc-months-grid').innerHTML = monthsRange.map(m => renderMonthColumnHtml(ycYear, m)).join('');
+      document.querySelectorAll('[data-yc-day]').forEach(el => el.addEventListener('click', () => openYcDayModal(el.dataset.ycDay)));
+    }
 
     renderYcExternalList();
     loadYcShareLink();
+  }
+
+  function renderYcMobileMonths() {
+    const grid = document.getElementById('yc-months-grid');
+    const monthsRange = Array.from({ length: ycMobileMonthsShown }, (_, i) => i);
+    grid.innerHTML = monthsRange.map(m => renderMonthColumnHtml(ycYear, m)).join('');
+    grid.querySelectorAll('[data-yc-day]').forEach(el => el.addEventListener('click', () => openYcDayModal(el.dataset.ycDay)));
+  }
+
+  // Laedt beim Runterscrollen weitere Monate des aktuellen Jahres nach (Endlos-Scroll-Gefuehl),
+  // damit man auf dem Handy nicht erst umstaendlich zwischen Jahreshaelften wechseln muss.
+  let ycScrollListenerAttached = false;
+  function setupYcInfiniteScroll() {
+    if (ycScrollListenerAttached) return;
+    ycScrollListenerAttached = true;
+    window.addEventListener('scroll', () => {
+      if (!isMobileViewport()) return;
+      if (!document.getElementById('tab-yearcalendar').classList.contains('active')) return;
+      if (ycMobileMonthsShown >= 12) return;
+      const scrollBottom = window.innerHeight + window.scrollY;
+      if (scrollBottom >= document.body.scrollHeight - 400) {
+        ycMobileMonthsShown = Math.min(ycMobileMonthsShown + YC_MOBILE_LOAD_MORE, 12);
+        renderYcMobileMonths();
+      }
+    });
   }
 
   function renderYcExternalList() {
@@ -2756,6 +2802,7 @@
     document.getElementById('yc-event-date').value = isoDate(new Date());
     setupPoolOtherDropTarget();
     setupUrgentReorder();
+    setupYcInfiniteScroll();
     resetPersonForm();
     resetTimeForm();
     initYearCalendarFromUrl();

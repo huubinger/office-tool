@@ -126,7 +126,7 @@ h2 { font-size: 15px; }
   }
   .bottom-nav .tab-btn.active { background: var(--accent-soft); border-left: none; }
   .bottom-nav .tab-icon { width: 19px; height: 19px; }
-  main { padding-bottom: 84px; }
+  main { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 }
 
 
@@ -239,6 +239,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
 }
 @media (max-width: 820px) {
   .panel-grid { grid-template-columns: 1fr; }
+  .card { padding: 12px; }
+  form input[type="date"], form input[type="time"] { font-size: 13px; padding: 8px 6px; }
 }
 
 .time-entry-row {
@@ -258,6 +260,27 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
 .report-multi-table tbody tr td { border-bottom: 1px solid var(--line); padding-top: 9px; padding-bottom: 9px; }
 .report-multi-table tbody tr:nth-child(even) td { background: var(--panel-alt); }
 .report-multi-table tbody tr.warn:nth-child(even) td { background: var(--danger-soft); }
+
+@media (max-width: 820px) {
+  /* App-Version: zweizeilig statt 5 Spalten nebeneinander - Woche+Person auf Zeile 1,
+     Soll/Ist/Differenz auf Zeile 2, damit alles ohne horizontales Scrollen passt. */
+  .report-multi-table thead { display: none; }
+  .report-multi-table, .report-multi-table tbody { display: block; width: 100%; }
+  .report-multi-table tbody tr {
+    display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 3px;
+    padding: 10px 12px;
+  }
+  .report-multi-table tbody tr td {
+    display: inline; padding: 0; border-bottom: none; white-space: nowrap; font-size: 12.5px;
+  }
+  .report-multi-table tbody tr td:nth-child(1) { font-weight: 600; }
+  .report-multi-table tbody tr td:nth-child(2) { color: var(--ink-soft); }
+  .report-multi-table tbody tr td:nth-child(2)::after { content: '·'; margin-left: 8px; color: var(--ink-faint); }
+  .report-multi-table tbody tr td:nth-child(3) { flex-basis: 100%; }
+  .report-multi-table tbody tr td:nth-child(3)::before { content: 'Soll '; color: var(--ink-faint); }
+  .report-multi-table tbody tr td:nth-child(4)::before { content: 'Ist '; color: var(--ink-faint); }
+  .report-multi-table tbody tr td:last-child { white-space: normal; min-width: 0; }
+}
 .report-detail-row { cursor: pointer; }
 .report-detail-row:hover td { background: var(--panel) !important; }
 
@@ -268,6 +291,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; width: 100%; }
   box-shadow: var(--shadow-card);
   padding: 16px;
 }
+.settings-card { margin-bottom: 20px; }
 
 form label {
   display: block;
@@ -449,6 +473,19 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 .task-groups-card { padding: 0; overflow-x: auto; }
 .task-groups-card .task-table { min-width: 760px; }
 
+@media (max-width: 820px) {
+  /* App-Version: nur Aufgabe + Zustaendig anzeigen, Rest ausblenden - passt dann ohne
+     horizontales Scrollen komplett in die Breite. */
+  .task-groups-card .task-table,
+  .done-tasks-card .task-table { min-width: 0; }
+  .task-table thead th:nth-child(4), .task-table tbody td:nth-child(4),
+  .task-table thead th:nth-child(5), .task-table tbody td:nth-child(5),
+  .task-table thead th:nth-child(6), .task-table tbody td:nth-child(6),
+  .task-table thead th:nth-child(7), .task-table tbody td:nth-child(7) {
+    display: none;
+  }
+}
+
 /* ---------- Tabellarische Aufgabenliste (gruppiert nach Projekt) ---------- */
 .task-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .task-table thead th {
@@ -524,7 +561,11 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 }
 .task-row-compact:hover { border-color: #384049; }
 .task-row-compact .task-done-checkbox { flex-shrink: 0; }
-.task-row-compact > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-row-compact .crc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.task-row-compact .crc-project {
+  font-weight: 700; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-row-compact .crc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-row-compact .task-meta { flex-shrink: 0; }
 
 .status-badge {
@@ -936,6 +977,14 @@ form + .hint { margin-top: 8px; }
 
 /* ---------- Jahreskalender ---------- */
 .yc-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; padding: 12px 16px; }
+
+@media (max-width: 820px) {
+  /* App-Version: kein Vollbild-Button, keine Jahreshaelften-Umschaltung noetig, da die
+     Monate stattdessen fortlaufend beim Scrollen nachgeladen werden (siehe JS). */
+  #yc-fullscreen-btn, #yc-open-other-half, #yc-half-label { display: none; }
+  .yc-months-grid { flex-direction: column; }
+  .yc-month-col { flex: 1 1 auto; min-width: 0; width: 100%; }
+}
 
 #tab-yearcalendar:fullscreen {
   background: var(--bg); padding: 20px; overflow-y: auto;

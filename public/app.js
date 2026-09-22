@@ -2428,6 +2428,8 @@
   let ycYear = new Date().getFullYear();
   let ycHalf = 'h1';
   let ycEvents = [];
+  let ycContractEvents = [];
+  const CONTRACT_EVENT_COLOR = '#e11d48';
   let ycExternalEvents = [];
   let ycSchoolHolidays = [];
   let ycPublicHolidays = [];
@@ -2445,13 +2447,22 @@
   }
 
   async function loadYearCalendarData() {
-    [ycEvents, ycExternalEvents, ycSchoolHolidays, ycPublicHolidays, ycExternalCalendars] = await Promise.all([
+    let allContractEvents;
+    [ycEvents, ycExternalEvents, ycSchoolHolidays, ycPublicHolidays, ycExternalCalendars, allContractEvents] = await Promise.all([
       api(`/api/year-events?year=${ycYear}`),
       api(`/api/external-calendar-events?year=${ycYear}`),
       api(`/api/school-holidays?year=${ycYear}`),
       api(`/api/public-holidays?year=${ycYear}`),
       api('/api/external-calendars'),
+      api('/api/contract-events'),
     ]);
+    ycContractEvents = allContractEvents.filter(e => e.date && e.date.startsWith(String(ycYear)));
+  }
+
+  // Veranstaltungen aus dem Vertraege-Bereich erscheinen automatisch im Jahreskalender
+  // (nur lesend - bearbeitet werden sie weiter im Vertraege-Tab).
+  function ycContractEventLabel(e) {
+    return `🎪 ${e.time ? e.time.slice(0, 5) + ' ' : ''}${e.title}`;
   }
 
   // Regenbogenfarben je Monat (rein dekorativ für die Spaltenköpfe, angelehnt an
@@ -2487,7 +2498,9 @@
       const isSchool = isSchoolHoliday(dateIso);
       const dayEvents = ycEvents.filter(e => e.date === dateIso);
       const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
+      const dayContract = ycContractEvents.filter(e => e.date === dateIso);
       const allDayItems = [
+        ...dayContract.map(e => ({ title: ycContractEventLabel(e), color: CONTRACT_EVENT_COLOR })),
         ...dayEvents.map(e => ({ title: ycEventLabel(e), color: e.project_color || '#8a8d90' })),
         ...dayExternal.map(e => ({ title: e.title, color: e.calendar_color })),
       ];
@@ -2610,6 +2623,7 @@
     document.getElementById('yc-day-modal-title').textContent = fmtDateDE(dateIso);
     const dayEvents = ycEvents.filter(e => e.date === dateIso);
     const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
+    const dayContract = ycContractEvents.filter(e => e.date === dateIso);
     const body = document.getElementById('yc-day-modal-body');
 
     const notes = [];
@@ -2617,6 +2631,14 @@
     if (isSchoolHoliday(dateIso)) notes.push('<div class="hint">Schulferien (Baden-Württemberg)</div>');
 
     const rows = [
+      ...dayContract.map(e => `
+        <div class="yc-day-event-row">
+          <span><span class="color-dot" style="background:${CONTRACT_EVENT_COLOR}"></span> ${escapeHtml(ycContractEventLabel(e))} · <span class="task-meta">Veranstaltung</span></span>
+          <span class="row-actions">
+            <button type="button" class="ghost" data-open-contract-event="${e.id}">Öffnen</button>
+          </span>
+        </div>
+      `),
       ...dayEvents.map(e => `
         <div class="yc-day-event-row">
           <span><span class="color-dot" style="background:${e.project_color || '#8a8d90'}"></span> ${escapeHtml(ycEventLabel(e))}${e.project_name ? ' · ' + escapeHtml(e.project_name) : ''}</span>
@@ -2635,6 +2657,11 @@
 
     body.innerHTML = notes.join('') + `<div class="yc-day-modal-list">${rows.length ? rows.join('') : '<p class="empty-state">Keine Termine an diesem Tag.</p>'}</div>`;
 
+    body.querySelectorAll('[data-open-contract-event]').forEach(b => b.addEventListener('click', () => {
+      closeYcDayModal();
+      document.querySelector('[data-tab="contracts"]').click();
+      openContractDetail(+b.dataset.openContractEvent);
+    }));
     body.querySelectorAll('[data-delete-yc-event]').forEach(b => b.addEventListener('click', async () => {
       if (!confirm('Diesen Termin löschen?')) return;
       await api(`/api/year-events/${b.dataset.deleteYcEvent}`, { method: 'DELETE' });
@@ -2947,8 +2974,11 @@
     const progress = e.items_total ? `${e.items_done}/${e.items_total} Punkte erledigt` : 'Noch keine Punkte';
     return `
       <div class="contract-event-card ${doneClass}" data-event-id="${e.id}">
-        <div class="cec-title">${escapeHtml(e.title)}</div>
-        <div class="cec-meta">${fmtDateDE(e.date)}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+        <div class="cec-head">
+          <span class="cec-date">${fmtDateDE(e.date)}${e.time ? ' · ' + e.time.slice(0, 5) : ''}</span>
+          <span class="cec-title">${escapeHtml(e.title)}</span>
+        </div>
+        ${e.location ? `<div class="cec-meta">${escapeHtml(e.location)}</div>` : ''}
         <div class="cec-progress">${progress}</div>
       </div>
     `;
@@ -3025,12 +3055,14 @@
 
   function renderContractDetail() {
     const e = currentContractDetail;
-    document.getElementById('contract-detail-title').textContent = e.title;
-    const metaParts = [fmtDateDE(e.date)];
-    if (e.time) metaParts.push(e.time.slice(0, 5) + ' Uhr');
-    if (e.location) metaParts.push(escapeHtml(e.location));
+    document.getElementById('contract-detail-title').innerHTML =
+      `<span class="contract-detail-date">${fmtDateDE(e.date)}${e.time ? ' · ' + e.time.slice(0, 5) + ' Uhr' : ''}</span> ${escapeHtml(e.title)}`;
     document.getElementById('contract-detail-meta').innerHTML =
-      metaParts.join(' · ') + (e.notes ? `<p class="hint">${escapeHtml(e.notes)}</p>` : '');
+      (e.location ? escapeHtml(e.location) : '') + (e.notes ? `<p class="hint">${escapeHtml(e.notes)}</p>` : '');
+
+    const jpmrBtn = document.getElementById('contract-jpmr-btn');
+    jpmrBtn.disabled = !!e.jpmr_termin_id;
+    jpmrBtn.textContent = e.jpmr_termin_id ? '✓ Bereits ins JPMR-Tool übernommen' : 'Ins JPMR-Tool übernehmen';
 
     const filesList = document.getElementById('contract-detail-files-list');
     filesList.innerHTML = e.files.length
@@ -3050,6 +3082,20 @@
 
     renderContractFlowchart(e);
   }
+
+  document.getElementById('contract-jpmr-btn').addEventListener('click', async () => {
+    const e = currentContractDetail;
+    if (!confirm(`„${e.title}“ am ${fmtDateDE(e.date)} als Termin im JPMR-Tool anlegen?\n\nDas ist eine einmalige Kopie – spätere Änderungen hier werden dort nicht übernommen.`)) return;
+    const btn = document.getElementById('contract-jpmr-btn');
+    btn.disabled = true;
+    try {
+      currentContractDetail = await api(`/api/contract-events/${e.id}/jpmr`, { method: 'POST', body: JSON.stringify({}) });
+      renderContractDetail();
+    } catch (err) {
+      btn.disabled = false;
+      alert(err.message);
+    }
+  });
 
   document.getElementById('contract-detail-close').addEventListener('click', async () => {
     contractDetailOverlay.classList.add('hidden');
@@ -3226,6 +3272,9 @@
     resetPersonForm();
     resetTimeForm();
     initYearCalendarFromUrl();
+    // Fenster fuer die zweite Jahreshaelfte sofort auf den Jahreskalender stellen, nicht erst
+    // nachdem alle anderen Bereiche geladen sind - sonst sieht man vorher kurz andere Seiten.
+    if (ycHalf === 'h2') document.querySelector('[data-tab="yearcalendar"]').click();
     await loadAccount();
     await loadPeople();
     await loadToolStartDate();
@@ -3235,9 +3284,6 @@
     await loadTimeEntries();
     await loadWarnings();
     applyRoleRestrictions();
-    if (ycHalf === 'h2') {
-      document.querySelector('[data-tab="yearcalendar"]').click();
-    }
   }
   init();
 })();

@@ -1073,7 +1073,11 @@ form + .hint { margin-top: 8px; }
 }
 .contract-event-card:hover { border-color: #384049; }
 .contract-event-card-done { opacity: 0.55; }
+.cec-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cec-date { font-weight: 600; font-size: 13px; color: var(--accent); white-space: nowrap; }
 .cec-title { font-weight: 600; font-size: 13.5px; }
+#contract-jpmr-btn { margin: -8px 0 8px; font-size: 12.5px; }
+.contract-detail-date { color: var(--accent); margin-right: 6px; white-space: nowrap; }
 .cec-meta { color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
 .cec-progress { color: var(--accent); font-size: 11.5px; margin-top: 4px; font-weight: 500; }
 .contract-event-card-done .cec-progress { color: var(--ink-faint); }

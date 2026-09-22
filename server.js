@@ -1543,7 +1543,9 @@ app.get('/api/year-calendar.ics', (req, res) => {
   }
   const yearEvents = db.prepare('SELECT * FROM year_events').all();
   const externalEvents = db.prepare('SELECT * FROM external_calendar_events').all();
+  const contractEvents = db.prepare('SELECT * FROM contract_events').all();
   const combined = [
+    ...contractEvents.map(e => ({ uid: `ce-${e.id}`, title: `🎪 ${e.title}`, date: e.date, start_time: e.time })),
     ...yearEvents.map(e => ({ uid: `ye-${e.id}`, title: e.title, date: e.date, start_time: e.start_time, end_time: e.end_time })),
     ...externalEvents.map(e => ({ uid: `ext-${e.id}`, title: e.title, date: e.date })),
   ];
@@ -1586,7 +1588,7 @@ function refreshContractEventStatus(eventId) {
 }
 
 app.get('/api/contract-events', (req, res) => {
-  const events = db.prepare('SELECT * FROM contract_events ORDER BY date').all();
+  const events = db.prepare('SELECT * FROM contract_events ORDER BY date, time').all();
   const withCounts = events.map(e => {
     const items = db.prepare('SELECT status FROM contract_flowchart_items WHERE event_id = ?').all(e.id);
     const total = items.length;
@@ -1673,6 +1675,37 @@ app.delete('/api/contract-events/:id/files/:fileId', async (req, res) => {
   } catch (err) { /* Dropbox-Loeschung ist best effort, DB-Eintrag wird trotzdem entfernt */ }
   db.prepare('DELETE FROM contract_event_files WHERE id = ?').run(req.params.fileId);
   res.status(204).end();
+});
+
+// Legt die Veranstaltung einmalig als Termin im JPMR-Tool an (keine spaetere Synchronisation).
+// Braucht JPMR_URL und JPMR_IMPORT_TOKEN (muss dem IMPORT_TOKEN im JPMR-Tool entsprechen).
+app.post('/api/contract-events/:id/jpmr', async (req, res) => {
+  const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
+  if (event.jpmr_termin_id) return res.status(409).json({ error: 'Diese Veranstaltung wurde bereits ins JPMR-Tool übernommen.' });
+  const jpmrUrl = (process.env.JPMR_URL || '').replace(/\/+$/, '');
+  const token = process.env.JPMR_IMPORT_TOKEN || '';
+  if (!jpmrUrl || !token) return res.status(400).json({ error: 'JPMR_URL / JPMR_IMPORT_TOKEN sind auf dem Server nicht gesetzt.' });
+
+  try {
+    const r = await fetch(`${jpmrUrl}/api/import/termin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        veranstaltungsname: event.title,
+        datum: event.date,
+        start: event.time || null,
+        ort: event.location || null,
+        notizen: event.notes || null,
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(502).json({ error: 'JPMR-Tool: ' + (data.error || `Fehler ${r.status}`) });
+    db.prepare('UPDATE contract_events SET jpmr_termin_id = ? WHERE id = ?').run(data.id, event.id);
+    res.json(getContractEventFull(event.id));
+  } catch (err) {
+    res.status(502).json({ error: 'JPMR-Tool nicht erreichbar: ' + err.message });
+  }
 });
 
 app.post('/api/contract-events/:id/items', (req, res) => {

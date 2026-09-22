@@ -239,6 +239,7 @@ ensureColumn('people', 'probation_weeks', 'INTEGER');
 ensureColumn('contract_flowchart_items', 'source_quote', 'TEXT');
 ensureColumn('contract_flowchart_items', 'source_file', 'TEXT');
 ensureColumn('contract_flowchart_items', 'source_rule', 'TEXT');
+ensureColumn('contract_events', 'jpmr_termin_id', 'INTEGER');
 ensureColumn('people', 'contract_start', 'TEXT');
 ensureColumn('people', 'contract_end', 'TEXT');
 ensureColumn('people', 'seminar_days_total', 'INTEGER');

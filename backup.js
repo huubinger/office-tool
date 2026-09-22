@@ -124,4 +124,4 @@ function getLastBackup() {
   return db.prepare('SELECT * FROM backup_log ORDER BY id DESC LIMIT 1').get() || null;
 }
 
-module.exports = { runBackup, getLastBackup, isConfigured };
+module.exports = { runBackup, getLastBackup, isConfigured, getAccessToken, DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN };

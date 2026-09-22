@@ -97,6 +97,7 @@
       if (tab === 'calendar') renderCalendar();
       if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
       if (tab === 'yearcalendar') { renderYearCalendar(); maybeAutoOpenSecondHalf(); }
+      if (tab === 'contracts') { loadContractEvents(); }
     });
   });
 
@@ -2912,6 +2913,340 @@
   }
 
   // ---------- Init ----------
+  // ================= VERTRAEGE =================
+  let contractEvents = [];
+  let currentContractDetail = null;
+  let contractEditingItemId = null;
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function loadContractEvents() {
+    contractEvents = await api('/api/contract-events');
+    const open = contractEvents.filter(e => e.status !== 'erledigt');
+    const done = contractEvents.filter(e => e.status === 'erledigt');
+    document.getElementById('contract-events-list').innerHTML = open.length
+      ? open.map(contractEventCardHtml).join('')
+      : '<p class="empty-state">Noch keine Veranstaltungen angelegt.</p>';
+    document.getElementById('contract-done-card').classList.toggle('hidden', done.length === 0);
+    document.getElementById('contract-done-count').textContent = `Erledigte Veranstaltungen (${done.length})`;
+    document.getElementById('contract-done-list').innerHTML = done.map(contractEventCardHtml).join('');
+    document.querySelectorAll('.contract-event-card').forEach(card => {
+      card.addEventListener('click', () => openContractDetail(+card.dataset.eventId));
+    });
+  }
+
+  function contractEventCardHtml(e) {
+    const doneClass = e.status === 'erledigt' ? 'contract-event-card-done' : '';
+    const progress = e.items_total ? `${e.items_done}/${e.items_total} Punkte erledigt` : 'Noch keine Punkte';
+    return `
+      <div class="contract-event-card ${doneClass}" data-event-id="${e.id}">
+        <div class="cec-title">${escapeHtml(e.title)}</div>
+        <div class="cec-meta">${fmtDateDE(e.date)}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+        <div class="cec-progress">${progress}</div>
+      </div>
+    `;
+  }
+
+  document.getElementById('contract-done-toggle').addEventListener('click', () => {
+    const list = document.getElementById('contract-done-list');
+    const chevron = document.getElementById('contract-done-chevron');
+    const nowHidden = list.classList.toggle('hidden');
+    chevron.classList.toggle('collapsed', nowHidden);
+  });
+
+  // ---- Neue Veranstaltung ----
+  const contractNewOverlay = document.getElementById('contract-new-modal-overlay');
+  document.getElementById('contract-new-btn').addEventListener('click', () => {
+    document.getElementById('contract-new-form').reset();
+    contractNewOverlay.classList.remove('hidden');
+  });
+  document.getElementById('contract-new-cancel').addEventListener('click', () => contractNewOverlay.classList.add('hidden'));
+  contractNewOverlay.addEventListener('click', (e) => { if (e.target === contractNewOverlay) contractNewOverlay.classList.add('hidden'); });
+
+  document.getElementById('contract-new-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = document.getElementById('contract-new-submit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Wird angelegt...';
+    try {
+      const payload = {
+        title: document.getElementById('ce-title').value.trim(),
+        date: document.getElementById('ce-date').value,
+        time: document.getElementById('ce-time').value || null,
+        location: document.getElementById('ce-location').value.trim() || null,
+        notes: document.getElementById('ce-notes').value.trim() || null,
+      };
+      if (!payload.title || !payload.date) return;
+      const event = await api('/api/contract-events', { method: 'POST', body: JSON.stringify(payload) });
+
+      const fileFields = [
+        { id: 'ce-file-miet', category: 'Mietvertrag' },
+        { id: 'ce-file-gastspiel', category: 'Gastspielvertrag' },
+        { id: 'ce-file-sonstige', category: 'Sonstiges' },
+      ];
+      for (const f of fileFields) {
+        const input = document.getElementById(f.id);
+        if (input.files && input.files[0]) {
+          try {
+            const base64 = await fileToBase64(input.files[0]);
+            await api(`/api/contract-events/${event.id}/files`, {
+              method: 'POST',
+              body: JSON.stringify({ category: f.category, filename: input.files[0].name, file_base64: base64 }),
+            });
+          } catch (err) {
+            alert(`Upload "${f.category}" fehlgeschlagen: ${err.message}`);
+          }
+        }
+      }
+      contractNewOverlay.classList.add('hidden');
+      await loadContractEvents();
+      await openContractDetail(event.id);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Anlegen';
+    }
+  });
+
+  // ---- Detail + Vertraege ----
+  const contractDetailOverlay = document.getElementById('contract-detail-overlay');
+
+  async function openContractDetail(eventId) {
+    currentContractDetail = await api(`/api/contract-events/${eventId}`);
+    renderContractDetail();
+    contractDetailOverlay.classList.remove('hidden');
+  }
+
+  function renderContractDetail() {
+    const e = currentContractDetail;
+    document.getElementById('contract-detail-title').textContent = e.title;
+    const metaParts = [fmtDateDE(e.date)];
+    if (e.time) metaParts.push(e.time.slice(0, 5) + ' Uhr');
+    if (e.location) metaParts.push(escapeHtml(e.location));
+    document.getElementById('contract-detail-meta').innerHTML =
+      metaParts.join(' · ') + (e.notes ? `<p class="hint">${escapeHtml(e.notes)}</p>` : '');
+
+    const filesList = document.getElementById('contract-detail-files-list');
+    filesList.innerHTML = e.files.length
+      ? e.files.map(f => `
+          <div class="contract-file-row">
+            <span>${escapeHtml(f.category)}: ${escapeHtml(f.filename)}</span>
+            <button type="button" class="danger" data-delete-file="${f.id}">Entfernen</button>
+          </div>
+        `).join('')
+      : '<p class="empty-state">Noch keine Verträge hochgeladen.</p>';
+    filesList.querySelectorAll('[data-delete-file]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('Diesen Vertrag entfernen?')) return;
+      await api(`/api/contract-events/${e.id}/files/${btn.dataset.deleteFile}`, { method: 'DELETE' });
+      currentContractDetail = await api(`/api/contract-events/${e.id}`);
+      renderContractDetail();
+    }));
+
+    renderContractFlowchart(e);
+  }
+
+  document.getElementById('contract-detail-close').addEventListener('click', async () => {
+    contractDetailOverlay.classList.add('hidden');
+    await loadContractEvents();
+  });
+  contractDetailOverlay.addEventListener('click', async (e) => {
+    if (e.target === contractDetailOverlay) { contractDetailOverlay.classList.add('hidden'); await loadContractEvents(); }
+  });
+
+  document.getElementById('contract-add-file-btn').addEventListener('click', async () => {
+    const input = document.getElementById('contract-add-file-input');
+    const category = document.getElementById('contract-add-file-category').value;
+    if (!input.files || !input.files[0]) { alert('Bitte eine Datei auswählen.'); return; }
+    try {
+      const base64 = await fileToBase64(input.files[0]);
+      await api(`/api/contract-events/${currentContractDetail.id}/files`, {
+        method: 'POST',
+        body: JSON.stringify({ category, filename: input.files[0].name, file_base64: base64 }),
+      });
+      input.value = '';
+      currentContractDetail = await api(`/api/contract-events/${currentContractDetail.id}`);
+      renderContractDetail();
+    } catch (err) {
+      alert('Upload fehlgeschlagen: ' + err.message);
+    }
+  });
+
+  document.getElementById('contract-analyze-btn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('contract-analyze-status');
+    statusEl.classList.remove('hidden');
+    statusEl.textContent = 'Claude analysiert den Vertrag …';
+    try {
+      const data = await api(`/api/contract-events/${currentContractDetail.id}/analyze`, { method: 'POST', body: JSON.stringify({}) });
+      statusEl.classList.add('hidden');
+      openContractSuggestions(data.suggestions);
+    } catch (err) {
+      statusEl.textContent = 'Fehler: ' + err.message;
+    }
+  });
+
+  // ---- KI-Vorschlaege pruefen ----
+  const contractSuggestionsOverlay = document.getElementById('contract-suggestions-overlay');
+  function openContractSuggestions(suggestions) {
+    if (!suggestions.length) { alert('Claude konnte keine konkreten Punkte aus dem Vertrag ableiten.'); return; }
+    const personOptions = people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    document.getElementById('contract-suggestions-list').innerHTML = suggestions.map((s, i) => `
+      <div class="contract-suggestion-row">
+        <div class="yc-day-event-row">
+          <input type="checkbox" class="cs-include" data-idx="${i}" checked>
+          <input type="text" class="cs-title" data-idx="${i}" value="${escapeHtml(s.title)}">
+          <input type="date" class="cs-date" data-idx="${i}" value="${s.date}">
+          <select class="cs-person" data-idx="${i}"><option value="">— niemand —</option>${personOptions}</select>
+        </div>
+        ${s.note ? `<div class="hint contract-suggestion-note">${escapeHtml(s.note)}</div>` : ''}
+      </div>
+    `).join('');
+    contractSuggestionsOverlay.classList.remove('hidden');
+  }
+  document.getElementById('contract-suggestions-cancel').addEventListener('click', () => contractSuggestionsOverlay.classList.add('hidden'));
+  document.getElementById('contract-suggestions-apply').addEventListener('click', async () => {
+    const checkboxes = [...document.querySelectorAll('.cs-include')];
+    for (const cb of checkboxes) {
+      if (!cb.checked) continue;
+      const idx = cb.dataset.idx;
+      const title = document.querySelector(`.cs-title[data-idx="${idx}"]`).value.trim();
+      const date = document.querySelector(`.cs-date[data-idx="${idx}"]`).value;
+      const personVal = document.querySelector(`.cs-person[data-idx="${idx}"]`).value;
+      if (!title || !date) continue;
+      await api(`/api/contract-events/${currentContractDetail.id}/items`, {
+        method: 'POST',
+        body: JSON.stringify({ title, date, person_id: personVal ? +personVal : null }),
+      });
+    }
+    contractSuggestionsOverlay.classList.add('hidden');
+    currentContractDetail = await api(`/api/contract-events/${currentContractDetail.id}`);
+    renderContractDetail();
+    await loadTasks();
+  });
+
+  // ---- Flowchart rendern: chronologische Kette verbundener Kaestchen, Veranstaltung als
+  // eigener Knoten an ihrer zeitlichen Position dazwischen einsortiert. ----
+  function renderContractFlowchart(event) {
+    const container = document.getElementById('contract-flowchart');
+    const items = [...event.items].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const nodes = [];
+    let eventInserted = false;
+    items.forEach(it => {
+      if (!eventInserted && it.date >= event.date) {
+        nodes.push({ type: 'event' });
+        eventInserted = true;
+      }
+      nodes.push({ type: 'item', item: it });
+    });
+    if (!eventInserted) nodes.push({ type: 'event' });
+
+    if (!items.length) {
+      container.innerHTML = `
+        <div class="fc-node fc-node-event">
+          <div class="fc-node-date">${fmtDateDE(event.date)}</div>
+          <div class="fc-node-title">🎪 ${escapeHtml(event.title)}</div>
+        </div>
+        <p class="empty-state">Noch keine Punkte im Ablauf — mit KI analysieren oder manuell hinzufügen.</p>
+      `;
+      return;
+    }
+
+    container.innerHTML = nodes.map((n, i) => {
+      const connector = i > 0 ? '<div class="fc-connector"><div class="fc-connector-line"></div><div class="fc-connector-arrow">▼</div></div>' : '';
+      if (n.type === 'event') {
+        return `${connector}<div class="fc-node fc-node-event">
+          <div class="fc-node-date">${fmtDateDE(event.date)}</div>
+          <div class="fc-node-title">🎪 ${escapeHtml(event.title)}</div>
+          ${event.location ? `<div class="fc-node-person">${escapeHtml(event.location)}</div>` : ''}
+        </div>`;
+      }
+      const it = n.item;
+      const doneClass = it.status === 'erledigt' ? 'fc-node-done' : '';
+      return `${connector}<div class="fc-node ${doneClass}" data-item-id="${it.id}">
+        <label class="fc-node-check-wrap"><input type="checkbox" class="fc-node-check" data-item-id="${it.id}" ${it.status === 'erledigt' ? 'checked' : ''}></label>
+        <div class="fc-node-date">${fmtDateDE(it.date)}</div>
+        <div class="fc-node-title">${escapeHtml(it.title)}</div>
+        <div class="fc-node-person">${it.person_name ? escapeHtml(it.person_name) : '— niemand zugewiesen'}</div>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('.fc-node-check').forEach(cb => {
+      cb.addEventListener('click', e => e.stopPropagation());
+      cb.addEventListener('change', async () => {
+        await api(`/api/contract-events/${event.id}/items/${cb.dataset.itemId}`, {
+          method: 'PUT', body: JSON.stringify({ status: cb.checked ? 'erledigt' : 'offen' }),
+        });
+        currentContractDetail = await api(`/api/contract-events/${event.id}`);
+        renderContractDetail();
+        await loadTasks();
+      });
+    });
+    container.querySelectorAll('.fc-node[data-item-id]').forEach(node => {
+      node.addEventListener('click', () => openContractItemModal(+node.dataset.itemId));
+    });
+  }
+
+  // ---- Punkt manuell anlegen/bearbeiten ----
+  const contractItemOverlay = document.getElementById('contract-item-modal-overlay');
+  function fillContractItemPersonSelect() {
+    const sel = document.getElementById('ci-person');
+    sel.innerHTML = '<option value="">— niemand —</option>' +
+      people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  }
+  document.getElementById('contract-add-item-btn').addEventListener('click', () => {
+    contractEditingItemId = null;
+    fillContractItemPersonSelect();
+    document.getElementById('contract-item-form').reset();
+    document.getElementById('ci-date').value = currentContractDetail.date;
+    document.getElementById('contract-item-modal-heading').textContent = 'Punkt hinzufügen';
+    document.getElementById('contract-item-delete').classList.add('hidden');
+    contractItemOverlay.classList.remove('hidden');
+  });
+  function openContractItemModal(itemId) {
+    const item = currentContractDetail.items.find(i => i.id === itemId);
+    if (!item) return;
+    contractEditingItemId = itemId;
+    fillContractItemPersonSelect();
+    document.getElementById('ci-title').value = item.title;
+    document.getElementById('ci-date').value = item.date;
+    document.getElementById('ci-person').value = item.person_id || '';
+    document.getElementById('contract-item-modal-heading').textContent = 'Punkt bearbeiten';
+    document.getElementById('contract-item-delete').classList.remove('hidden');
+    contractItemOverlay.classList.remove('hidden');
+  }
+  document.getElementById('contract-item-cancel').addEventListener('click', () => contractItemOverlay.classList.add('hidden'));
+  document.getElementById('contract-item-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      title: document.getElementById('ci-title').value.trim(),
+      date: document.getElementById('ci-date').value,
+      person_id: document.getElementById('ci-person').value ? +document.getElementById('ci-person').value : null,
+    };
+    if (!payload.title || !payload.date) return;
+    if (contractEditingItemId) {
+      await api(`/api/contract-events/${currentContractDetail.id}/items/${contractEditingItemId}`, { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api(`/api/contract-events/${currentContractDetail.id}/items`, { method: 'POST', body: JSON.stringify(payload) });
+    }
+    contractItemOverlay.classList.add('hidden');
+    currentContractDetail = await api(`/api/contract-events/${currentContractDetail.id}`);
+    renderContractDetail();
+    await loadTasks();
+  });
+  document.getElementById('contract-item-delete').addEventListener('click', async () => {
+    if (!contractEditingItemId || !confirm('Diesen Punkt (und die verknüpfte Aufgabe) löschen?')) return;
+    await api(`/api/contract-events/${currentContractDetail.id}/items/${contractEditingItemId}`, { method: 'DELETE' });
+    contractItemOverlay.classList.add('hidden');
+    currentContractDetail = await api(`/api/contract-events/${currentContractDetail.id}`);
+    renderContractDetail();
+    await loadTasks();
+  });
+
   async function init() {
     // Manche Browser stellen einen zuvor in dieses Feld eingegebenen Wert beim Neuladen
     // der Seite automatisch wieder her, unabhaengig von autocomplete="off" - deshalb hier

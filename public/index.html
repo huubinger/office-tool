@@ -43,6 +43,10 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>
         Jahreskalender
       </button>
+      <button class="tab-btn" data-tab="contracts" data-title="Verträge">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="4" y="2.5" width="12" height="15" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 6.5h7M6.5 9.5h7M6.5 12.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Verträge
+      </button>
     </nav>
   </aside>
 
@@ -66,6 +70,10 @@
     <button class="tab-btn" data-tab="people" data-title="Personen/Projekte">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       <span>Personen</span>
+    </button>
+    <button class="tab-btn" data-tab="contracts" data-title="Verträge">
+      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="4" y="2.5" width="12" height="15" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 6.5h7M6.5 9.5h7M6.5 12.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Verträge</span>
     </button>
   </nav>
 
@@ -575,6 +583,131 @@
       </div>
     </div>
   </section>
+
+  <!-- ===================== VERTRAEGE ===================== -->
+  <section id="tab-contracts" class="tab-panel">
+    <div class="card">
+      <div class="contracts-header">
+        <h2>Veranstaltungen</h2>
+        <button type="button" id="contract-new-btn">+ Neue Veranstaltung</button>
+      </div>
+      <div id="contract-events-list" class="contract-events-list"></div>
+    </div>
+
+    <div class="card done-tasks-card hidden" id="contract-done-card">
+      <button type="button" id="contract-done-toggle" class="done-tasks-toggle">
+        <span id="contract-done-count">Erledigte Veranstaltungen (0)</span>
+        <span class="task-group-chevron" id="contract-done-chevron">▾</span>
+      </button>
+      <div id="contract-done-list" class="contract-events-list hidden"></div>
+    </div>
+  </section>
+
+  <!-- Neue Veranstaltung -->
+  <div id="contract-new-modal-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+      <h3>Neue Veranstaltung</h3>
+      <form id="contract-new-form">
+        <label>Titel
+          <input type="text" id="ce-title" required>
+        </label>
+        <div class="time-row">
+          <label>Datum
+            <input type="date" id="ce-date" required>
+          </label>
+          <label>Uhrzeit (optional)
+            <input type="time" id="ce-time">
+          </label>
+        </div>
+        <label>Ort
+          <input type="text" id="ce-location">
+        </label>
+        <label>Weitere Hinweise
+          <textarea id="ce-notes" rows="3"></textarea>
+        </label>
+        <label>Mietvertrag (PDF, optional)
+          <input type="file" id="ce-file-miet" accept="application/pdf">
+        </label>
+        <label>Gastspielvertrag (PDF, optional)
+          <input type="file" id="ce-file-gastspiel" accept="application/pdf">
+        </label>
+        <label>Sonstige Verträge (PDF, optional)
+          <input type="file" id="ce-file-sonstige" accept="application/pdf">
+        </label>
+        <p class="hint">Hochgeladene Verträge landen automatisch in einem eigenen Dropbox-Unterordner für diese Veranstaltung.</p>
+        <div class="form-actions">
+          <button type="submit" id="contract-new-submit">Anlegen</button>
+          <button type="button" id="contract-new-cancel" class="secondary">Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Veranstaltungs-Detail mit Flowchart -->
+  <div id="contract-detail-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide contract-detail-modal">
+      <div class="contract-detail-header">
+        <h3 id="contract-detail-title"></h3>
+        <button type="button" id="contract-detail-close" class="secondary">Schließen</button>
+      </div>
+      <div id="contract-detail-meta" class="contract-detail-meta"></div>
+
+      <h4>Verträge</h4>
+      <div id="contract-detail-files-list" class="contract-files-list"></div>
+      <div class="inline-form-row">
+        <select id="contract-add-file-category">
+          <option value="Mietvertrag">Mietvertrag</option>
+          <option value="Gastspielvertrag">Gastspielvertrag</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+        <input type="file" id="contract-add-file-input" accept="application/pdf">
+        <button type="button" id="contract-add-file-btn">Hochladen</button>
+      </div>
+      <button type="button" id="contract-analyze-btn" class="ghost">✨ Mit KI analysieren</button>
+      <div id="contract-analyze-status" class="hint hidden"></div>
+
+      <h4>Ablauf</h4>
+      <div id="contract-flowchart" class="contract-flowchart"></div>
+      <button type="button" id="contract-add-item-btn" class="ghost">+ Punkt manuell hinzufügen</button>
+    </div>
+  </div>
+
+  <!-- KI-Vorschlaege pruefen -->
+  <div id="contract-suggestions-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+      <h3>Vorgeschlagene Punkte</h3>
+      <p class="hint">Von Claude aus dem Vertrag abgeleitet — Titel/Datum anpassbar, Zuständigkeit bitte ergänzen, dann übernehmen.</p>
+      <div id="contract-suggestions-list" class="yc-day-modal-list"></div>
+      <div class="form-actions">
+        <button type="button" id="contract-suggestions-apply">Ausgewählte übernehmen</button>
+        <button type="button" id="contract-suggestions-cancel" class="secondary">Verwerfen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flowchart-Punkt hinzufuegen/bearbeiten -->
+  <div id="contract-item-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 id="contract-item-modal-heading">Punkt hinzufügen</h3>
+      <form id="contract-item-form">
+        <input type="hidden" id="ci-id">
+        <label>Titel
+          <input type="text" id="ci-title" required>
+        </label>
+        <label>Datum
+          <input type="date" id="ci-date" required>
+        </label>
+        <label>Zuständig
+          <select id="ci-person"><option value="">— niemand —</option></select>
+        </label>
+        <div class="form-actions">
+          <button type="submit">Speichern</button>
+          <button type="button" id="contract-item-delete" class="danger-btn hidden">Löschen</button>
+          <button type="button" id="contract-item-cancel" class="secondary">Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
     </main>
   </div>

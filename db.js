@@ -177,6 +177,42 @@ CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
 CREATE INDEX IF NOT EXISTS idx_absences_person ON absences(person_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_warnings_person_date ON work_time_warnings(person_id, date);
+
+CREATE TABLE IF NOT EXISTS contract_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  date TEXT NOT NULL,
+  time TEXT,
+  location TEXT,
+  notes TEXT,
+  status TEXT DEFAULT 'offen',
+  dropbox_folder TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS contract_event_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES contract_events(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  dropbox_path TEXT,
+  uploaded_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS contract_flowchart_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES contract_events(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  date TEXT NOT NULL,
+  person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+  status TEXT DEFAULT 'offen',
+  task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_contract_events_status ON contract_events(status);
+CREATE INDEX IF NOT EXISTS idx_contract_flowchart_event ON contract_flowchart_items(event_id);
+CREATE INDEX IF NOT EXISTS idx_contract_flowchart_task ON contract_flowchart_items(task_id);
 `);
 
 // ---- Migrationen: neue Spalten per PRAGMA-Check ergaenzen ----

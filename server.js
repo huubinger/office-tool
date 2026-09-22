@@ -14,6 +14,7 @@ const { runBackup, getLastBackup, isConfigured: isBackupConfigured } = require('
 const { getHolidaysForYear, isHoliday } = require('./holidays');
 const { getSchoolHolidaysForYear } = require('./schulferien');
 const { fetchAndParseIcs, buildIcs } = require('./icalparser');
+const contracts = require('./contracts');
 const PDFDocument = require('pdfkit');
 
 const app = express();
@@ -562,6 +563,15 @@ app.put('/api/tasks/:id', (req, res) => {
     db.prepare('DELETE FROM task_assignments WHERE task_id = ?').run(req.params.id);
     const stmt = db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)');
     for (const pid of person_ids) stmt.run(req.params.id, pid);
+  }
+  // Falls diese Aufgabe zu einem Vertraege-Flowchart-Punkt gehoert, Status dorthin
+  // zurueckspiegeln (z.B. wenn jemand die Aufgabe direkt im Aufgaben-Tab erledigt).
+  if (status !== undefined) {
+    const linkedItem = db.prepare('SELECT * FROM contract_flowchart_items WHERE task_id = ?').get(req.params.id);
+    if (linkedItem && linkedItem.status !== status) {
+      db.prepare('UPDATE contract_flowchart_items SET status = ? WHERE id = ?').run(status, linkedItem.id);
+      refreshContractEventStatus(linkedItem.event_id);
+    }
   }
   res.json(getTaskWithAssignments(req.params.id));
 });
@@ -1549,6 +1559,221 @@ cron.schedule('30 4 * * *', async () => {
     await syncExternalCalendar(c.id).catch(err => console.error('[Jahreskalender] Sync-Fehler:', err.message));
   }
 }, { timezone: 'Europe/Berlin' });
+
+// ===================== VERTRAEGE / VERANSTALTUNGEN =====================
+
+function getContractEventFull(eventId) {
+  const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(eventId);
+  if (!event) return null;
+  const files = db.prepare('SELECT * FROM contract_event_files WHERE event_id = ? ORDER BY uploaded_at').all(eventId);
+  const items = db.prepare(`
+    SELECT cfi.*, p.name AS person_name, p.color AS person_color
+    FROM contract_flowchart_items cfi
+    LEFT JOIN people p ON p.id = cfi.person_id
+    WHERE cfi.event_id = ?
+    ORDER BY cfi.date, cfi.id
+  `).all(eventId);
+  return { ...event, files, items };
+}
+
+// Prueft nach jeder Aenderung, ob alle Punkte einer Veranstaltung erledigt sind, und
+// setzt die Veranstaltung dann automatisch auf "erledigt" (bzw. zurueck auf "offen",
+// falls nachtraeglich ein Punkt wieder geoeffnet oder neu hinzugefuegt wird).
+function refreshContractEventStatus(eventId) {
+  const items = db.prepare('SELECT status FROM contract_flowchart_items WHERE event_id = ?').all(eventId);
+  const allDone = items.length > 0 && items.every(it => it.status === 'erledigt');
+  db.prepare('UPDATE contract_events SET status = ? WHERE id = ?').run(allDone ? 'erledigt' : 'offen', eventId);
+}
+
+app.get('/api/contract-events', (req, res) => {
+  const events = db.prepare('SELECT * FROM contract_events ORDER BY date').all();
+  const withCounts = events.map(e => {
+    const items = db.prepare('SELECT status FROM contract_flowchart_items WHERE event_id = ?').all(e.id);
+    const total = items.length;
+    const done = items.filter(it => it.status === 'erledigt').length;
+    return { ...e, items_total: total, items_done: done };
+  });
+  res.json(withCounts);
+});
+
+app.get('/api/contract-events/:id', (req, res) => {
+  const full = getContractEventFull(req.params.id);
+  if (!full) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
+  res.json(full);
+});
+
+app.post('/api/contract-events', (req, res) => {
+  const { title, date, time, location, notes } = req.body;
+  if (!title || !title.trim() || !date) return res.status(400).json({ error: 'title und date sind erforderlich' });
+  const dropboxFolder = contracts.sanitizeFolderName(title);
+  const info = db.prepare(`
+    INSERT INTO contract_events (title, date, time, location, notes, dropbox_folder)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(title.trim(), date, time || null, location || null, notes || null, dropboxFolder);
+  res.status(201).json(getContractEventFull(info.lastInsertRowid));
+});
+
+app.put('/api/contract-events/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
+  const { title, date, time, location, notes } = req.body;
+  db.prepare(`
+    UPDATE contract_events SET title = ?, date = ?, time = ?, location = ?, notes = ? WHERE id = ?
+  `).run(
+    title !== undefined ? title.trim() : existing.title,
+    date ?? existing.date,
+    time !== undefined ? time : existing.time,
+    location !== undefined ? location : existing.location,
+    notes !== undefined ? notes : existing.notes,
+    req.params.id
+  );
+  res.json(getContractEventFull(req.params.id));
+});
+
+app.delete('/api/contract-events/:id', (req, res) => {
+  const items = db.prepare('SELECT task_id FROM contract_flowchart_items WHERE event_id = ? AND task_id IS NOT NULL').all(req.params.id);
+  for (const it of items) db.prepare('DELETE FROM tasks WHERE id = ?').run(it.task_id);
+  db.prepare('DELETE FROM contract_events WHERE id = ?').run(req.params.id);
+  res.status(204).end();
+});
+
+// Datei-Upload (Mietvertrag/Gastspielvertrag/Sonstiges) - landet automatisch im
+// passenden Dropbox-Unterordner (angelegt beim ersten Upload fuer diese Veranstaltung).
+app.post('/api/contract-events/:id/files', async (req, res) => {
+  const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
+  const { category, filename, file_base64 } = req.body;
+  if (!category || !filename || !file_base64) {
+    return res.status(400).json({ error: 'category, filename und file_base64 sind erforderlich' });
+  }
+  if (!contracts.isDropboxConfigured()) {
+    return res.status(400).json({ error: 'Dropbox ist auf dem Server nicht konfiguriert.' });
+  }
+  try {
+    const buffer = Buffer.from(file_base64, 'base64');
+    const accessToken = await contracts.getAccessToken();
+    const dropboxPath = await contracts.uploadContractFile(accessToken, event.dropbox_folder, filename, buffer);
+    const info = db.prepare(`
+      INSERT INTO contract_event_files (event_id, category, filename, dropbox_path) VALUES (?, ?, ?, ?)
+    `).run(event.id, category, filename, dropboxPath);
+    res.status(201).json(db.prepare('SELECT * FROM contract_event_files WHERE id = ?').get(info.lastInsertRowid));
+  } catch (err) {
+    res.status(500).json({ error: 'Datei-Upload zu Dropbox fehlgeschlagen: ' + err.message });
+  }
+});
+
+app.delete('/api/contract-events/:id/files/:fileId', async (req, res) => {
+  const file = db.prepare('SELECT * FROM contract_event_files WHERE id = ? AND event_id = ?').get(req.params.fileId, req.params.id);
+  if (!file) return res.status(404).json({ error: 'Datei nicht gefunden' });
+  try {
+    if (file.dropbox_path && contracts.isDropboxConfigured()) {
+      const accessToken = await contracts.getAccessToken();
+      await contracts.deleteContractFile(accessToken, file.dropbox_path);
+    }
+  } catch (err) { /* Dropbox-Loeschung ist best effort, DB-Eintrag wird trotzdem entfernt */ }
+  db.prepare('DELETE FROM contract_event_files WHERE id = ?').run(req.params.fileId);
+  res.status(204).end();
+});
+
+// KI-Analyse: laedt die bereits hochgeladenen Vertrags-PDFs dieser Veranstaltung direkt aus
+// Dropbox, liest den Text aus und bittet Claude um eine Liste vorgeschlagener Flowchart-
+// Punkte (nur ein Vorschlag, wird noch nicht gespeichert).
+app.post('/api/contract-events/:id/analyze', async (req, res) => {
+  const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
+  if (!contracts.isAiConfigured()) {
+    return res.status(400).json({ error: 'ANTHROPIC_API_KEY ist auf dem Server nicht gesetzt.' });
+  }
+  const files = db.prepare('SELECT * FROM contract_event_files WHERE event_id = ?').all(event.id);
+  if (!files.length) return res.status(400).json({ error: 'Für diese Veranstaltung sind noch keine Verträge hochgeladen.' });
+  if (!contracts.isDropboxConfigured()) {
+    return res.status(400).json({ error: 'Dropbox ist auf dem Server nicht konfiguriert.' });
+  }
+
+  try {
+    const { PDFParse } = require('pdf-parse');
+    const accessToken = await contracts.getAccessToken();
+    let combinedText = '';
+    for (const f of files) {
+      try {
+        const buffer = await contracts.downloadContractFile(accessToken, f.dropbox_path);
+        const parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        combinedText += `\n\n--- ${f.category}: ${f.filename} ---\n${result.text}`;
+        await parser.destroy();
+      } catch (err) { /* einzelne nicht lesbare Datei ueberspringen, Rest trotzdem versuchen */ }
+    }
+    if (!combinedText.trim()) return res.status(400).json({ error: 'Aus keiner der Dateien konnte Text gelesen werden.' });
+
+    const peopleNames = db.prepare('SELECT name FROM people WHERE active = 1').all().map(p => p.name);
+    const suggestions = await contracts.analyzeContractText(combinedText, event.date, peopleNames);
+    const withDates = suggestions.map(s => {
+      const d = new Date(event.date);
+      d.setDate(d.getDate() + s.days_offset);
+      return { title: s.title, date: isoDateLocal(d), note: s.note };
+    });
+    res.json({ suggestions: withDates });
+  } catch (err) {
+    res.status(500).json({ error: 'Analyse fehlgeschlagen: ' + err.message });
+  }
+});
+
+app.post('/api/contract-events/:id/items', (req, res) => {
+  const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
+  const { title, date, person_id } = req.body;
+  if (!title || !title.trim() || !date) return res.status(400).json({ error: 'title und date sind erforderlich' });
+
+  let taskId = null;
+  const taskInfo = db.prepare(`
+    INSERT INTO tasks (title, estimated_minutes, status, priority, due_date)
+    VALUES (?, NULL, 'offen', 'mittel', ?)
+  `).run(`${event.title}: ${title.trim()}`, date);
+  taskId = taskInfo.lastInsertRowid;
+  if (person_id) db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)').run(taskId, person_id);
+
+  const info = db.prepare(`
+    INSERT INTO contract_flowchart_items (event_id, title, date, person_id, task_id) VALUES (?, ?, ?, ?, ?)
+  `).run(event.id, title.trim(), date, person_id || null, taskId);
+  refreshContractEventStatus(event.id);
+  res.status(201).json(getContractEventFull(event.id));
+});
+
+app.put('/api/contract-events/:id/items/:itemId', (req, res) => {
+  const item = db.prepare('SELECT * FROM contract_flowchart_items WHERE id = ? AND event_id = ?').get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Punkt nicht gefunden' });
+  const { title, date, person_id, status } = req.body;
+  const nextTitle = title !== undefined ? title.trim() : item.title;
+  const nextDate = date ?? item.date;
+  const nextPersonId = person_id !== undefined ? person_id : item.person_id;
+  const nextStatus = status !== undefined ? status : item.status;
+
+  db.prepare(`
+    UPDATE contract_flowchart_items SET title = ?, date = ?, person_id = ?, status = ? WHERE id = ?
+  `).run(nextTitle, nextDate, nextPersonId || null, nextStatus, item.id);
+
+  if (item.task_id) {
+    const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
+    db.prepare('UPDATE tasks SET title = ?, due_date = ?, status = ? WHERE id = ?')
+      .run(`${event.title}: ${nextTitle}`, nextDate, nextStatus, item.task_id);
+    if (nextPersonId !== item.person_id) {
+      db.prepare('DELETE FROM task_assignments WHERE task_id = ?').run(item.task_id);
+      if (nextPersonId) db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)').run(item.task_id, nextPersonId);
+    }
+  }
+  refreshContractEventStatus(req.params.id);
+  res.json(getContractEventFull(req.params.id));
+});
+
+app.delete('/api/contract-events/:id/items/:itemId', (req, res) => {
+  const item = db.prepare('SELECT * FROM contract_flowchart_items WHERE id = ? AND event_id = ?').get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Punkt nicht gefunden' });
+  if (item.task_id) db.prepare('DELETE FROM tasks WHERE id = ?').run(item.task_id);
+  db.prepare('DELETE FROM contract_flowchart_items WHERE id = ?').run(item.id);
+  refreshContractEventStatus(req.params.id);
+  res.json(getContractEventFull(req.params.id));
+});
+
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

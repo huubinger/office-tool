@@ -121,6 +121,13 @@ function enforceOwnPerson(req, res, next) {
 }
 
 // ---------- Benutzerverwaltung (weitere Login-Konten) ----------
+// Nur fuer Admin-Logins (Konten ohne verknuepfte Person).
+function requireAdmin(req, res, next) {
+  if (req.session.personId) return res.status(403).json({ error: 'Nur für Administratoren' });
+  next();
+}
+app.use('/api/users', requireAdmin);
+
 app.get('/api/users', (req, res) => {
   res.json(db.prepare(`
     SELECT u.id, u.username, u.created_at, u.person_id, p.name AS person_name
@@ -139,6 +146,18 @@ app.post('/api/users', (req, res) => {
   const info = db.prepare('INSERT INTO app_users (username, password_hash, person_id) VALUES (?, ?, ?)')
     .run(username.trim(), hash, person_id || null);
   res.status(201).json({ id: info.lastInsertRowid, username: username.trim(), person_id: person_id || null });
+});
+
+// Admin setzt das Passwort eines Kontos neu (ohne das alte zu kennen).
+app.put('/api/users/:id/password', (req, res) => {
+  const { new_password } = req.body || {};
+  if (!new_password || new_password.length < 6) {
+    return res.status(400).json({ error: 'Neues Passwort muss mindestens 6 Zeichen haben' });
+  }
+  const info = db.prepare('UPDATE app_users SET password_hash = ? WHERE id = ?')
+    .run(bcrypt.hashSync(new_password, 10), req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+  res.json({ ok: true });
 });
 
 app.delete('/api/users/:id', (req, res) => {

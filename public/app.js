@@ -2835,10 +2835,34 @@
       <div class="time-row-item">
         <div class="tri-main">${escapeHtml(u.username)}${u.person_name ? ` <span class="task-meta">(${escapeHtml(u.person_name)})</span>` : ' <span class="task-meta">(Admin)</span>'}</div>
         <div class="row-actions">
+          <button class="ghost" data-reset-user="${u.id}">Passwort setzen</button>
           <button class="danger" data-delete-user="${u.id}">Löschen</button>
+        </div>
+        <div class="user-reset-row hidden" data-reset-row="${u.id}">
+          <input type="password" placeholder="Neues Passwort (mind. 6 Zeichen)" autocomplete="new-password">
+          <button type="button" data-reset-save="${u.id}">Speichern</button>
         </div>
       </div>
     `).join('');
+    container.querySelectorAll('[data-reset-user]').forEach(b => b.addEventListener('click', () => {
+      const row = container.querySelector(`[data-reset-row="${b.dataset.resetUser}"]`);
+      row.classList.toggle('hidden');
+      if (!row.classList.contains('hidden')) row.querySelector('input').focus();
+    }));
+    container.querySelectorAll('[data-reset-save]').forEach(b => b.addEventListener('click', async () => {
+      const row = container.querySelector(`[data-reset-row="${b.dataset.resetSave}"]`);
+      const input = row.querySelector('input');
+      usersError.classList.add('hidden');
+      try {
+        await api(`/api/users/${b.dataset.resetSave}/password`, { method: 'PUT', body: JSON.stringify({ new_password: input.value }) });
+        input.value = '';
+        row.classList.add('hidden');
+        alert('Passwort wurde geändert.');
+      } catch (err) {
+        usersError.textContent = err.message;
+        usersError.classList.remove('hidden');
+      }
+    }));
     container.querySelectorAll('[data-delete-user]').forEach(b => b.addEventListener('click', async () => {
       if (!confirm('Dieses Benutzerkonto wirklich löschen?')) return;
       try {
@@ -2923,6 +2947,8 @@
   // Person (voreingestellter Filter), der Rest bleibt einsehbar.
   function applyRoleRestrictions() {
     if (currentUser.is_admin) return;
+
+    document.getElementById('manage-users-btn').classList.add('hidden');
 
     ['time-person', 'time-filter-person', 'timeoff-person'].forEach(id => {
       const el = document.getElementById(id);

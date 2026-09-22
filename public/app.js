@@ -3083,7 +3083,11 @@
     statusEl.textContent = 'Claude analysiert den Vertrag …';
     try {
       const data = await api(`/api/contract-events/${currentContractDetail.id}/analyze`, { method: 'POST', body: JSON.stringify({}) });
-      statusEl.classList.add('hidden');
+      if (data.skipped && data.skipped.length) {
+        statusEl.textContent = 'Nicht gelesen (Download fehlgeschlagen): ' + data.skipped.join(', ');
+      } else {
+        statusEl.classList.add('hidden');
+      }
       openContractSuggestions(data.suggestions);
     } catch (err) {
       statusEl.textContent = 'Fehler: ' + err.message;
@@ -3092,8 +3096,10 @@
 
   // ---- KI-Vorschlaege pruefen ----
   const contractSuggestionsOverlay = document.getElementById('contract-suggestions-overlay');
+  let contractSuggestions = [];
   function openContractSuggestions(suggestions) {
     if (!suggestions.length) { alert('Claude konnte keine konkreten Punkte aus dem Vertrag ableiten.'); return; }
+    contractSuggestions = suggestions;
     const personOptions = people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     document.getElementById('contract-suggestions-list').innerHTML = suggestions.map((s, i) => `
       <div class="contract-suggestion-row">
@@ -3103,7 +3109,7 @@
           <input type="date" class="cs-date" data-idx="${i}" value="${s.date}">
           <select class="cs-person" data-idx="${i}"><option value="">— niemand —</option>${personOptions}</select>
         </div>
-        ${s.note ? `<div class="hint contract-suggestion-note">${escapeHtml(s.note)}</div>` : ''}
+        ${renderContractSource(s.rule, s.quote, s.source_file)}
       </div>
     `).join('');
     contractSuggestionsOverlay.classList.remove('hidden');
@@ -3118,9 +3124,13 @@
       const date = document.querySelector(`.cs-date[data-idx="${idx}"]`).value;
       const personVal = document.querySelector(`.cs-person[data-idx="${idx}"]`).value;
       if (!title || !date) continue;
+      const s = contractSuggestions[idx];
       await api(`/api/contract-events/${currentContractDetail.id}/items`, {
         method: 'POST',
-        body: JSON.stringify({ title, date, person_id: personVal ? +personVal : null }),
+        body: JSON.stringify({
+          title, date, person_id: personVal ? +personVal : null,
+          source_quote: s.quote, source_file: s.source_file, source_rule: s.rule,
+        }),
       });
     }
     contractSuggestionsOverlay.classList.add('hidden');
@@ -3128,6 +3138,17 @@
     renderContractDetail();
     await loadTasks();
   });
+
+  // Frist-Regel und woertliche Vertragspassage, aus der ein Punkt abgeleitet wurde.
+  function renderContractSource(rule, quote, file) {
+    if (!rule && !quote) return '';
+    return `<div class="contract-source">
+      ${rule ? `<div class="contract-source-rule">⏱ ${escapeHtml(rule)}</div>` : ''}
+      ${quote
+        ? `<blockquote class="contract-source-quote">„${escapeHtml(quote)}“</blockquote>${file ? `<div class="contract-source-file">📄 ${escapeHtml(file)}</div>` : ''}`
+        : '<div class="contract-source-file">Steht nicht im Vertrag – Standard-Vorschlag</div>'}
+    </div>`;
+  }
 
   // ---- Flowchart rendern: chronologische Kette verbundener Kaestchen, Veranstaltung als
   // eigener Knoten an ihrer zeitlichen Position dazwischen einsortiert. ----
@@ -3172,6 +3193,7 @@
         <div class="fc-node-date">${fmtDateDE(it.date)}</div>
         <div class="fc-node-title">${escapeHtml(it.title)}</div>
         <div class="fc-node-person">${it.person_name ? escapeHtml(it.person_name) : '— niemand zugewiesen'}</div>
+        ${it.source_rule ? `<div class="fc-node-source">⏱ ${escapeHtml(it.source_rule)}</div>` : ''}
       </div>`;
     }).join('');
 
@@ -3203,6 +3225,7 @@
     fillContractItemPersonSelect();
     document.getElementById('contract-item-form').reset();
     document.getElementById('ci-date').value = currentContractDetail.date;
+    document.getElementById('ci-source').classList.add('hidden');
     document.getElementById('contract-item-modal-heading').textContent = 'Punkt hinzufügen';
     document.getElementById('contract-item-delete').classList.add('hidden');
     contractItemOverlay.classList.remove('hidden');
@@ -3215,6 +3238,9 @@
     document.getElementById('ci-title').value = item.title;
     document.getElementById('ci-date').value = item.date;
     document.getElementById('ci-person').value = item.person_id || '';
+    const sourceEl = document.getElementById('ci-source');
+    sourceEl.innerHTML = renderContractSource(item.source_rule, item.source_quote, item.source_file);
+    sourceEl.classList.toggle('hidden', !sourceEl.innerHTML);
     document.getElementById('contract-item-modal-heading').textContent = 'Punkt bearbeiten';
     document.getElementById('contract-item-delete').classList.remove('hidden');
     contractItemOverlay.classList.remove('hidden');

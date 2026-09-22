@@ -1691,28 +1691,21 @@ app.post('/api/contract-events/:id/analyze', async (req, res) => {
   }
 
   try {
-    const { PDFParse } = require('pdf-parse');
     const accessToken = await contracts.getAccessToken();
-    let combinedText = '';
+    const pdfs = [];
+    const skipped = [];
     for (const f of files) {
       try {
         const buffer = await contracts.downloadContractFile(accessToken, f.dropbox_path);
-        const parser = new PDFParse({ data: buffer });
-        const result = await parser.getText();
-        combinedText += `\n\n--- ${f.category}: ${f.filename} ---\n${result.text}`;
-        await parser.destroy();
-      } catch (err) { /* einzelne nicht lesbare Datei ueberspringen, Rest trotzdem versuchen */ }
+        pdfs.push({ filename: f.filename, category: f.category, buffer });
+      } catch (err) {
+        skipped.push(f.filename);
+      }
     }
-    if (!combinedText.trim()) return res.status(400).json({ error: 'Aus keiner der Dateien konnte Text gelesen werden.' });
+    if (!pdfs.length) return res.status(400).json({ error: 'Keine der Dateien konnte aus Dropbox geladen werden.' });
 
-    const peopleNames = db.prepare('SELECT name FROM people WHERE active = 1').all().map(p => p.name);
-    const suggestions = await contracts.analyzeContractText(combinedText, event.date, peopleNames);
-    const withDates = suggestions.map(s => {
-      const d = new Date(event.date);
-      d.setDate(d.getDate() + s.days_offset);
-      return { title: s.title, date: isoDateLocal(d), note: s.note };
-    });
-    res.json({ suggestions: withDates });
+    const suggestions = await contracts.analyzeContracts(pdfs, event.date);
+    res.json({ suggestions, skipped });
   } catch (err) {
     res.status(500).json({ error: 'Analyse fehlgeschlagen: ' + err.message });
   }
@@ -1721,7 +1714,7 @@ app.post('/api/contract-events/:id/analyze', async (req, res) => {
 app.post('/api/contract-events/:id/items', (req, res) => {
   const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
-  const { title, date, person_id } = req.body;
+  const { title, date, person_id, source_quote, source_file, source_rule } = req.body;
   if (!title || !title.trim() || !date) return res.status(400).json({ error: 'title und date sind erforderlich' });
 
   let taskId = null;
@@ -1733,8 +1726,9 @@ app.post('/api/contract-events/:id/items', (req, res) => {
   if (person_id) db.prepare('INSERT OR IGNORE INTO task_assignments (task_id, person_id) VALUES (?, ?)').run(taskId, person_id);
 
   const info = db.prepare(`
-    INSERT INTO contract_flowchart_items (event_id, title, date, person_id, task_id) VALUES (?, ?, ?, ?, ?)
-  `).run(event.id, title.trim(), date, person_id || null, taskId);
+    INSERT INTO contract_flowchart_items (event_id, title, date, person_id, task_id, source_quote, source_file, source_rule)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(event.id, title.trim(), date, person_id || null, taskId, source_quote || null, source_file || null, source_rule || null);
   refreshContractEventStatus(event.id);
   res.status(201).json(getContractEventFull(event.id));
 });

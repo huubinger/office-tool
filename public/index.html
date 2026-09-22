@@ -654,7 +654,7 @@
 
       <h4>Verträge</h4>
       <div id="contract-detail-files-list" class="contract-files-list"></div>
-      <div class="inline-form-row">
+      <div class="inline-form-row contract-upload-row">
         <select id="contract-add-file-category">
           <option value="Mietvertrag">Mietvertrag</option>
           <option value="Gastspielvertrag">Gastspielvertrag</option>
@@ -700,6 +700,7 @@
         <label>Zuständig
           <select id="ci-person"><option value="">— niemand —</option></select>
         </label>
+        <div id="ci-source" class="hidden"></div>
         <div class="form-actions">
           <button type="submit">Speichern</button>
           <button type="button" id="contract-item-delete" class="danger-btn hidden">Löschen</button>

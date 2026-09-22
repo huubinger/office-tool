@@ -3080,7 +3080,8 @@
   document.getElementById('contract-analyze-btn').addEventListener('click', async () => {
     const statusEl = document.getElementById('contract-analyze-status');
     statusEl.classList.remove('hidden');
-    statusEl.textContent = 'Claude analysiert den Vertrag …';
+    const n = currentContractDetail.files.length;
+    statusEl.textContent = `Claude liest ${n === 1 ? 'den Vertrag' : `${n} Verträge`} komplett – das dauert 1–3 Minuten …`;
     try {
       const data = await api(`/api/contract-events/${currentContractDetail.id}/analyze`, { method: 'POST', body: JSON.stringify({}) });
       if (data.skipped && data.skipped.length) {

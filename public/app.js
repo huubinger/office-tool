@@ -3077,69 +3077,6 @@
     }
   });
 
-  document.getElementById('contract-analyze-btn').addEventListener('click', async () => {
-    const statusEl = document.getElementById('contract-analyze-status');
-    statusEl.classList.remove('hidden');
-    const n = currentContractDetail.files.length;
-    statusEl.textContent = `Claude liest ${n === 1 ? 'den Vertrag' : `${n} Verträge`} komplett – das dauert 1–3 Minuten …`;
-    try {
-      const data = await api(`/api/contract-events/${currentContractDetail.id}/analyze`, { method: 'POST', body: JSON.stringify({}) });
-      if (data.skipped && data.skipped.length) {
-        statusEl.textContent = 'Nicht gelesen (Download fehlgeschlagen): ' + data.skipped.join(', ');
-      } else {
-        statusEl.classList.add('hidden');
-      }
-      openContractSuggestions(data.suggestions);
-    } catch (err) {
-      statusEl.textContent = 'Fehler: ' + err.message;
-    }
-  });
-
-  // ---- KI-Vorschlaege pruefen ----
-  const contractSuggestionsOverlay = document.getElementById('contract-suggestions-overlay');
-  let contractSuggestions = [];
-  function openContractSuggestions(suggestions) {
-    if (!suggestions.length) { alert('Claude konnte keine konkreten Punkte aus dem Vertrag ableiten.'); return; }
-    contractSuggestions = suggestions;
-    const personOptions = people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-    document.getElementById('contract-suggestions-list').innerHTML = suggestions.map((s, i) => `
-      <div class="contract-suggestion-row">
-        <div class="yc-day-event-row">
-          <input type="checkbox" class="cs-include" data-idx="${i}" checked>
-          <input type="text" class="cs-title" data-idx="${i}" value="${escapeHtml(s.title)}">
-          <input type="date" class="cs-date" data-idx="${i}" value="${s.date}">
-          <select class="cs-person" data-idx="${i}"><option value="">— niemand —</option>${personOptions}</select>
-        </div>
-        ${renderContractSource(s.rule, s.quote, s.source_file)}
-      </div>
-    `).join('');
-    contractSuggestionsOverlay.classList.remove('hidden');
-  }
-  document.getElementById('contract-suggestions-cancel').addEventListener('click', () => contractSuggestionsOverlay.classList.add('hidden'));
-  document.getElementById('contract-suggestions-apply').addEventListener('click', async () => {
-    const checkboxes = [...document.querySelectorAll('.cs-include')];
-    for (const cb of checkboxes) {
-      if (!cb.checked) continue;
-      const idx = cb.dataset.idx;
-      const title = document.querySelector(`.cs-title[data-idx="${idx}"]`).value.trim();
-      const date = document.querySelector(`.cs-date[data-idx="${idx}"]`).value;
-      const personVal = document.querySelector(`.cs-person[data-idx="${idx}"]`).value;
-      if (!title || !date) continue;
-      const s = contractSuggestions[idx];
-      await api(`/api/contract-events/${currentContractDetail.id}/items`, {
-        method: 'POST',
-        body: JSON.stringify({
-          title, date, person_id: personVal ? +personVal : null,
-          source_quote: s.quote, source_file: s.source_file, source_rule: s.rule,
-        }),
-      });
-    }
-    contractSuggestionsOverlay.classList.add('hidden');
-    currentContractDetail = await api(`/api/contract-events/${currentContractDetail.id}`);
-    renderContractDetail();
-    await loadTasks();
-  });
-
   // Frist-Regel und woertliche Vertragspassage, aus der ein Punkt abgeleitet wurde.
   function renderContractSource(rule, quote, file) {
     if (!rule && !quote) return '';
@@ -3173,7 +3110,7 @@
           <div class="fc-node-date">${fmtDateDE(event.date)}</div>
           <div class="fc-node-title">🎪 ${escapeHtml(event.title)}</div>
         </div>
-        <p class="empty-state">Noch keine Punkte im Ablauf — mit KI analysieren oder manuell hinzufügen.</p>
+        <p class="empty-state">Noch keine Punkte im Ablauf — manuell hinzufügen.</p>
       `;
       return;
     }

@@ -1675,42 +1675,6 @@ app.delete('/api/contract-events/:id/files/:fileId', async (req, res) => {
   res.status(204).end();
 });
 
-// KI-Analyse: laedt die bereits hochgeladenen Vertrags-PDFs dieser Veranstaltung direkt aus
-// Dropbox, liest den Text aus und bittet Claude um eine Liste vorgeschlagener Flowchart-
-// Punkte (nur ein Vorschlag, wird noch nicht gespeichert).
-app.post('/api/contract-events/:id/analyze', async (req, res) => {
-  const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
-  if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });
-  if (!contracts.isAiConfigured()) {
-    return res.status(400).json({ error: 'ANTHROPIC_API_KEY ist auf dem Server nicht gesetzt.' });
-  }
-  const files = db.prepare('SELECT * FROM contract_event_files WHERE event_id = ?').all(event.id);
-  if (!files.length) return res.status(400).json({ error: 'Für diese Veranstaltung sind noch keine Verträge hochgeladen.' });
-  if (!contracts.isDropboxConfigured()) {
-    return res.status(400).json({ error: 'Dropbox ist auf dem Server nicht konfiguriert.' });
-  }
-
-  try {
-    const accessToken = await contracts.getAccessToken();
-    const pdfs = [];
-    const skipped = [];
-    for (const f of files) {
-      try {
-        const buffer = await contracts.downloadContractFile(accessToken, f.dropbox_path);
-        pdfs.push({ filename: f.filename, category: f.category, buffer });
-      } catch (err) {
-        skipped.push(f.filename);
-      }
-    }
-    if (!pdfs.length) return res.status(400).json({ error: 'Keine der Dateien konnte aus Dropbox geladen werden.' });
-
-    const suggestions = await contracts.analyzeContracts(pdfs, event.date);
-    res.json({ suggestions, skipped });
-  } catch (err) {
-    res.status(500).json({ error: 'Analyse fehlgeschlagen: ' + err.message });
-  }
-});
-
 app.post('/api/contract-events/:id/items', (req, res) => {
   const event = db.prepare('SELECT * FROM contract_events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Veranstaltung nicht gefunden' });

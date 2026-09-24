@@ -3863,6 +3863,8 @@
   const nkPollModal = document.getElementById('nk-poll-modal-overlay');
   let nkPollEditingId = null;
 
+  let nkPollCalMonth = null; // erster angezeigter Monat (Date, 1. des Monats)
+
   function nkOptionRowHtml(o) {
     return `
       <div class="nk-option-row" data-option-id="${o.id || ''}">
@@ -3870,19 +3872,118 @@
         <input type="time" class="nko-start" value="${o.start_time ? o.start_time.slice(0, 5) : ''}" title="Beginn">
         <span class="nko-sep">–</span>
         <input type="time" class="nko-end" value="${o.end_time ? o.end_time.slice(0, 5) : ''}" title="Ende (optional)">
+        <button type="button" class="icon-btn" data-same-day-option title="Weitere Uhrzeit an diesem Tag">＋</button>
         <button type="button" class="icon-btn" data-remove-option title="Entfernen">✕</button>
       </div>`;
   }
-  function addNkOptionRow(o) {
+  // Neue Zeile nach Datum einsortieren (Zeilen ohne Datum bleiben am Ende)
+  function addNkOptionRow(o, { sorted = false } = {}) {
     const wrap = document.getElementById('nk-poll-options');
-    wrap.insertAdjacentHTML('beforeend', nkOptionRowHtml(o));
-    const row = wrap.lastElementChild;
-    row.querySelector('[data-remove-option]').addEventListener('click', () => {
-      if (wrap.children.length <= 1) { row.querySelectorAll('input').forEach(i => { i.value = ''; }); return; }
-      row.remove();
+    const tpl = document.createElement('div');
+    tpl.innerHTML = nkOptionRowHtml(o).trim();
+    const row = tpl.firstElementChild;
+    const before = sorted && o.date ? [...wrap.children].find(r => {
+      const d = r.querySelector('.nko-date').value;
+      return !d || d > o.date;
+    }) : null;
+    wrap.insertBefore(row, before || null);
+    row.querySelector('[data-remove-option]').addEventListener('click', () => { row.remove(); renderNkPollCal(); });
+    row.querySelector('[data-same-day-option]').addEventListener('click', () => {
+      const date = row.querySelector('.nko-date').value;
+      const next = addNkOptionRow({ date }, { sorted: true });
+      // direkt hinter die letzte Zeile desselben Tages setzen
+      const sameDay = [...wrap.children].filter(r => r !== next && r.querySelector('.nko-date').value === date);
+      if (sameDay.length) sameDay[sameDay.length - 1].after(next);
+      next.querySelector('.nko-start').focus();
+      renderNkPollCal();
     });
     return row;
   }
+
+  function nkPollOptionRows() { return [...document.querySelectorAll('#nk-poll-options .nk-option-row')]; }
+
+  function renderNkPollCal() {
+    const rows = nkPollOptionRows();
+    document.getElementById('nk-poll-options-empty').classList.toggle('hidden', rows.length > 0);
+    const byDate = {};
+    rows.forEach(r => {
+      const d = r.querySelector('.nko-date').value;
+      if (!d) return;
+      (byDate[d] = byDate[d] || []).push(r.querySelector('.nko-start').value);
+    });
+    const today = isoDate(new Date());
+    const monthCount = window.matchMedia('(max-width: 820px)').matches ? 1 : 2;
+    let html = '';
+    for (let m = 0; m < monthCount; m++) {
+      const first = new Date(nkPollCalMonth.getFullYear(), nkPollCalMonth.getMonth() + m, 1);
+      const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+      const lead = (first.getDay() + 6) % 7; // Montag zuerst
+      let cells = '';
+      for (let i = 0; i < lead; i++) cells += '<span class="poll-cal-day is-empty"></span>';
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(first.getFullYear(), first.getMonth(), day);
+        const iso = isoDate(d);
+        const times = byDate[iso];
+        const cls = ['poll-cal-day'];
+        if (times) cls.push('is-selected');
+        if (iso < today) cls.push('is-past');
+        if (iso === today) cls.push('is-today');
+        if (d.getDay() === 0 || d.getDay() === 6) cls.push('is-weekend');
+        const timeLabel = times ? (times.filter(Boolean).length ? times.filter(Boolean).sort().map(t => t.slice(0, 5)).join(' ') : '✓') : '';
+        cells += `<button type="button" class="${cls.join(' ')}" data-cal-date="${iso}" title="${times ? 'Klicken zum Entfernen' : 'Klicken zum Hinzufügen'}"${iso < today && !times ? ' disabled' : ''}>
+          <span class="poll-cal-num">${day}</span>${timeLabel ? `<span class="poll-cal-times">${timeLabel}</span>` : ''}
+        </button>`;
+      }
+      html += `
+        <div class="poll-cal-month">
+          <div class="poll-cal-title">${MONTH_NAMES[first.getMonth()]} ${first.getFullYear()}</div>
+          <div class="poll-cal-grid">
+            ${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<span class="poll-cal-wd">${w}</span>`).join('')}
+            ${cells}
+          </div>
+        </div>`;
+    }
+    document.getElementById('nk-poll-cal-months').innerHTML = html;
+  }
+
+  // Klick auf Tag: Tag hinzufügen (mit Standard-Uhrzeit, Uhrzeit-Feld wird fokussiert) bzw. wieder entfernen
+  document.getElementById('nk-poll-cal-months').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-cal-date]');
+    if (!btn || btn.disabled) return;
+    const date = btn.dataset.calDate;
+    const existing = nkPollOptionRows().filter(r => r.querySelector('.nko-date').value === date);
+    if (existing.length) {
+      const hasVotes = nkPollEditingId && nkPollDetail && existing.some(r => {
+        const o = nkPollDetail.options.find(x => x.id === +r.dataset.optionId);
+        return o && o.votes.length;
+      });
+      if (hasVotes && !confirm('Für diesen Tag gibt es schon Antworten. Tag trotzdem entfernen?')) return;
+      existing.forEach(r => r.remove());
+    } else {
+      const row = addNkOptionRow({
+        date,
+        start_time: document.getElementById('nk-poll-default-start').value,
+        end_time: document.getElementById('nk-poll-default-end').value,
+      }, { sorted: true });
+      row.classList.add('just-added');
+      setTimeout(() => row.classList.remove('just-added'), 1200);
+      row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    renderNkPollCal();
+  });
+  const shiftPollCal = (n) => {
+    nkPollCalMonth = new Date(nkPollCalMonth.getFullYear(), nkPollCalMonth.getMonth() + n, 1);
+    renderNkPollCal();
+  };
+  document.getElementById('nk-poll-cal-prev').addEventListener('click', () => shiftPollCal(-1));
+  document.getElementById('nk-poll-cal-next').addEventListener('click', () => shiftPollCal(1));
+  document.getElementById('nk-poll-cal-today').addEventListener('click', () => {
+    const t = new Date();
+    nkPollCalMonth = new Date(t.getFullYear(), t.getMonth(), 1);
+    renderNkPollCal();
+  });
+  // Händische Änderungen in den Zeilen im Kalender nachziehen
+  ['input', 'change'].forEach(ev => document.getElementById('nk-poll-options').addEventListener(ev, renderNkPollCal));
   function lastOptionValues() {
     const rows = document.querySelectorAll('#nk-poll-options .nk-option-row');
     const last = rows[rows.length - 1];
@@ -3893,11 +3994,13 @@
     const last = lastOptionValues();
     let date = '';
     if (last.date) date = isoDate(addDays(isoToDate(last.date), 1));
-    addNkOptionRow({ date, start_time: last.start_time, end_time: last.end_time }).querySelector('.nko-date').focus();
+    addNkOptionRow({ date, start_time: last.start_time || document.getElementById('nk-poll-default-start').value, end_time: last.end_time }).querySelector('.nko-date').focus();
+    renderNkPollCal();
   });
   document.getElementById('nk-poll-add-same-day').addEventListener('click', () => {
     const last = lastOptionValues();
     addNkOptionRow({ date: last.date }).querySelector('.nko-start').focus();
+    renderNkPollCal();
   });
 
   function openNkPollModal(poll) {
@@ -3908,8 +4011,10 @@
     document.getElementById('nk-poll-location').value = poll ? (poll.location || '') : '';
     document.getElementById('nk-poll-description').value = poll ? (poll.description || '') : '';
     document.getElementById('nk-poll-options').innerHTML = '';
-    if (poll) poll.options.forEach(addNkOptionRow);
-    else { addNkOptionRow({ date: isoDate(addDays(new Date(), 7)), start_time: '19:00' }); }
+    if (poll) poll.options.forEach(o => addNkOptionRow(o));
+    const startMonth = poll && poll.options.length ? isoToDate(poll.options[0].date) : new Date();
+    nkPollCalMonth = new Date(startMonth.getFullYear(), startMonth.getMonth(), 1);
+    renderNkPollCal();
     nkPollModal.classList.remove('hidden');
     setTimeout(() => document.getElementById('nk-poll-title').focus(), 0);
   }

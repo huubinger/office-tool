@@ -1440,6 +1440,30 @@ form + .hint { margin-top: 8px; }
 .nk-option-row .nko-date { flex: 1.4 1 0; min-width: 0; }
 .nk-option-row .nko-start, .nk-option-row .nko-end { flex: 1 1 0; min-width: 0; }
 .nko-sep { color: var(--ink-faint); }
+.poll-cal { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-alt); padding: 10px; margin-bottom: 10px; }
+.poll-cal-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.poll-cal-toolbar .icon-btn { font-size: 20px; border-color: var(--line); }
+.poll-cal-today { padding: 5px 12px; font-size: 12.5px; }
+.modal .poll-cal-default { display: flex; align-items: center; gap: 6px; margin: 0 0 0 auto; font-size: 12.5px; color: var(--ink-soft); }
+.modal .poll-cal-default input { width: 104px; margin: 0; padding: 5px 8px; }
+.poll-cal-months { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.poll-cal-title { font-weight: 700; font-size: 13.5px; text-align: center; margin-bottom: 6px; }
+.poll-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.poll-cal-wd { text-align: center; font-size: 10.5px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; padding-bottom: 2px; }
+.poll-cal-day {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px; min-height: 42px; padding: 4px 2px;
+  border-radius: 8px; border: 1px solid transparent; background: var(--panel); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.poll-cal-day:hover:not(:disabled) { border-color: var(--violet); filter: none; }
+.poll-cal-day.is-empty { background: transparent; pointer-events: none; }
+.poll-cal-day.is-weekend .poll-cal-num { color: #c4b5fd; }
+.poll-cal-day.is-today { border-color: var(--field-border); }
+.poll-cal-day.is-past { opacity: 0.35; cursor: default; }
+.poll-cal-day.is-selected { background: var(--violet); border-color: var(--violet); opacity: 1; }
+.poll-cal-day.is-selected .poll-cal-num { color: #fff; }
+.poll-cal-times { font-size: 9.5px; font-weight: 600; line-height: 1.15; color: rgba(255, 255, 255, 0.9); text-align: center; word-break: break-word; }
+.poll-options-empty { margin: 4px 0 8px; }
+.nk-option-row.just-added input { border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-soft); }
 .nk-option-add-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 16px; }
 
 /* ---------- Projekte: Detail ---------- */
@@ -1654,6 +1678,11 @@ form + .hint { margin-top: 8px; }
   .bottom-nav .tab-btn, .bottom-nav .more-btn { font-size: 10px; }
   .name-code-row { grid-template-columns: 1fr 72px; }
   .nk-option-row { flex-wrap: wrap; }
+  .poll-cal-months { grid-template-columns: 1fr; }
+  .modal .poll-cal-default { order: 5; width: 100%; margin: 0; }
+  .modal .poll-cal-default input { flex: 1; width: auto; }
+  .poll-cal-toolbar .icon-btn { width: 40px; height: 40px; }
+  .poll-cal-day { min-height: 46px; }
   .nk-option-row .nko-date { flex: 1 1 100%; }
   .nk-option-row .nko-start, .nk-option-row .nko-end { flex: 1 1 0; }
   .user-card-actions button { flex: 1 1 auto; }

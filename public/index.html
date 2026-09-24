@@ -666,11 +666,25 @@
         </label>
         <div class="nk-options-head">
           <span>Terminvorschläge</span>
-          <span class="hint">Datum + Uhrzeit, beliebig viele</span>
+          <span class="hint">Tage im Kalender anklicken, dann Uhrzeiten eintragen</span>
         </div>
+        <div class="poll-cal">
+          <div class="poll-cal-toolbar">
+            <button type="button" class="icon-btn" id="nk-poll-cal-prev" title="Vorheriger Monat">‹</button>
+            <button type="button" class="ghost poll-cal-today" id="nk-poll-cal-today">Heute</button>
+            <label class="poll-cal-default">Standard-Uhrzeit
+              <input type="time" id="nk-poll-default-start" value="19:00" title="Beginn für neu angeklickte Tage">
+              <span class="nko-sep">–</span>
+              <input type="time" id="nk-poll-default-end" title="Ende (optional)">
+            </label>
+            <button type="button" class="icon-btn" id="nk-poll-cal-next" title="Nächster Monat">›</button>
+          </div>
+          <div id="nk-poll-cal-months" class="poll-cal-months"></div>
+        </div>
+        <div id="nk-poll-options-empty" class="hint poll-options-empty">Noch keine Termine – Tag im Kalender anklicken oder unten händisch hinzufügen.</div>
         <div id="nk-poll-options" class="nk-option-rows"></div>
         <div class="nk-option-add-row">
-          <button type="button" id="nk-poll-add-option" class="ghost">+ Termin hinzufügen</button>
+          <button type="button" id="nk-poll-add-option" class="ghost">+ Termin händisch hinzufügen</button>
           <button type="button" id="nk-poll-add-same-day" class="ghost">+ Weitere Uhrzeit am selben Tag</button>
         </div>
         <div class="form-actions">

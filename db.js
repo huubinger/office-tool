@@ -221,7 +221,9 @@ function ensureColumn(table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
   if (!cols.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
   }
+  return false;
 }
 
 ensureColumn('time_entries', 'running', 'INTEGER DEFAULT 0');
@@ -252,6 +254,90 @@ ensureColumn('year_events', 'start_time', 'TEXT');
 ensureColumn('year_events', 'end_time', 'TEXT');
 ensureColumn('calendar_entries', 'series_id', 'TEXT');
 ensureColumn('app_users', 'person_id', 'INTEGER REFERENCES people(id)');
+// Admin-Recht war bisher implizit "kein verknuepfte Person". Jetzt eigene Spalte, damit sich
+// auch ein Admin mit seiner Person (fuer die Zeiterfassung) verknuepfen kann. Beim ersten
+// Anlegen der Spalte wird der bisherige Zustand exakt uebernommen.
+if (ensureColumn('app_users', 'is_admin', 'INTEGER DEFAULT 0')) {
+  db.exec('UPDATE app_users SET is_admin = 1 WHERE person_id IS NULL');
+}
+ensureColumn('app_users', 'allowed_tabs', 'TEXT'); // JSON-Liste der freigegebenen Reiter, NULL = Standard
+ensureColumn('app_users', 'display_name', 'TEXT');
+ensureColumn('people', 'short_code', 'TEXT'); // Kuerzel, z.B. "MR"
+
+// ---- Neckarsulmer Konzerte: Terminfindung + Projekte ----
+db.exec(`
+CREATE TABLE IF NOT EXISTS nk_polls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT,
+  location TEXT,
+  created_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  closed INTEGER DEFAULT 0,
+  final_option_id INTEGER,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS nk_poll_options (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  poll_id INTEGER NOT NULL REFERENCES nk_polls(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  start_time TEXT,
+  end_time TEXT
+);
+
+CREATE TABLE IF NOT EXISTS nk_poll_votes (
+  option_id INTEGER NOT NULL REFERENCES nk_poll_options(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  answer TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (option_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS nk_concerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  date TEXT,
+  time TEXT,
+  location TEXT,
+  status TEXT DEFAULT 'Planung',
+  notes TEXT,
+  created_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS nk_concert_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  concert_id INTEGER NOT NULL REFERENCES nk_concerts(id) ON DELETE CASCADE,
+  category TEXT,
+  filename TEXT NOT NULL,
+  stored_path TEXT,
+  dropbox_path TEXT,
+  size_bytes INTEGER,
+  mime_type TEXT,
+  uploaded_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  uploaded_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS nk_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  concert_id INTEGER NOT NULL REFERENCES nk_concerts(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  body TEXT NOT NULL,
+  kind TEXT DEFAULT 'text',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS nk_comment_reads (
+  comment_id INTEGER NOT NULL REFERENCES nk_comments(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  read_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (comment_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_nk_options_poll ON nk_poll_options(poll_id);
+CREATE INDEX IF NOT EXISTS idx_nk_comments_concert ON nk_comments(concert_id);
+CREATE INDEX IF NOT EXISTS idx_nk_files_concert ON nk_concert_files(concert_id);
+`);
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----
 // Sind ADMIN_USERNAME und ADMIN_PASSWORD gesetzt, werden sie bei JEDEM Start durchgesetzt
@@ -265,16 +351,16 @@ if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
   const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
   const existing = db.prepare('SELECT * FROM app_users WHERE username = ?').get(username);
   if (existing) {
-    db.prepare('UPDATE app_users SET password_hash = ? WHERE id = ?').run(hash, existing.id);
+    db.prepare('UPDATE app_users SET password_hash = ?, is_admin = 1 WHERE id = ?').run(hash, existing.id);
   } else {
-    db.prepare('INSERT INTO app_users (username, password_hash) VALUES (?, ?)').run(username, hash);
+    db.prepare('INSERT INTO app_users (username, password_hash, is_admin) VALUES (?, ?, 1)').run(username, hash);
   }
 } else if (userCount === 0) {
   const bcrypt = require('bcryptjs');
   const username = 'admin';
   const password = 'changeme128';
   const hash = bcrypt.hashSync(password, 10);
-  db.prepare('INSERT INTO app_users (username, password_hash) VALUES (?, ?)').run(username, hash);
+  db.prepare('INSERT INTO app_users (username, password_hash, is_admin) VALUES (?, ?, 1)').run(username, hash);
   console.warn(
     `\n[Hinweis] Kein ADMIN_USERNAME/ADMIN_PASSWORD gesetzt - Standard-Login angelegt: Benutzername "${username}", Passwort "${password}".\n` +
     `Bitte vor dem Online-Gehen unbedingt ADMIN_USERNAME/ADMIN_PASSWORD als Umgebungsvariablen setzen.\n`
@@ -283,3 +369,4 @@ if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
 
 module.exports = db;
 module.exports.dbPath = dbPath;
+module.exports.dbDir = dbDir;

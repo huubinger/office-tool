@@ -91,6 +91,22 @@ Vanilla-JS-Frontend ohne Build-Schritt.
   `POST /api/reminders/run` auslösen. Ohne gesetzten `BREVO_API_KEY` wird
   nur geloggt, es wird nichts verschickt.
 
+- **Benutzer & Freigaben** (Konto-Menü → „Benutzer & Freigaben“, nur Admins): pro
+  Konto festlegen, welche Reiter sichtbar sind (auch serverseitig durchgesetzt),
+  mit welcher Person es in der Zeiterfassung verknüpft ist und ob es Admin ist.
+  Admin-Recht ist unabhängig von der Personen-Verknüpfung – auch ein Admin kann
+  so „MR = Martin Renner“ zugeordnet werden und ist in der Zeiterfassung dann
+  automatisch vorausgewählt. Personen haben dafür ein Kürzel (z. B. „MR“).
+- **Neckarsulmer Konzerte** (eigenes Untermenü, muss pro Konto freigegeben werden):
+  - *Terminfindung*: Umfragen mit mehreren Terminvorschlägen (Datum + Uhrzeit),
+    alle kreuzen „kann / vielleicht / kann nicht“ an. Übersicht mit Rangliste
+    (meiste Zusagen), wer noch nicht geantwortet hat, Termin festlegen & abschließen.
+  - *Projekte*: Konzerte mit Status, Notizen, Verträgen/Dokumenten (gespeichert
+    auf dem Volume unter `DB_DIR/nk-files`, zusätzlich Kopie in Dropbox unter
+    `DROPBOX_NK_FOLDER`, Standard `/Neckarsulmer Konzerte`) und Kommentaren, die
+    jede Person als „gelesen“ markiert – so ist sichtbar, ob alle auf dem
+    gleichen Stand sind. Konzerte erscheinen auch im Jahreskalender.
+
 ## Lokal starten
 
 ```bash

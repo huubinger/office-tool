@@ -48,43 +48,43 @@
         Verträge
       </button>
     </nav>
+    <div class="sidebar-section-label" id="nk-section-label">Neckarsulmer Konzerte</div>
+    <nav class="tabs" id="nk-tabs">
+      <button class="tab-btn" data-tab="nk_polls" data-title="Terminfindung" data-group="Neckarsulmer Konzerte">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7.5 12.3l1.6 1.5 3.4-3.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Terminfindung
+        <span class="nav-badge hidden" data-badge="nk_polls"></span>
+      </button>
+      <button class="tab-btn" data-tab="nk_projects" data-title="Projekte" data-group="Neckarsulmer Konzerte">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M8 14.5V5l8-1.5v9.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6" cy="14.5" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="13" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
+        Projekte
+        <span class="nav-badge hidden" data-badge="nk_projects"></span>
+      </button>
+    </nav>
   </aside>
 
-  <nav class="bottom-nav">
-    <button class="tab-btn active" data-tab="tasks" data-title="Aufgaben">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span>Aufgaben</span>
-    </button>
-    <button class="tab-btn" data-tab="calendar" data-title="Wochenplanung">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Woche</span>
-    </button>
-    <button class="tab-btn" data-tab="timetracking" data-title="Zeiterfassung">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/><path d="M10 6.5V10l2.5 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span>Zeit</span>
-    </button>
-    <button class="tab-btn" data-tab="yearcalendar" data-title="Jahreskalender">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/><circle cx="13" cy="12" r="1" fill="currentColor"/></svg>
-      <span>Jahr</span>
-    </button>
-    <button class="tab-btn" data-tab="people" data-title="Personen/Projekte">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M4 16c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Personen</span>
-    </button>
-    <button class="tab-btn" data-tab="contracts" data-title="Verträge">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="4" y="2.5" width="12" height="15" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 6.5h7M6.5 9.5h7M6.5 12.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Verträge</span>
-    </button>
-  </nav>
+  <!-- Wird per JS aus den freigegebenen Reitern aufgebaut (max. 4 + "Mehr") -->
+  <nav class="bottom-nav" id="bottom-nav"></nav>
+  <div id="more-sheet-overlay" class="modal-overlay sheet-overlay hidden">
+    <div class="modal sheet">
+      <div class="sheet-handle"></div>
+      <h3>Alle Bereiche</h3>
+      <div id="more-sheet-list" class="more-sheet-list"></div>
+    </div>
+  </div>
 
   <div class="main-area">
     <header class="topbar">
       <div class="topbar-row1">
-        <h1 id="page-title">Aufgaben</h1>
+        <div class="page-heading">
+          <div id="page-kicker" class="page-kicker hidden"></div>
+          <h1 id="page-title">Aufgaben</h1>
+        </div>
         <div class="topbar-right">
           <div class="account-menu">
-            <button type="button" id="account-btn" class="ghost-topbar" title="Konto"><span id="account-username">…</span> ▾</button>
+            <button type="button" id="account-btn" class="ghost-topbar account-btn" title="Konto"><span id="account-avatar" class="user-avatar">…</span><span id="account-username" class="account-name">…</span><span class="account-caret">▾</span></button>
             <div id="account-dropdown" class="account-dropdown hidden">
+              <div class="account-dropdown-head" id="account-dropdown-head"></div>
               <button type="button" id="change-password-btn">Passwort ändern</button>
               <button type="button" id="manage-users-btn">Benutzer verwalten</button>
               <button type="button" id="backup-now-btn">Backup jetzt erstellen</button>
@@ -298,21 +298,19 @@
 
   <!-- ===================== PERSONEN ===================== -->
   <section id="tab-people" class="tab-panel">
-    <div class="card settings-card">
-      <h2>Einstellungen</h2>
-      <label>Tool-Start-Datum (Wochen davor bekommen im Wochenreport keine Soll/Ist-Warnung, da die Zeiterfassung damals noch nicht genutzt wurde)
-        <input type="date" id="tool-start-date-input">
-      </label>
-      <button type="button" id="tool-start-date-save" class="ghost">Speichern</button>
-    </div>
     <div class="panel-grid">
       <div class="card">
         <h2>Neue Person</h2>
         <form id="person-form">
           <input type="hidden" id="person-id">
-          <label>Name
-            <input type="text" id="person-name" required placeholder="Vor- und Nachname">
-          </label>
+          <div class="name-code-row">
+            <label>Name
+              <input type="text" id="person-name" required placeholder="Vor- und Nachname">
+            </label>
+            <label>Kürzel
+              <input type="text" id="person-short-code" maxlength="4" placeholder="MR" autocomplete="off">
+            </label>
+          </div>
           <label>Rolle / Bereich
             <input type="text" id="person-role" placeholder="z.B. Technik, Verwaltung">
           </label>
@@ -380,6 +378,16 @@
         <div id="project-list" class="people-list section-gap"></div>
       </div>
     </div>
+    <div class="card settings-card section-gap">
+      <h2>Einstellungen</h2>
+      <div class="settings-row">
+        <label>Tool-Start-Datum
+          <input type="date" id="tool-start-date-input">
+        </label>
+        <button type="button" id="tool-start-date-save" class="ghost">Speichern</button>
+      </div>
+      <p class="hint">Wochen vor diesem Datum bekommen im Wochenreport keine Soll/Ist-Warnung, da die Zeiterfassung damals noch nicht genutzt wurde.</p>
+    </div>
   </section>
 
   <!-- ===================== ZEITERFASSUNG ===================== -->
@@ -387,6 +395,7 @@
     <div class="time-entry-row">
       <div class="card">
         <h2 id="time-form-heading">Arbeitszeit eintragen</h2>
+        <div id="time-me-chip" class="me-chip hidden"></div>
         <form id="time-form">
           <input type="hidden" id="time-entry-id">
           <label>Person
@@ -603,6 +612,110 @@
     </div>
   </section>
 
+  <!-- ===================== NK: TERMINFINDUNG ===================== -->
+  <section id="tab-nk_polls" class="tab-panel">
+    <div id="nk-polls-list-view">
+      <div class="section-head">
+        <p class="section-intro">Termine vorschlagen – alle kreuzen an, wann sie können. Der Termin mit den meisten Zusagen wird hervorgehoben.</p>
+        <button type="button" id="nk-poll-new-btn">+ Neue Terminumfrage</button>
+      </div>
+      <div id="nk-polls-list" class="nk-card-grid"></div>
+      <div class="card done-tasks-card hidden" id="nk-polls-closed-card">
+        <button type="button" id="nk-polls-closed-toggle" class="done-tasks-toggle">
+          <span id="nk-polls-closed-count">Abgeschlossen (0)</span>
+          <span class="task-group-chevron collapsed" id="nk-polls-closed-chevron">▾</span>
+        </button>
+        <div id="nk-polls-closed-list" class="nk-card-grid nk-closed-grid hidden"></div>
+      </div>
+    </div>
+    <div id="nk-poll-detail-view" class="hidden"></div>
+  </section>
+
+  <!-- ===================== NK: PROJEKTE ===================== -->
+  <section id="tab-nk_projects" class="tab-panel">
+    <div id="nk-projects-list-view">
+      <div class="section-head">
+        <p class="section-intro">Konzerte der Neckarsulmer Konzerte – mit Verträgen, Dokumenten und Kommentaren.</p>
+        <button type="button" id="nk-concert-new-btn">+ Neues Konzert</button>
+      </div>
+      <div id="nk-concerts-list" class="nk-card-grid"></div>
+      <div class="card done-tasks-card hidden" id="nk-concerts-archive-card">
+        <button type="button" id="nk-concerts-archive-toggle" class="done-tasks-toggle">
+          <span id="nk-concerts-archive-count">Archiv (0)</span>
+          <span class="task-group-chevron collapsed" id="nk-concerts-archive-chevron">▾</span>
+        </button>
+        <div id="nk-concerts-archive-list" class="nk-card-grid nk-closed-grid hidden"></div>
+      </div>
+    </div>
+    <div id="nk-concert-detail-view" class="hidden"></div>
+  </section>
+
+  <!-- Neue / bearbeitete Terminumfrage -->
+  <div id="nk-poll-modal-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+      <h3 id="nk-poll-modal-heading">Neue Terminumfrage</h3>
+      <form id="nk-poll-form">
+        <label>Titel
+          <input type="text" id="nk-poll-title" required placeholder="z.B. Planungstreffen Sommerkonzert">
+        </label>
+        <label>Ort (optional)
+          <input type="text" id="nk-poll-location" placeholder="z.B. Ballei oder Videocall">
+        </label>
+        <label>Beschreibung (optional)
+          <textarea id="nk-poll-description" rows="2"></textarea>
+        </label>
+        <div class="nk-options-head">
+          <span>Terminvorschläge</span>
+          <span class="hint">Datum + Uhrzeit, beliebig viele</span>
+        </div>
+        <div id="nk-poll-options" class="nk-option-rows"></div>
+        <div class="nk-option-add-row">
+          <button type="button" id="nk-poll-add-option" class="ghost">+ Termin hinzufügen</button>
+          <button type="button" id="nk-poll-add-same-day" class="ghost">+ Weitere Uhrzeit am selben Tag</button>
+        </div>
+        <div class="form-actions">
+          <button type="submit" id="nk-poll-submit">Umfrage anlegen</button>
+          <button type="button" id="nk-poll-cancel" class="secondary">Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Neues / bearbeitetes Konzert -->
+  <div id="nk-concert-modal-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+      <h3 id="nk-concert-modal-heading">Neues Konzert</h3>
+      <form id="nk-concert-form">
+        <label>Titel
+          <input type="text" id="nk-concert-title" required placeholder="z.B. Sommerkonzert 2027">
+        </label>
+        <div class="time-row">
+          <label>Datum
+            <input type="date" id="nk-concert-date">
+          </label>
+          <label>Uhrzeit
+            <input type="time" id="nk-concert-time">
+          </label>
+        </div>
+        <div class="time-row">
+          <label>Ort
+            <input type="text" id="nk-concert-location" placeholder="z.B. Ballei Neckarsulm">
+          </label>
+          <label>Status
+            <select id="nk-concert-status"></select>
+          </label>
+        </div>
+        <label>Notizen
+          <textarea id="nk-concert-notes" rows="4" placeholder="Künstler, Besetzung, Budget, offene Punkte …"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="nk-concert-submit">Anlegen</button>
+          <button type="button" id="nk-concert-cancel" class="secondary">Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Neue Veranstaltung -->
   <div id="contract-new-modal-overlay" class="modal-overlay hidden">
     <div class="modal modal-wide">
@@ -756,21 +869,41 @@
 </div>
 
 <div id="users-modal-overlay" class="modal-overlay hidden">
-  <div class="modal">
-    <h3>Benutzer verwalten</h3>
-    <div id="users-list" class="time-list"></div>
-    <h3 class="section-gap">Neuer Benutzer</h3>
-    <label>Benutzername <input type="text" id="new-user-username"></label>
-    <label>Passwort (mind. 6 Zeichen) <input type="password" id="new-user-password"></label>
-    <label>Verknüpfte Person (optional)
-      <select id="new-user-person"><option value="">— keine (Admin, uneingeschränkt) —</option></select>
-    </label>
-    <p class="hint">Ohne verknüpfte Person hat der Login vollen Zugriff (Admin). Mit verknüpfter Person darf sich diese Person nur ihre eigene Zeit in der Zeiterfassung ansehen/eintragen.</p>
-    <div id="users-error" class="login-error hidden"></div>
-    <div class="form-actions">
-      <button id="users-add-confirm">Anlegen</button>
-      <button id="users-modal-close" class="secondary">Schließen</button>
+  <div class="modal modal-xwide">
+    <div class="modal-head">
+      <h3>Benutzer &amp; Freigaben</h3>
+      <button type="button" id="users-modal-close" class="secondary">Schließen</button>
     </div>
+    <p class="hint">Pro Konto festlegen, welche Reiter sichtbar sind und mit welcher Person es in der Zeiterfassung verknüpft ist (z.B. „MR = Martin Renner“). Admins können zusätzlich Benutzer verwalten und alle Zeiten sehen.</p>
+    <div id="users-error" class="login-error hidden"></div>
+    <div id="users-list" class="users-list"></div>
+
+    <details class="user-new-card" id="user-new-card">
+      <summary>+ Neuen Benutzer anlegen</summary>
+      <div class="user-new-body">
+        <div class="time-row">
+          <label>Benutzername <input type="text" id="new-user-username" autocomplete="off"></label>
+          <label>Passwort (mind. 6 Zeichen) <input type="password" id="new-user-password" autocomplete="new-password"></label>
+        </div>
+        <div class="time-row">
+          <label>Anzeigename (optional) <input type="text" id="new-user-display" placeholder="z.B. Franz Koroknay"></label>
+          <label>Verknüpfte Person (Zeiterfassung)
+            <select id="new-user-person"><option value="">— keine —</option></select>
+          </label>
+        </div>
+        <label class="inline-check"><input type="checkbox" id="new-user-admin"> Admin (darf Benutzer verwalten, sieht alle Zeiten)</label>
+        <div class="tab-presets">
+          <span class="hint">Vorlage:</span>
+          <button type="button" class="ghost" data-new-preset="nk">Nur Neckarsulmer Konzerte</button>
+          <button type="button" class="ghost" data-new-preset="office">Büro</button>
+          <button type="button" class="ghost" data-new-preset="all">Alles</button>
+        </div>
+        <div id="new-user-tabs" class="tab-check-grid"></div>
+        <div class="form-actions">
+          <button type="button" id="users-add-confirm">Benutzer anlegen</button>
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 

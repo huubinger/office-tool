@@ -15,6 +15,8 @@ const { getHolidaysForYear, isHoliday } = require('./holidays');
 const { getSchoolHolidaysForYear } = require('./schulferien');
 const { fetchAndParseIcs, buildIcs } = require('./icalparser');
 const contracts = require('./contracts');
+const access = require('./access');
+const nk = require('./nk');
 const PDFDocument = require('pdfkit');
 
 const app = express();
@@ -55,9 +57,59 @@ const PUBLIC_PATHS = new Set([
 ]);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
-  if (req.session && req.session.userId) return next();
+  if (req.session && req.session.userId) {
+    // Konto bei jeder Anfrage frisch laden, damit geaenderte Rechte/Personen-Verknuepfungen
+    // sofort gelten (ohne Neu-Anmeldung) und geloeschte Konten ausgesperrt werden.
+    const user = db.prepare('SELECT * FROM app_users WHERE id = ?').get(req.session.userId);
+    if (user) {
+      req.user = user;
+      req.isAdmin = !!user.is_admin;
+      req.personId = user.person_id || null;
+      req.tabs = access.effectiveTabs(user);
+      return next();
+    }
+    req.session.userId = null;
+  }
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Nicht angemeldet' });
   return res.redirect('/login.html');
+});
+
+// Reiter-Freigaben serverseitig durchsetzen: jede API gehoert zu einem oder mehreren Reitern.
+// Erster passender Praefix gewinnt. Nicht aufgefuehrte Routen (z.B. /api/me) sind frei.
+const API_TAB_RULES = [
+  ['/api/nk/polls', ['nk_polls']],
+  ['/api/nk/concerts', ['nk_projects']],
+  ['/api/nk/', ['nk_polls', 'nk_projects']],
+  ['/api/tasks', ['tasks', 'calendar', 'contracts']],
+  ['/api/calendar', ['tasks', 'calendar']],
+  ['/api/time-entries', ['timetracking', 'tasks']],
+  ['/api/reports', ['timetracking']],
+  ['/api/warnings', ['timetracking']],
+  ['/api/absences', ['timetracking']],
+  ['/api/time-off', ['timetracking']],
+  ['/api/year-events', ['yearcalendar']],
+  ['/api/external-calendars', ['yearcalendar']],
+  ['/api/external-calendar-events', ['yearcalendar']],
+  ['/api/school-holidays', ['yearcalendar']],
+  ['/api/public-holidays', ['yearcalendar']],
+  ['/api/year-calendar/', ['yearcalendar']],
+  ['/api/contract-events', ['contracts', 'yearcalendar']],
+  ['/api/bfd-defaults', ['people']],
+  ['/api/settings', ['people', 'timetracking']],
+  ['/api/projects', ['tasks', 'calendar', 'people', 'yearcalendar']],
+];
+app.use((req, res, next) => {
+  if (!req.user || !req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/api/backup') && !req.isAdmin) return res.status(403).json({ error: 'Nur für Administratoren' });
+  // Personenliste darf jeder lesen (Namen/Farben), aendern nur mit Reiter "Personen"
+  if (req.path.startsWith('/api/people') && req.method !== 'GET' && !req.tabs.includes('people')) {
+    return res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
+  }
+  const rule = API_TAB_RULES.find(([prefix]) => req.path.startsWith(prefix));
+  if (rule && !rule[1].some(t => req.tabs.includes(t))) {
+    return res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
+  }
+  next();
 });
 
 app.post('/api/login', (req, res) => {
@@ -69,7 +121,6 @@ app.post('/api/login', (req, res) => {
   }
   req.session.userId = user.id;
   req.session.username = user.username;
-  req.session.personId = user.person_id || null;
   res.json({ ok: true, username: user.username });
 });
 
@@ -78,17 +129,18 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Nicht angemeldet' });
-  let personName = null;
-  if (req.session.personId) {
-    const p = db.prepare('SELECT name FROM people WHERE id = ?').get(req.session.personId);
-    personName = p ? p.name : null;
-  }
+  const person = req.personId ? db.prepare('SELECT id, name, short_code, color FROM people WHERE id = ?').get(req.personId) : null;
+  const disp = access.userDisplay(req.user, person);
   res.json({
-    username: req.session.username,
-    person_id: req.session.personId || null,
-    person_name: personName,
-    is_admin: !req.session.personId,
+    id: req.user.id,
+    username: req.user.username,
+    person_id: person ? person.id : null,
+    person_name: person ? person.name : null,
+    display_name: disp.name,
+    short_code: disp.short,
+    color: disp.color,
+    is_admin: req.isAdmin,
+    tabs: req.tabs,
   });
 });
 
@@ -106,46 +158,88 @@ app.post('/api/account/change-password', (req, res) => {
   res.json({ ok: true });
 });
 
-// Schuetzt Zeiterfassungs-Routen: Nicht-Admin-Logins (an eine Person gebunden) duerfen
-// nur mit der eigenen person_id arbeiten. Admin (kein personId in der Session) ist frei.
+// Person, auf die ein Konto in der Zeiterfassung beschraenkt ist: null = Admin (keine
+// Einschraenkung), -1 = Nicht-Admin ohne verknuepfte Person (darf nichts Fremdes sehen).
+function restrictedPersonId(req) {
+  if (req.isAdmin) return null;
+  return req.personId || -1;
+}
+
+// Schuetzt Zeiterfassungs-Routen: Nicht-Admin-Logins duerfen nur mit der eigenen person_id arbeiten.
 function enforceOwnPerson(req, res, next) {
-  if (!req.session.personId) return next(); // Admin
+  const own = restrictedPersonId(req);
+  if (own === null) return next(); // Admin
   const bodyPersonId = req.body && req.body.person_id;
   const queryPersonId = req.query && req.query.person_id;
-  if ((bodyPersonId && +bodyPersonId !== req.session.personId) || (queryPersonId && +queryPersonId !== req.session.personId)) {
+  if ((bodyPersonId && +bodyPersonId !== own) || (queryPersonId && +queryPersonId !== own)) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
-  if (req.body && 'person_id' in req.body) req.body.person_id = req.session.personId;
-  if (req.query && !req.query.person_id) req.query.person_id = String(req.session.personId);
+  if (req.body && 'person_id' in req.body) req.body.person_id = own;
+  if (req.query && !req.query.person_id) req.query.person_id = String(own);
   next();
 }
 
 // ---------- Benutzerverwaltung (weitere Login-Konten) ----------
-// Nur fuer Admin-Logins (Konten ohne verknuepfte Person).
 function requireAdmin(req, res, next) {
-  if (req.session.personId) return res.status(403).json({ error: 'Nur für Administratoren' });
+  if (!req.isAdmin) return res.status(403).json({ error: 'Nur für Administratoren' });
   next();
 }
 app.use('/api/users', requireAdmin);
 
 app.get('/api/users', (req, res) => {
-  res.json(db.prepare(`
-    SELECT u.id, u.username, u.created_at, u.person_id, p.name AS person_name
+  const users = db.prepare(`
+    SELECT u.id, u.username, u.created_at, u.person_id, u.is_admin, u.allowed_tabs, u.display_name,
+      p.name AS person_name, p.short_code AS person_short_code, p.color AS person_color
     FROM app_users u LEFT JOIN people p ON p.id = u.person_id
     ORDER BY u.username
-  `).all());
+  `).all();
+  res.json(users.map(u => ({
+    id: u.id, username: u.username, created_at: u.created_at, person_id: u.person_id,
+    person_name: u.person_name, display_name: u.display_name, is_admin: !!u.is_admin,
+    tabs: access.effectiveTabs(u), tabs_customized: u.allowed_tabs !== null,
+    display: access.userDisplay(u, u.person_id ? { name: u.person_name, short_code: u.person_short_code, color: u.person_color } : null),
+    is_me: u.id === req.user.id,
+  })));
 });
 
 app.post('/api/users', (req, res) => {
-  const { username, password, person_id } = req.body || {};
+  const { username, password, person_id, is_admin, tabs, display_name } = req.body || {};
   if (!username || !username.trim()) return res.status(400).json({ error: 'Benutzername ist erforderlich' });
   if (!password || password.length < 6) return res.status(400).json({ error: 'Passwort muss mindestens 6 Zeichen haben' });
   const existing = db.prepare('SELECT id FROM app_users WHERE username = ?').get(username.trim());
   if (existing) return res.status(409).json({ error: 'Benutzername ist bereits vergeben' });
   const hash = bcrypt.hashSync(password, 10);
-  const info = db.prepare('INSERT INTO app_users (username, password_hash, person_id) VALUES (?, ?, ?)')
-    .run(username.trim(), hash, person_id || null);
-  res.status(201).json({ id: info.lastInsertRowid, username: username.trim(), person_id: person_id || null });
+  const info = db.prepare(`
+    INSERT INTO app_users (username, password_hash, person_id, is_admin, allowed_tabs, display_name) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(username.trim(), hash, person_id || null, is_admin ? 1 : 0, access.normalizeTabsInput(tabs), (display_name || '').trim() || null);
+  res.status(201).json({ id: info.lastInsertRowid, username: username.trim() });
+});
+
+// Konto bearbeiten: verknuepfte Person (fuer die Zeiterfassung), Admin-Recht, Reiter-Freigaben, Anzeigename.
+app.put('/api/users/:id', (req, res) => {
+  const user = db.prepare('SELECT * FROM app_users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+  const { person_id, is_admin, tabs, display_name } = req.body || {};
+  const nextAdmin = is_admin === undefined ? !!user.is_admin : !!is_admin;
+  if (!nextAdmin && user.id === req.user.id) {
+    return res.status(400).json({ error: 'Die eigenen Admin-Rechte können nicht entfernt werden' });
+  }
+  if (!nextAdmin && user.is_admin) {
+    const admins = db.prepare('SELECT COUNT(*) AS c FROM app_users WHERE is_admin = 1').get().c;
+    if (admins <= 1) return res.status(400).json({ error: 'Es muss mindestens ein Admin-Konto bleiben' });
+  }
+  if (person_id) {
+    const other = db.prepare('SELECT username FROM app_users WHERE person_id = ? AND id != ?').get(person_id, user.id);
+    if (other) return res.status(409).json({ error: `Diese Person ist bereits mit dem Konto „${other.username}“ verknüpft` });
+  }
+  db.prepare('UPDATE app_users SET person_id = ?, is_admin = ?, allowed_tabs = ?, display_name = ? WHERE id = ?').run(
+    person_id === undefined ? user.person_id : (person_id || null),
+    nextAdmin ? 1 : 0,
+    tabs === undefined ? user.allowed_tabs : access.normalizeTabsInput(tabs),
+    display_name === undefined ? user.display_name : ((display_name || '').trim() || null),
+    user.id
+  );
+  res.json({ ok: true });
 });
 
 // Admin setzt das Passwort eines Kontos neu (ohne das alte zu kennen).
@@ -372,6 +466,11 @@ const timeEntryJoinSelect = `
 `;
 
 // ---------- People ----------
+function normalizeShortCode(v) {
+  const s = String(v || '').trim().toUpperCase().slice(0, 4);
+  return s || null;
+}
+
 app.get('/api/people', (req, res) => {
   const people = db.prepare('SELECT * FROM people ORDER BY active DESC, name').all();
   res.json(people.map(sanitizePerson));
@@ -380,15 +479,15 @@ app.get('/api/people', (req, res) => {
 app.post('/api/people', (req, res) => {
   const {
     name, role, color, weekly_target_minutes,
-    contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total,
+    contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total, short_code,
   } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name ist erforderlich' });
   const info = db.prepare(`
     INSERT INTO people (
       name, role, color, weekly_target_minutes,
-      contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total
+      contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total, short_code
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name.trim(),
     role || null,
@@ -399,7 +498,8 @@ app.post('/api/people', (req, res) => {
     probation_weeks || null,
     contract_start || null,
     contract_end || null,
-    seminar_days_total || null
+    seminar_days_total || null,
+    normalizeShortCode(short_code)
   );
   res.status(201).json(sanitizePerson(db.prepare('SELECT * FROM people WHERE id = ?').get(info.lastInsertRowid)));
 });
@@ -407,14 +507,15 @@ app.post('/api/people', (req, res) => {
 app.put('/api/people/:id', (req, res) => {
   const {
     name, role, color, active, weekly_target_minutes,
-    contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total,
+    contract_type, vacation_days_total, probation_weeks, contract_start, contract_end, seminar_days_total, short_code,
   } = req.body;
   const existing = db.prepare('SELECT * FROM people WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Person nicht gefunden' });
 
   db.prepare(`
     UPDATE people SET name = ?, role = ?, color = ?, active = ?, weekly_target_minutes = ?,
-      contract_type = ?, vacation_days_total = ?, probation_weeks = ?, contract_start = ?, contract_end = ?, seminar_days_total = ?
+      contract_type = ?, vacation_days_total = ?, probation_weeks = ?, contract_start = ?, contract_end = ?, seminar_days_total = ?,
+      short_code = ?
     WHERE id = ?
   `).run(
     name ?? existing.name,
@@ -428,6 +529,7 @@ app.put('/api/people/:id', (req, res) => {
     contract_start === undefined ? existing.contract_start : contract_start,
     contract_end === undefined ? existing.contract_end : contract_end,
     seminar_days_total === undefined ? existing.seminar_days_total : seminar_days_total,
+    short_code === undefined ? existing.short_code : normalizeShortCode(short_code),
     req.params.id
   );
   res.json(sanitizePerson(db.prepare('SELECT * FROM people WHERE id = ?').get(req.params.id)));
@@ -850,10 +952,11 @@ app.post('/api/time-entries', enforceOwnPerson, (req, res) => {
 app.put('/api/time-entries/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
-  if (req.session.personId && existing.person_id !== req.session.personId) {
+  const own = restrictedPersonId(req);
+  if (own !== null && existing.person_id !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
-  if (req.session.personId && req.body.person_id && +req.body.person_id !== req.session.personId) {
+  if (own !== null && req.body.person_id && +req.body.person_id !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
   if (existing.running) return res.status(400).json({ error: 'Laufende Zeiterfassung kann nicht bearbeitet werden, bitte zuerst stoppen' });
@@ -912,7 +1015,8 @@ app.put('/api/time-entries/:id', (req, res) => {
 
 app.delete('/api/time-entries/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(req.params.id);
-  if (req.session.personId && existing && existing.person_id !== req.session.personId) {
+  const own = restrictedPersonId(req);
+  if (own !== null && existing && existing.person_id !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
   db.prepare('DELETE FROM time_entries WHERE id = ?').run(req.params.id);
@@ -922,8 +1026,9 @@ app.delete('/api/time-entries/:id', (req, res) => {
 
 // ---------- Start/Stopp-Zeiterfassung pro Aufgabe ----------
 app.get('/api/time-entries/active', (req, res) => {
-  const rows = req.session.personId
-    ? db.prepare(`${timeEntryJoinSelect} WHERE te.running = 1 AND te.person_id = ? ORDER BY te.start_time`).all(req.session.personId)
+  const own = restrictedPersonId(req);
+  const rows = own !== null
+    ? db.prepare(`${timeEntryJoinSelect} WHERE te.running = 1 AND te.person_id = ? ORDER BY te.start_time`).all(own)
     : db.prepare(`${timeEntryJoinSelect} WHERE te.running = 1 ORDER BY te.start_time`).all();
   res.json(rows);
 });
@@ -946,7 +1051,8 @@ app.post('/api/time-entries/start', enforceOwnPerson, (req, res) => {
 app.post('/api/time-entries/:id/stop', (req, res) => {
   const entry = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'Eintrag nicht gefunden' });
-  if (req.session.personId && entry.person_id !== req.session.personId) {
+  const own = restrictedPersonId(req);
+  if (own !== null && entry.person_id !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
   if (!entry.running) return res.status(400).json({ error: 'Dieser Eintrag laeuft nicht' });
@@ -997,7 +1103,9 @@ app.get('/api/time-entries/export.csv', enforceOwnPerson, (req, res) => {
 
 // ---------- Warnungen (Tageshöchstarbeitszeit überschritten) ----------
 app.get('/api/warnings', (req, res) => {
-  const { person_id, from, to } = req.query;
+  const { from, to } = req.query;
+  const own = restrictedPersonId(req);
+  const person_id = own !== null ? own : req.query.person_id;
   let query = `
     SELECT w.*, p.name AS person_name FROM work_time_warnings w
     JOIN people p ON p.id = w.person_id
@@ -1022,8 +1130,9 @@ app.get('/api/reports/week', (req, res) => {
   const from = isoDateLocal(monday);
   const to = isoDateLocal(sunday);
 
-  const people = (req.session.personId
-    ? db.prepare('SELECT * FROM people WHERE active = 1 AND id = ? ORDER BY name').all(req.session.personId)
+  const own = restrictedPersonId(req);
+  const people = (own !== null
+    ? db.prepare('SELECT * FROM people WHERE active = 1 AND id = ? ORDER BY name').all(own)
     : db.prepare('SELECT * FROM people WHERE active = 1 ORDER BY name').all()
   );
   const actualStmt = db.prepare(`
@@ -1064,7 +1173,8 @@ app.get('/api/reports/week', (req, res) => {
 app.get('/api/reports/week-detail', (req, res) => {
   const personId = req.query.person_id;
   if (!personId) return res.status(400).json({ error: 'person_id ist erforderlich' });
-  if (req.session.personId && +personId !== req.session.personId) {
+  const own = restrictedPersonId(req);
+  if (own !== null && +personId !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
   const person = db.prepare('SELECT * FROM people WHERE id = ?').get(personId);
@@ -1114,7 +1224,8 @@ app.get('/api/reports/timesheet-pdf', (req, res) => {
   if (!person_id || !from || !to) {
     return res.status(400).json({ error: 'person_id, from und to sind erforderlich' });
   }
-  if (req.session.personId && +person_id !== req.session.personId) {
+  const own = restrictedPersonId(req);
+  if (own !== null && +person_id !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
   const person = db.prepare('SELECT * FROM people WHERE id = ?').get(person_id);
@@ -1230,7 +1341,8 @@ app.get('/api/reports/timesheet-pdf', (req, res) => {
 app.get('/api/reports/lifetime', (req, res) => {
   const personId = req.query.person_id;
   if (!personId) return res.status(400).json({ error: 'person_id ist erforderlich' });
-  if (req.session.personId && +personId !== req.session.personId) {
+  const own = restrictedPersonId(req);
+  if (own !== null && +personId !== own) {
     return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
   }
   const person = db.prepare('SELECT * FROM people WHERE id = ?').get(personId);
@@ -1696,6 +1808,18 @@ app.delete('/api/contract-events/:id/files/:fileId', async (req, res) => {
   res.status(204).end();
 });
 
+// Oeffnet einen hochgeladenen Vertrag (kurzlebiger Dropbox-Link).
+app.get('/api/contract-events/:id/files/:fileId/download', async (req, res) => {
+  const file = db.prepare('SELECT * FROM contract_event_files WHERE id = ? AND event_id = ?').get(req.params.fileId, req.params.id);
+  if (!file || !file.dropbox_path) return res.status(404).send('Datei nicht gefunden');
+  try {
+    const token = await contracts.getAccessToken();
+    res.redirect(await contracts.getTemporaryLink(token, file.dropbox_path));
+  } catch (err) {
+    res.status(502).send('Datei konnte nicht aus Dropbox geladen werden: ' + err.message);
+  }
+});
+
 // Legt die Veranstaltung einmalig als Termin im JPMR-Tool an (keine spaetere Synchronisation).
 // Braucht JPMR_URL und JPMR_IMPORT_TOKEN (muss dem IMPORT_TOKEN im JPMR-Tool entsprechen).
 app.post('/api/contract-events/:id/jpmr', async (req, res) => {
@@ -1784,6 +1908,7 @@ app.delete('/api/contract-events/:id/items/:itemId', (req, res) => {
   res.json(getContractEventFull(req.params.id));
 });
 
+nk.register(app);
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

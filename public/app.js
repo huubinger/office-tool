@@ -86,24 +86,120 @@
   }
 
   // ---------- Tabs ----------
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      document.getElementById('tab-' + tab).classList.add('active');
-      const pageTitle = document.getElementById('page-title');
-      if (pageTitle) pageTitle.textContent = btn.dataset.title || btn.textContent.trim();
-      if (tab === 'calendar') renderCalendar();
-      if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
-      if (tab === 'yearcalendar') { renderYearCalendar(); maybeAutoOpenSecondHalf(); }
-      if (tab === 'contracts') { loadContractEvents(); }
-    });
+  // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
+  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people'];
+  const MOBILE_LABELS = {
+    tasks: 'Aufgaben', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
+    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte',
+  };
+  let activeTab = null;
+
+  function can(tab) { return !currentUser.tabs || currentUser.tabs.includes(tab); }
+
+  function sidebarBtn(tab) { return document.querySelector(`.sidebar .tab-btn[data-tab="${tab}"]`); }
+
+  function switchTab(tab, opts = {}) {
+    if (!document.getElementById('tab-' + tab)) return;
+    activeTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    const moreBtn = document.getElementById('bottom-nav-more');
+    if (moreBtn) moreBtn.classList.toggle('active', !document.querySelector(`#bottom-nav .tab-btn[data-tab="${tab}"]`));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    const src = sidebarBtn(tab);
+    document.getElementById('page-title').textContent = src ? (src.dataset.title || src.textContent.trim()) : '';
+    const kicker = document.getElementById('page-kicker');
+    kicker.textContent = (src && src.dataset.group) || '';
+    kicker.classList.toggle('hidden', !(src && src.dataset.group));
+    try { localStorage.setItem('office_last_tab', tab); } catch (e) { /* egal */ }
+    if (!opts.noScroll) window.scrollTo({ top: 0 });
+    if (tab === 'calendar') renderCalendar();
+    if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
+    if (tab === 'yearcalendar') { renderYearCalendar(); if (!opts.restore) maybeAutoOpenSecondHalf(); }
+    if (tab === 'contracts') { loadContractEvents(); }
+    if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
+    if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
+  }
+
+  document.querySelectorAll('.sidebar .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+
+  // Blendet nicht freigegebene Reiter aus und baut die mobile Navigation passend auf.
+  function applyTabPermissions() {
+    document.querySelectorAll('.sidebar .tab-btn').forEach(btn => btn.classList.toggle('hidden', !can(btn.dataset.tab)));
+    const anyNk = can('nk_polls') || can('nk_projects');
+    document.getElementById('nk-section-label').classList.toggle('hidden', !anyNk);
+    const anyMain = LEGACY_TABS.some(can);
+    document.querySelector('.sidebar-section-label').classList.toggle('hidden', !anyMain);
+
+    const allowed = MOBILE_TAB_ORDER.filter(can);
+    const primary = allowed.length > 5 ? allowed.slice(0, 4) : allowed;
+    const overflow = allowed.filter(t => !primary.includes(t));
+    const nav = document.getElementById('bottom-nav');
+    nav.innerHTML = primary.map(t => {
+      const icon = sidebarBtn(t).querySelector('svg').outerHTML;
+      return `<button class="tab-btn" data-tab="${t}">${icon}<span>${MOBILE_LABELS[t]}</span><span class="nav-badge hidden" data-badge="${t}"></span></button>`;
+    }).join('') + (overflow.length ? `
+      <button class="more-btn" id="bottom-nav-more" type="button">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="5" cy="10" r="1.6" fill="currentColor"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/><circle cx="15" cy="10" r="1.6" fill="currentColor"/></svg>
+        <span>Mehr</span><span class="nav-badge hidden" data-badge="more"></span>
+      </button>` : '');
+    nav.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+    const moreBtn = document.getElementById('bottom-nav-more');
+    if (moreBtn) moreBtn.addEventListener('click', () => openMoreSheet(allowed));
+  }
+
+  const LEGACY_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'];
+
+  const moreSheet = document.getElementById('more-sheet-overlay');
+  function openMoreSheet(allowed) {
+    const list = document.getElementById('more-sheet-list');
+    list.innerHTML = allowed.map(t => {
+      const src = sidebarBtn(t);
+      return `<button type="button" class="more-sheet-item ${t === activeTab ? 'active' : ''}" data-sheet-tab="${t}">
+        ${src.querySelector('svg').outerHTML}<span>${escapeHtml(src.dataset.title)}</span>
+        ${src.dataset.group ? `<span class="more-sheet-group">${escapeHtml(src.dataset.group)}</span>` : ''}
+      </button>`;
+    }).join('');
+    list.querySelectorAll('[data-sheet-tab]').forEach(b => b.addEventListener('click', () => {
+      moreSheet.classList.add('hidden');
+      switchTab(b.dataset.sheetTab);
+    }));
+    moreSheet.classList.remove('hidden');
+  }
+  moreSheet.addEventListener('click', (e) => { if (e.target === moreSheet) moreSheet.classList.add('hidden'); });
+
+  // Kleine Zaehler an den Reitern (ungelesene Kommentare, offene Umfragen ohne eigene Antwort)
+  async function refreshNkBadges() {
+    if (!can('nk_polls') && !can('nk_projects')) return;
+    let data;
+    try { data = await api('/api/nk/summary'); } catch (e) { return; }
+    const set = (key, n) => document.querySelectorAll(`[data-badge="${key}"]`).forEach(el => {
+      el.textContent = n > 99 ? '99+' : String(n);
+      el.classList.toggle('hidden', !n);
+    });
+    set('nk_polls', data.open_polls);
+    set('nk_projects', data.unread_comments);
+    const moreBtn = document.getElementById('bottom-nav-more');
+    if (moreBtn) {
+      const hiddenCount = ['nk_polls', 'nk_projects']
+        .filter(t => can(t) && !document.querySelector(`#bottom-nav .tab-btn[data-tab="${t}"]`))
+        .reduce((sum, t) => sum + (t === 'nk_polls' ? data.open_polls : data.unread_comments), 0);
+      set('more', hiddenCount);
+    }
+  }
 
   // ================= PEOPLE =================
   const personForm = document.getElementById('person-form');
   const personNameInput = document.getElementById('person-name');
+  const personShortCodeInput = document.getElementById('person-short-code');
+  // Kuerzel automatisch aus dem Namen vorschlagen, solange es nicht selbst angepasst wurde
+  let shortCodeTouched = false;
+  personShortCodeInput.addEventListener('input', () => { shortCodeTouched = true; personShortCodeInput.value = personShortCodeInput.value.toUpperCase(); });
+  personNameInput.addEventListener('input', () => {
+    if (!shortCodeTouched && !editingPersonId) personShortCodeInput.value = personNameInput.value.trim() ? initials(personNameInput.value) : '';
+  });
   const personRoleInput = document.getElementById('person-role');
   const personColorInput = document.getElementById('person-color');
   const personIdInput = document.getElementById('person-id');
@@ -211,7 +307,7 @@
         : '';
       row.innerHTML = `
         <div class="person-row-main">
-          <span class="color-dot" style="background:${p.color}"></span>
+          <span class="task-avatar person-avatar" style="background:${p.color}">${escapeHtml(personShort(p))}</span>
           <div>
             <div><strong>${escapeHtml(p.name)}</strong>${p.active ? '' : ' <span class="status-badge">inaktiv</span>'}${p.contract_type ? ` <span class="status-badge">${escapeHtml(p.contract_type)}</span>` : ''}</div>
             <div class="task-meta">${escapeHtml(p.role || '')}${weeklyHours ? ' · Soll ' + weeklyHours + ' Std/Woche' : ''}${contractMeta}</div>
@@ -234,6 +330,8 @@
     editingPersonId = id;
     personIdInput.value = id;
     personNameInput.value = p.name;
+    personShortCodeInput.value = p.short_code || '';
+    shortCodeTouched = true;
     personRoleInput.value = p.role || '';
     personColorInput.value = p.color || '#4f46e5';
     personWeeklyHoursInput.value = p.weekly_target_minutes ? p.weekly_target_minutes / 60 : '';
@@ -251,6 +349,7 @@
   function resetPersonForm() {
     editingPersonId = null;
     personForm.reset();
+    shortCodeTouched = false;
     personColorInput.value = '#4f46e5';
     personSubmitBtn.textContent = 'Person anlegen';
     personCancelBtn.classList.add('hidden');
@@ -263,6 +362,7 @@
     e.preventDefault();
     const payload = {
       name: personNameInput.value.trim(),
+      short_code: personShortCodeInput.value.trim(),
       role: personRoleInput.value.trim(),
       color: personColorInput.value,
       weekly_target_minutes: personWeeklyHoursInput.value ? Math.round(+personWeeklyHoursInput.value * 60) : null,
@@ -280,6 +380,7 @@
     }
     resetPersonForm();
     await loadPeople();
+    await loadAccount(); // Kuerzel/Name im Konto-Button aktualisieren
   });
 
   async function deletePerson(id) {
@@ -299,16 +400,49 @@
     const meFirst = currentUser.person_id
       ? [...activePeople].sort((a, b) => (a.id === currentUser.person_id ? -1 : b.id === currentUser.person_id ? 1 : 0))
       : activePeople;
-    const timeTrackingOptionsHtml = meFirst.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    const timeTrackingOptionsHtml = meFirst.map(p => `<option value="${p.id}">${escapeHtml(personLabel(p))}${p.id === currentUser.person_id ? ' (ich)' : ''}</option>`).join('');
 
     document.getElementById('time-person').innerHTML = timeTrackingOptionsHtml;
     document.getElementById('absence-person').innerHTML = timeTrackingOptionsHtml;
     document.getElementById('timeoff-person').innerHTML = timeTrackingOptionsHtml;
     document.getElementById('time-filter-person').innerHTML = '<option value="">Alle</option>' + timeTrackingOptionsHtml;
-    if (currentUser.person_id) document.getElementById('time-person').value = String(currentUser.person_id);
+    if (currentUser.person_id) {
+      ['time-person', 'absence-person', 'timeoff-person'].forEach(id => { document.getElementById(id).value = String(currentUser.person_id); });
+    }
+    renderTimeMeChip();
     document.getElementById('task-filter-person').innerHTML = '<option value="">Alle Personen</option>' + optionsHtml;
     document.getElementById('qa-person').innerHTML = '<option value="">Zuständig</option>' + optionsHtml;
   }
+
+  // Zeigt in der Zeiterfassung, fuer wen gerade eingetragen wird - standardmaessig die
+  // eingeloggte Person (Verknuepfung Konto <-> Person in der Benutzerverwaltung).
+  function renderTimeMeChip() {
+    const chip = document.getElementById('time-me-chip');
+    const me = people.find(p => p.id === currentUser.person_id);
+    if (!me) {
+      chip.innerHTML = currentUser.is_admin
+        ? '<span class="me-chip-text">Dein Konto ist noch mit keiner Person verknüpft – unter <strong>Konto → Benutzer &amp; Freigaben</strong> zuordnen, dann bist du hier automatisch vorausgewählt.</span>'
+        : '';
+      chip.classList.toggle('hidden', !currentUser.is_admin);
+      chip.classList.add('me-chip-warn');
+      return;
+    }
+    chip.classList.remove('hidden', 'me-chip-warn');
+    const selectedId = +document.getElementById('time-person').value;
+    const selected = people.find(p => p.id === selectedId) || me;
+    const isMe = selected.id === me.id;
+    chip.innerHTML = `
+      <span class="task-avatar" style="background:${selected.color}">${escapeHtml(personShort(selected))}</span>
+      <span class="me-chip-text">Erfasst für <strong>${escapeHtml(selected.name)}</strong>${isMe ? ' <span class="me-tag">das bist du</span>' : ''}</span>
+      ${!isMe ? '<button type="button" class="ghost" id="time-me-reset">Zurück zu mir</button>' : ''}
+    `;
+    const resetBtn = document.getElementById('time-me-reset');
+    if (resetBtn) resetBtn.addEventListener('click', () => {
+      document.getElementById('time-person').value = String(me.id);
+      renderTimeMeChip();
+    });
+  }
+  document.getElementById('time-person').addEventListener('change', renderTimeMeChip);
 
   // ================= PROJEKTE =================
   async function loadProjects() {
@@ -515,6 +649,12 @@
     const parts = name.trim().split(/\s+/);
     return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
   }
+  // Kuerzel einer Person: hinterlegtes Kuerzel (z.B. "MR"), sonst Initialen
+  function personShort(p) { return (p && p.short_code) || initials((p && p.name) || '?'); }
+  function personLabel(p) { return p.short_code ? `${p.short_code} · ${p.name}` : p.name; }
+  function avatarHtml(d, extraClass = '') {
+    return `<span class="user-avatar ${extraClass}" style="background:${d.color}" title="${escapeHtml(d.name)}">${escapeHtml(d.short)}</span>`;
+  }
 
   // ---------- Start/Stopp-Zeiterfassung ----------
   async function loadActiveTimers() {
@@ -617,7 +757,7 @@
   function taskTableRowHtml(t) {
     const doneClass = t.status === 'erledigt' ? 'task-row-done' : '';
     const assignee = t.people.length
-      ? `<div class="task-assignee"><span class="task-avatar" style="background:${t.people[0].color}">${initials(t.people[0].name)}</span>
+      ? `<div class="task-assignee"><span class="task-avatar" style="background:${t.people[0].color}">${escapeHtml(personShort(t.people[0]))}</span>
           <span>${escapeHtml(t.people[0].name)}${t.people.length > 1 ? ` +${t.people.length - 1}` : ''}</span></div>`
       : '<span class="task-meta">—</span>';
     return `
@@ -2126,6 +2266,7 @@
     timeSubmitBtn.textContent = 'Änderungen speichern';
     timeCancelBtn.classList.remove('hidden');
     document.getElementById('time-form-heading').textContent = 'Arbeitszeit bearbeiten';
+    renderTimeMeChip();
     if (typeof timeForm.scrollIntoView === 'function') timeForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -2134,10 +2275,14 @@
     editingTimeEntryTaskId = null;
     editingTimeEntryNote = null;
     timeForm.reset();
+    if (currentUser.person_id && people.some(p => p.id === currentUser.person_id && p.active)) {
+      document.getElementById('time-person').value = String(currentUser.person_id);
+    }
     document.getElementById('time-date').value = isoDate(new Date());
     timeSubmitBtn.textContent = 'Eintragen';
     timeCancelBtn.classList.add('hidden');
     document.getElementById('time-form-heading').textContent = 'Arbeitszeit eintragen';
+    renderTimeMeChip();
   }
   timeCancelBtn.addEventListener('click', resetTimeForm);
 
@@ -2248,6 +2393,7 @@
     if (!payload.person_id || !payload.date_from || !payload.date_to) return;
     await api('/api/absences', { method: 'POST', body: JSON.stringify(payload) });
     absenceForm.reset();
+    if (currentUser.person_id) document.getElementById('absence-person').value = String(currentUser.person_id);
     await loadAbsences();
     await loadReport();
   });
@@ -2291,6 +2437,7 @@
     if (!payload.person_id || !payload.date || !payload.minutes) return;
     await api('/api/time-off', { method: 'POST', body: JSON.stringify(payload) });
     timeoffForm.reset();
+    if (currentUser.person_id) document.getElementById('timeoff-person').value = String(currentUser.person_id);
     await loadTimeOff();
     await loadReport();
   });
@@ -2429,6 +2576,8 @@
   let ycHalf = 'h1';
   let ycEvents = [];
   let ycContractEvents = [];
+  let ycNkConcerts = [];
+  const NK_CONCERT_COLOR = '#8b5cf6';
   const CONTRACT_EVENT_COLOR = '#e11d48';
   let ycExternalEvents = [];
   let ycSchoolHolidays = [];
@@ -2457,6 +2606,13 @@
       api('/api/contract-events'),
     ]);
     ycContractEvents = allContractEvents.filter(e => e.date && e.date.startsWith(String(ycYear)));
+    // Konzerte der Neckarsulmer Konzerte (nur fuer Konten mit Zugriff) ebenfalls anzeigen
+    ycNkConcerts = [];
+    if (can('nk_projects')) {
+      try {
+        ycNkConcerts = (await api('/api/nk/concerts')).filter(c => c.date && c.date.startsWith(String(ycYear)) && c.status !== 'Abgesagt');
+      } catch (e) { /* optional */ }
+    }
   }
 
   // Veranstaltungen aus dem Vertraege-Bereich erscheinen automatisch im Jahreskalender
@@ -2500,6 +2656,7 @@
       const dayExternal = ycExternalEvents.filter(e => e.date === dateIso);
       const dayContract = ycContractEvents.filter(e => e.date === dateIso);
       const allDayItems = [
+        ...ycNkConcerts.filter(c => c.date === dateIso).map(c => ({ title: `🎵 ${c.time ? c.time.slice(0, 5) + ' ' : ''}${c.title}`, color: NK_CONCERT_COLOR })),
         ...dayContract.map(e => ({ title: ycContractEventLabel(e), color: CONTRACT_EVENT_COLOR })),
         ...dayEvents.map(e => ({ title: ycEventLabel(e), color: e.project_color || '#8a8d90' })),
         ...dayExternal.map(e => ({ title: e.title, color: e.calendar_color })),
@@ -2631,11 +2788,17 @@
     if (isSchoolHoliday(dateIso)) notes.push('<div class="hint">Schulferien (Baden-Württemberg)</div>');
 
     const rows = [
+      ...ycNkConcerts.filter(c => c.date === dateIso).map(c => `
+        <div class="yc-day-event-row">
+          <span><span class="color-dot" style="background:${NK_CONCERT_COLOR}"></span> 🎵 ${c.time ? c.time.slice(0, 5) + ' ' : ''}${escapeHtml(c.title)} · <span class="task-meta">Neckarsulmer Konzerte</span></span>
+          <span class="row-actions"><button type="button" class="ghost" data-open-nk-concert="${c.id}">Öffnen</button></span>
+        </div>
+      `),
       ...dayContract.map(e => `
         <div class="yc-day-event-row">
           <span><span class="color-dot" style="background:${CONTRACT_EVENT_COLOR}"></span> ${escapeHtml(ycContractEventLabel(e))} · <span class="task-meta">Veranstaltung</span></span>
           <span class="row-actions">
-            <button type="button" class="ghost" data-open-contract-event="${e.id}">Öffnen</button>
+            ${can('contracts') ? `<button type="button" class="ghost" data-open-contract-event="${e.id}">Öffnen</button>` : ''}
           </span>
         </div>
       `),
@@ -2657,6 +2820,11 @@
 
     body.innerHTML = notes.join('') + `<div class="yc-day-modal-list">${rows.length ? rows.join('') : '<p class="empty-state">Keine Termine an diesem Tag.</p>'}</div>`;
 
+    body.querySelectorAll('[data-open-nk-concert]').forEach(b => b.addEventListener('click', () => {
+      closeYcDayModal();
+      switchTab('nk_projects');
+      openNkConcert(+b.dataset.openNkConcert);
+    }));
     body.querySelectorAll('[data-open-contract-event]').forEach(b => b.addEventListener('click', () => {
       closeYcDayModal();
       document.querySelector('[data-tab="contracts"]').click();
@@ -2824,26 +2992,110 @@
     }
   });
 
-  // ---------- Benutzerverwaltung ----------
+  // ---------- Benutzerverwaltung & Freigaben ----------
   const usersModal = document.getElementById('users-modal-overlay');
   const usersError = document.getElementById('users-error');
+  const TAB_LABELS = [
+    ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
+    ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'],
+    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'],
+  ];
+  const TAB_PRESETS = {
+    nk: ['nk_polls', 'nk_projects'],
+    office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'],
+    all: TAB_LABELS.map(t => t[0]),
+  };
+
+  function tabChecksHtml(selected, name) {
+    return TAB_LABELS.map(([key, label]) => `
+      <label class="tab-check ${key.startsWith('nk_') ? 'tab-check-nk' : ''}">
+        <input type="checkbox" name="${name}" value="${key}" ${selected.includes(key) ? 'checked' : ''}>
+        <span>${escapeHtml(label)}</span>
+      </label>`).join('');
+  }
+  function readTabChecks(container) {
+    return [...container.querySelectorAll('input[type="checkbox"][value]:checked')].map(cb => cb.value);
+  }
+  function personOptionsHtml(selectedId, excludeIds) {
+    return '<option value="">— keine —</option>' + people.filter(p => p.active || p.id === selectedId)
+      .filter(p => p.id === selectedId || !excludeIds.has(p.id))
+      .map(p => `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(personLabel(p))}</option>`).join('');
+  }
+
+  function showUsersError(msg) {
+    usersError.textContent = msg;
+    usersError.classList.remove('hidden');
+    usersError.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 
   async function loadUsers() {
     const users = await api('/api/users');
+    const linked = new Set(users.filter(u => u.person_id).map(u => u.person_id));
     const container = document.getElementById('users-list');
     container.innerHTML = users.map(u => `
-      <div class="time-row-item">
-        <div class="tri-main">${escapeHtml(u.username)}${u.person_name ? ` <span class="task-meta">(${escapeHtml(u.person_name)})</span>` : ' <span class="task-meta">(Admin)</span>'}</div>
-        <div class="row-actions">
-          <button class="ghost" data-reset-user="${u.id}">Passwort setzen</button>
-          <button class="danger" data-delete-user="${u.id}">Löschen</button>
+      <div class="user-card" data-user-card="${u.id}">
+        <div class="user-card-head">
+          ${avatarHtml(u.display)}
+          <div class="user-card-title">
+            <strong>${escapeHtml(u.display.name)}</strong>
+            <span class="task-meta">@${escapeHtml(u.username)}${u.is_me ? ' · du' : ''}</span>
+          </div>
+          ${u.is_admin ? '<span class="role-pill">Admin</span>' : ''}
         </div>
-        <div class="user-reset-row hidden" data-reset-row="${u.id}">
-          <input type="password" placeholder="Neues Passwort (mind. 6 Zeichen)" autocomplete="new-password">
-          <button type="button" data-reset-save="${u.id}">Speichern</button>
+        <div class="user-card-body">
+          <div class="time-row">
+            <label>Anzeigename <input type="text" data-field="display_name" value="${escapeHtml(u.display_name || '')}" placeholder="${escapeHtml(u.person_name || u.username)}"></label>
+            <label>Verknüpfte Person (Zeiterfassung)
+              <select data-field="person_id">${personOptionsHtml(u.person_id, new Set([...linked].filter(id => id !== u.person_id)))}</select>
+            </label>
+          </div>
+          <label class="inline-check"><input type="checkbox" data-field="is_admin" ${u.is_admin ? 'checked' : ''} ${u.is_me ? 'disabled title="Eigene Admin-Rechte können nicht entfernt werden"' : ''}> Admin</label>
+          <div class="tab-presets">
+            <span class="hint">Freigegebene Reiter:</span>
+            <button type="button" class="ghost" data-preset="nk">Nur NK</button>
+            <button type="button" class="ghost" data-preset="office">Büro</button>
+            <button type="button" class="ghost" data-preset="all">Alles</button>
+          </div>
+          <div class="tab-check-grid">${tabChecksHtml(u.tabs, 'tabs-' + u.id)}</div>
+          <div class="user-card-actions">
+            <button type="button" data-save-user="${u.id}">Speichern</button>
+            <button type="button" class="ghost" data-reset-user="${u.id}">Passwort setzen</button>
+            ${u.is_me ? '' : `<button type="button" class="danger" data-delete-user="${u.id}">Löschen</button>`}
+            <span class="save-feedback hidden" data-saved="${u.id}">✓ Gespeichert</span>
+          </div>
+          <div class="user-reset-row hidden" data-reset-row="${u.id}">
+            <input type="password" placeholder="Neues Passwort (mind. 6 Zeichen)" autocomplete="new-password">
+            <button type="button" data-reset-save="${u.id}">Passwort speichern</button>
+          </div>
         </div>
       </div>
     `).join('');
+
+    container.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+      const card = b.closest('.user-card');
+      const preset = TAB_PRESETS[b.dataset.preset];
+      card.querySelectorAll('.tab-check-grid input').forEach(cb => { cb.checked = preset.includes(cb.value); });
+    }));
+    container.querySelectorAll('[data-save-user]').forEach(b => b.addEventListener('click', async () => {
+      const card = b.closest('.user-card');
+      const id = +b.dataset.saveUser;
+      usersError.classList.add('hidden');
+      try {
+        await api(`/api/users/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            display_name: card.querySelector('[data-field="display_name"]').value,
+            person_id: +card.querySelector('[data-field="person_id"]').value || null,
+            is_admin: card.querySelector('[data-field="is_admin"]').checked,
+            tabs: readTabChecks(card.querySelector('.tab-check-grid')),
+          }),
+        });
+        await loadUsers();
+        const fb = container.querySelector(`[data-saved="${id}"]`);
+        if (fb) { fb.classList.remove('hidden'); setTimeout(() => fb.classList.add('hidden'), 2500); }
+        if (id === currentUser.id) { await loadAccount(); fillPersonSelects(); }
+      } catch (err) { showUsersError(err.message); }
+    }));
     container.querySelectorAll('[data-reset-user]').forEach(b => b.addEventListener('click', () => {
       const row = container.querySelector(`[data-reset-row="${b.dataset.resetUser}"]`);
       row.classList.toggle('hidden');
@@ -2858,51 +3110,61 @@
         input.value = '';
         row.classList.add('hidden');
         alert('Passwort wurde geändert.');
-      } catch (err) {
-        usersError.textContent = err.message;
-        usersError.classList.remove('hidden');
-      }
+      } catch (err) { showUsersError(err.message); }
     }));
     container.querySelectorAll('[data-delete-user]').forEach(b => b.addEventListener('click', async () => {
-      if (!confirm('Dieses Benutzerkonto wirklich löschen?')) return;
+      if (!confirm('Dieses Benutzerkonto wirklich löschen? Kommentare bleiben erhalten, Abstimmungen dieses Kontos werden entfernt.')) return;
       try {
         await api(`/api/users/${b.dataset.deleteUser}`, { method: 'DELETE' });
         await loadUsers();
-      } catch (err) {
-        usersError.textContent = err.message;
-        usersError.classList.remove('hidden');
-      }
+      } catch (err) { showUsersError(err.message); }
     }));
+    return users;
   }
+
+  function resetNewUserForm(users) {
+    document.getElementById('new-user-username').value = '';
+    document.getElementById('new-user-password').value = '';
+    document.getElementById('new-user-display').value = '';
+    document.getElementById('new-user-admin').checked = false;
+    const linked = new Set((users || []).filter(u => u.person_id).map(u => u.person_id));
+    document.getElementById('new-user-person').innerHTML = personOptionsHtml(null, linked);
+    document.getElementById('new-user-tabs').innerHTML = tabChecksHtml(TAB_PRESETS.office, 'new-user-tabs');
+  }
+
+  document.querySelectorAll('[data-new-preset]').forEach(b => b.addEventListener('click', () => {
+    const preset = TAB_PRESETS[b.dataset.newPreset];
+    document.querySelectorAll('#new-user-tabs input').forEach(cb => { cb.checked = preset.includes(cb.value); });
+  }));
 
   document.getElementById('manage-users-btn').addEventListener('click', async () => {
     accountDropdown.classList.add('hidden');
-    document.getElementById('new-user-username').value = '';
-    document.getElementById('new-user-password').value = '';
-    const personSelect = document.getElementById('new-user-person');
-    personSelect.innerHTML = '<option value="">— keine (Admin, uneingeschränkt) —</option>' +
-      people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     usersError.classList.add('hidden');
+    document.getElementById('user-new-card').open = false;
     usersModal.classList.remove('hidden');
-    await loadUsers();
+    const users = await loadUsers();
+    resetNewUserForm(users);
   });
   document.getElementById('users-modal-close').addEventListener('click', () => usersModal.classList.add('hidden'));
   usersModal.addEventListener('click', (e) => { if (e.target === usersModal) usersModal.classList.add('hidden'); });
   document.getElementById('users-add-confirm').addEventListener('click', async () => {
-    const username = document.getElementById('new-user-username').value.trim();
-    const password = document.getElementById('new-user-password').value;
-    const personVal = document.getElementById('new-user-person').value;
     usersError.classList.add('hidden');
     try {
-      await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password, person_id: personVal ? +personVal : null }) });
-      document.getElementById('new-user-username').value = '';
-      document.getElementById('new-user-password').value = '';
-      document.getElementById('new-user-person').value = '';
-      await loadUsers();
-    } catch (err) {
-      usersError.textContent = err.message;
-      usersError.classList.remove('hidden');
-    }
+      await api('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: document.getElementById('new-user-username').value.trim(),
+          password: document.getElementById('new-user-password').value,
+          display_name: document.getElementById('new-user-display').value,
+          person_id: +document.getElementById('new-user-person').value || null,
+          is_admin: document.getElementById('new-user-admin').checked,
+          tabs: readTabChecks(document.getElementById('new-user-tabs')),
+        }),
+      });
+      const users = await loadUsers();
+      resetNewUserForm(users);
+      document.getElementById('user-new-card').open = false;
+    } catch (err) { showUsersError(err.message); }
   });
 
   // ---------- Backup ----------
@@ -2929,13 +3191,20 @@
     }
   });
 
-  let currentUser = { username: null, person_id: null, person_name: null, is_admin: true };
+  let currentUser = { id: null, username: null, person_id: null, person_name: null, is_admin: false, tabs: null };
 
   async function loadAccount() {
     try {
       const me = await api('/api/me');
       currentUser = me;
-      document.getElementById('account-username').textContent = me.username;
+      const avatar = document.getElementById('account-avatar');
+      avatar.textContent = me.short_code;
+      avatar.style.background = me.color;
+      document.getElementById('account-username').textContent = me.display_name;
+      document.getElementById('account-dropdown-head').innerHTML = `
+        <strong>${escapeHtml(me.display_name)}</strong>
+        <span>@${escapeHtml(me.username)}${me.is_admin ? ' · Admin' : ''}</span>
+        ${me.person_name ? `<span>Zeiterfassung als ${escapeHtml(me.person_name)}</span>` : ''}`;
       applyRoleRestrictions();
     } catch (e) { /* Redirect passiert bereits in api() bei 401 */ }
   }
@@ -2946,20 +3215,20 @@
   // auszuwaehlen. In Aufgaben/Kalender/Dashboard liegt nur der Fokus auf der eigenen
   // Person (voreingestellter Filter), der Rest bleibt einsehbar.
   function applyRoleRestrictions() {
+    document.getElementById('manage-users-btn').classList.toggle('hidden', !currentUser.is_admin);
+    document.getElementById('backup-now-btn').classList.toggle('hidden', !currentUser.is_admin);
     if (currentUser.is_admin) return;
-
-    document.getElementById('manage-users-btn').classList.add('hidden');
 
     ['time-person', 'time-filter-person', 'timeoff-person'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.innerHTML = `<option value="${currentUser.person_id}">${escapeHtml(currentUser.person_name || '')}</option>`;
+      el.innerHTML = `<option value="${currentUser.person_id || ''}">${escapeHtml(currentUser.person_name || '— keine Person verknüpft —')}</option>`;
       el.disabled = true;
     });
 
     // Fokus auf eigene Person im Aufgaben-Filter (bleibt umschaltbar)
     const taskPersonFilter = document.getElementById('task-filter-person');
-    if (taskPersonFilter) {
+    if (taskPersonFilter && currentUser.person_id) {
       taskPersonFilter.value = String(currentUser.person_id);
       taskFilters.person = String(currentUser.person_id);
     }
@@ -3094,7 +3363,7 @@
     filesList.innerHTML = e.files.length
       ? e.files.map(f => `
           <div class="contract-file-row">
-            <span>${escapeHtml(f.category)}: ${escapeHtml(f.filename)}</span>
+            <span>${escapeHtml(f.category)}: ${f.dropbox_path ? `<a href="/api/contract-events/${e.id}/files/${f.id}/download" target="_blank" rel="noopener" class="file-name">${escapeHtml(f.filename)}</a>` : escapeHtml(f.filename)}</span>
             <button type="button" class="danger" data-delete-file="${f.id}">Entfernen</button>
           </div>
         `).join('')
@@ -3283,6 +3552,706 @@
     await loadTasks();
   });
 
+
+  // ================= NECKARSULMER KONZERTE =================
+  const WD_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  const MONTH_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+  function isoToDate(iso) { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); }
+  function fmtWeekdayDate(iso, withYear) {
+    if (!iso) return '';
+    const d = isoToDate(iso);
+    return `${WD_SHORT[d.getDay()]}, ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${withYear ? d.getFullYear() : ''}`;
+  }
+  function fmtTimeRange(o) {
+    if (!o.start_time) return 'ganztägig';
+    return o.end_time ? `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}` : `${o.start_time.slice(0, 5)} Uhr`;
+  }
+  // SQLite speichert datetime('now') in UTC - fuer die Anzeige in deutsche Zeit umrechnen
+  function fmtTimestamp(ts) {
+    if (!ts) return '';
+    const d = new Date(ts.replace(' ', 'T') + 'Z');
+    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  }
+  function fmtBytes(n) {
+    if (!n) return '';
+    if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+    return `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+  }
+  function dateBlockHtml(iso) {
+    if (!iso) return '<div class="date-block date-block-empty"><span>Datum</span><strong>offen</strong></div>';
+    const d = isoToDate(iso);
+    return `<div class="date-block"><span>${MONTH_SHORT[d.getMonth()]}</span><strong>${d.getDate()}</strong><span>${d.getFullYear()}</span></div>`;
+  }
+  function toast(msg) {
+    let el = document.getElementById('toast');
+    if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; document.body.appendChild(el); }
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  // ---------- Terminfindung ----------
+  let nkPolls = [];
+  let nkPollDetail = null;
+  const ANSWER_META = {
+    yes: { icon: '✓', label: 'Kann', cls: 'ans-yes' },
+    maybe: { icon: '?', label: 'Vielleicht', cls: 'ans-maybe' },
+    no: { icon: '✕', label: 'Kann nicht', cls: 'ans-no' },
+  };
+
+  function showNkPollList() {
+    document.getElementById('nk-polls-list-view').classList.remove('hidden');
+    document.getElementById('nk-poll-detail-view').classList.add('hidden');
+    nkPollDetail = null;
+  }
+
+  async function loadNkPolls() {
+    nkPolls = await api('/api/nk/polls');
+    const open = nkPolls.filter(p => !p.closed);
+    const closed = nkPolls.filter(p => p.closed);
+    const list = document.getElementById('nk-polls-list');
+    list.innerHTML = open.length ? open.map(nkPollCardHtml).join('') : `
+      <div class="empty-card">
+        <div class="empty-card-icon">📅</div>
+        <strong>Noch keine offene Terminumfrage</strong>
+        <span>Lege eine Umfrage mit mehreren Terminvorschlägen an – alle können dann ankreuzen, wann sie Zeit haben.</span>
+      </div>`;
+    document.getElementById('nk-polls-closed-card').classList.toggle('hidden', !closed.length);
+    document.getElementById('nk-polls-closed-count').textContent = `Abgeschlossen (${closed.length})`;
+    document.getElementById('nk-polls-closed-list').innerHTML = closed.map(nkPollCardHtml).join('');
+    document.querySelectorAll('[data-poll-card]').forEach(c => c.addEventListener('click', () => openNkPoll(+c.dataset.pollCard)));
+    refreshNkBadges();
+  }
+
+  function nkPollCardHtml(p) {
+    const range = p.first_date
+      ? (p.first_date === p.last_date ? fmtWeekdayDate(p.first_date, true) : `${fmtWeekdayDate(p.first_date)} – ${fmtWeekdayDate(p.last_date, true)}`)
+      : '–';
+    let highlight = '';
+    if (p.closed && p.final_option) {
+      highlight = `<div class="poll-card-best final"><span>Festgelegt</span><strong>${fmtWeekdayDate(p.final_option.date, true)} · ${fmtTimeRange(p.final_option)}</strong></div>`;
+    } else if (p.best) {
+      highlight = `<div class="poll-card-best"><span>★ Meiste Zusagen</span><strong>${fmtWeekdayDate(p.best.date)} · ${fmtTimeRange(p.best)}</strong><em>✓ ${p.best.yes}${p.best.maybe ? ` · ? ${p.best.maybe}` : ''}</em></div>`;
+    }
+    const status = p.closed
+      ? '<span class="pill pill-muted">Abgeschlossen</span>'
+      : (p.i_voted ? '<span class="pill pill-ok">✓ Abgestimmt</span>' : '<span class="pill pill-accent">Deine Antwort fehlt</span>');
+    return `
+      <button type="button" class="nk-card poll-card ${p.closed ? 'is-closed' : ''}" data-poll-card="${p.id}">
+        <div class="nk-card-top">${status}</div>
+        <div class="nk-card-title">${escapeHtml(p.title)}</div>
+        <div class="nk-card-meta">${range} · ${p.option_count} Termin${p.option_count === 1 ? '' : 'e'} · ${p.voter_count} Antwort${p.voter_count === 1 ? '' : 'en'}</div>
+        ${highlight}
+      </button>`;
+  }
+
+  document.getElementById('nk-polls-closed-toggle').addEventListener('click', () => {
+    const list = document.getElementById('nk-polls-closed-list');
+    document.getElementById('nk-polls-closed-chevron').classList.toggle('collapsed', list.classList.toggle('hidden'));
+  });
+
+  async function openNkPoll(id) {
+    nkPollDetail = await api(`/api/nk/polls/${id}`);
+    document.getElementById('nk-polls-list-view').classList.add('hidden');
+    document.getElementById('nk-poll-detail-view').classList.remove('hidden');
+    renderNkPollDetail();
+    window.scrollTo({ top: 0 });
+  }
+
+  function optionStats(o) {
+    return {
+      yes: o.votes.filter(v => v.answer === 'yes').length,
+      maybe: o.votes.filter(v => v.answer === 'maybe').length,
+      no: o.votes.filter(v => v.answer === 'no').length,
+    };
+  }
+
+  function renderNkPollDetail() {
+    const p = nkPollDetail;
+    const view = document.getElementById('nk-poll-detail-view');
+    const me = currentUser.id;
+    const members = [...p.members].sort((a, b) => (a.user_id === me ? -1 : b.user_id === me ? 1 : a.name.localeCompare(b.name, 'de')));
+    const answerOf = (o, uid) => (o.votes.find(v => v.user_id === uid) || {}).answer || null;
+    const respondedIds = new Set(p.options.flatMap(o => o.votes.map(v => v.user_id)));
+    const missing = members.filter(m => !respondedIds.has(m.user_id));
+    const maxYes = Math.max(0, ...p.options.map(o => optionStats(o).yes));
+    const ranked = [...p.options].map(o => ({ o, st: optionStats(o) }))
+      .sort((a, b) => b.st.yes - a.st.yes || b.st.maybe - a.st.maybe || (a.o.date < b.o.date ? -1 : 1));
+    const memberCount = Math.max(members.length, 1);
+    const locked = !!p.closed;
+
+    const myButtons = (o, big) => ['yes', 'maybe', 'no'].map(a => `
+      <button type="button" class="ans-btn ${ANSWER_META[a].cls} ${answerOf(o, me) === a ? 'on' : ''} ${big ? 'big' : ''}"
+        data-vote-option="${o.id}" data-vote-answer="${a}" title="${ANSWER_META[a].label}" ${locked ? 'disabled' : ''}>
+        ${ANSWER_META[a].icon}${big ? `<span>${ANSWER_META[a].label}</span>` : ''}
+      </button>`).join('');
+
+    const colClass = (o) => [
+      p.final_option_id === o.id ? 'col-final' : '',
+      !p.final_option_id && maxYes > 0 && optionStats(o).yes === maxYes ? 'col-best' : '',
+    ].join(' ');
+
+    const matrix = `
+      <div class="poll-matrix-wrap">
+        <table class="poll-matrix">
+          <thead>
+            <tr>
+              <th class="pm-name-col"></th>
+              ${p.options.map(o => {
+                const d = isoToDate(o.date);
+                return `<th class="${colClass(o)}">
+                  <div class="pm-head">
+                    <span class="pm-month">${MONTH_SHORT[d.getMonth()]}</span>
+                    <span class="pm-day">${d.getDate()}</span>
+                    <span class="pm-wd">${WD_SHORT[d.getDay()]}</span>
+                    <span class="pm-time">${fmtTimeRange(o)}</span>
+                  </div>
+                </th>`;
+              }).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${members.map(m => `
+              <tr class="${m.user_id === me ? 'pm-me' : ''}">
+                <td class="pm-name-col"><div class="pm-person">${avatarHtml(m)}<span>${escapeHtml(m.name)}</span>${m.user_id === me ? '<em>du</em>' : ''}</div></td>
+                ${p.options.map(o => {
+                  if (m.user_id === me) return `<td class="${colClass(o)} pm-mycell"><div class="ans-group">${myButtons(o, false)}</div></td>`;
+                  const a = answerOf(o, m.user_id);
+                  return `<td class="${colClass(o)}">${a ? `<span class="ans-mark ${ANSWER_META[a].cls}" title="${ANSWER_META[a].label}">${ANSWER_META[a].icon}</span>` : '<span class="ans-mark ans-none">·</span>'}</td>`;
+                }).join('')}
+              </tr>`).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="pm-name-col">Zusagen</td>
+              ${p.options.map(o => {
+                const st = optionStats(o);
+                return `<td class="${colClass(o)}"><strong class="pm-count">${st.yes}</strong>${st.maybe ? `<span class="pm-maybe">+${st.maybe}?</span>` : ''}${p.final_option_id === o.id ? '<div class="pm-flag">Festgelegt</div>' : (!p.final_option_id && maxYes > 0 && st.yes === maxYes ? '<div class="pm-flag">★ Top</div>' : '')}</td>`;
+              }).join('')}
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+
+    const mobileCards = `
+      <div class="poll-option-cards">
+        ${p.options.map(o => {
+          const st = optionStats(o);
+          const yesPeople = members.filter(m => answerOf(o, m.user_id) === 'yes');
+          const maybePeople = members.filter(m => answerOf(o, m.user_id) === 'maybe');
+          const noPeople = members.filter(m => answerOf(o, m.user_id) === 'no');
+          return `
+            <div class="poll-option-card ${colClass(o)}">
+              <div class="poc-head">
+                <div><strong>${fmtWeekdayDate(o.date, true)}</strong><span>${fmtTimeRange(o)}</span></div>
+                <div class="poc-score">${p.final_option_id === o.id ? '<span class="pill pill-ok">Festgelegt</span>' : (!p.final_option_id && maxYes > 0 && st.yes === maxYes ? '<span class="pill pill-accent">★ Top</span>' : '')}<strong>✓ ${st.yes}</strong></div>
+              </div>
+              <div class="score-bar"><span class="sb-yes" style="width:${(st.yes / memberCount) * 100}%"></span><span class="sb-maybe" style="width:${(st.maybe / memberCount) * 100}%"></span></div>
+              <div class="poc-people">
+                ${yesPeople.map(m => avatarHtml(m, 'sm ring-yes')).join('')}
+                ${maybePeople.map(m => avatarHtml(m, 'sm ring-maybe')).join('')}
+                ${noPeople.map(m => avatarHtml(m, 'sm faded')).join('')}
+              </div>
+              <div class="ans-group ans-group-big">${myButtons(o, true)}</div>
+            </div>`;
+        }).join('')}
+      </div>`;
+
+    const ranking = ranked.slice(0, 3).filter(r => r.st.yes + r.st.maybe > 0);
+
+    view.innerHTML = `
+      <button type="button" class="back-link" id="nk-poll-back">← Alle Terminumfragen</button>
+      <div class="card detail-hero">
+        <div class="detail-hero-main">
+          <div class="detail-hero-kicker">${locked ? '<span class="pill pill-muted">Abgeschlossen</span>' : '<span class="pill pill-accent">Abstimmung läuft</span>'}</div>
+          <h2 class="detail-title">${escapeHtml(p.title)}</h2>
+          <div class="detail-meta">
+            ${p.location ? `<span>📍 ${escapeHtml(p.location)}</span>` : ''}
+            <span>Angelegt von ${escapeHtml(p.created_by_display.name)} · ${fmtTimestamp(p.created_at)}</span>
+          </div>
+          ${p.description ? `<p class="detail-notes">${escapeHtml(p.description)}</p>` : ''}
+        </div>
+        ${p.can_manage ? `
+          <div class="detail-actions">
+            ${locked
+              ? '<button type="button" class="ghost" id="nk-poll-reopen">Wieder öffnen</button>'
+              : '<button type="button" class="ghost" id="nk-poll-edit">Bearbeiten</button>'}
+            <button type="button" class="danger" id="nk-poll-delete">Löschen</button>
+          </div>` : ''}
+      </div>
+
+      ${locked && p.final_option_id ? (() => {
+        const fo = p.options.find(o => o.id === p.final_option_id);
+        return fo ? `<div class="final-banner">✓ Festgelegter Termin: <strong>${fmtWeekdayDate(fo.date, true)} · ${fmtTimeRange(fo)}</strong></div>` : '';
+      })() : ''}
+
+      <div class="poll-summary-row">
+        <div class="card poll-ranking">
+          <h3>Meiste Treffer</h3>
+          ${ranking.length ? ranking.map((r, i) => `
+            <div class="rank-row ${i === 0 ? 'rank-first' : ''}">
+              <span class="rank-no">${i + 1}</span>
+              <div class="rank-body">
+                <div class="rank-label"><strong>${fmtWeekdayDate(r.o.date)}</strong> ${fmtTimeRange(r.o)}</div>
+                <div class="score-bar"><span class="sb-yes" style="width:${(r.st.yes / memberCount) * 100}%"></span><span class="sb-maybe" style="width:${(r.st.maybe / memberCount) * 100}%"></span></div>
+              </div>
+              <span class="rank-score">✓ ${r.st.yes}${r.st.maybe ? ` <em>?${r.st.maybe}</em>` : ''}</span>
+            </div>`).join('') : '<p class="empty-state">Noch keine Antworten.</p>'}
+        </div>
+        <div class="card poll-status-card">
+          <h3>Rückmeldungen</h3>
+          <div class="big-number">${members.length - missing.length}<span>/ ${members.length}</span></div>
+          ${missing.length ? `<div class="hint">Noch offen:</div><div class="avatar-row">${missing.map(m => `${avatarHtml(m, 'sm faded')}`).join('')}</div>
+            <div class="task-meta">${missing.map(m => escapeHtml(m.name)).join(', ')}</div>` : '<div class="all-read-ok">✓ Alle haben geantwortet</div>'}
+          ${p.can_manage && !locked ? `
+            <div class="close-poll-box">
+              <label>Termin festlegen
+                <select id="nk-poll-final-select">
+                  ${ranked.map(r => `<option value="${r.o.id}">${fmtWeekdayDate(r.o.date)} ${fmtTimeRange(r.o)} (✓${r.st.yes})</option>`).join('')}
+                </select>
+              </label>
+              <button type="button" id="nk-poll-close">Festlegen &amp; abschließen</button>
+            </div>` : ''}
+        </div>
+      </div>
+
+      <div class="card poll-answer-card">
+        <div class="poll-answer-head">
+          <h3>${locked ? 'Ergebnis' : 'Wann kannst du?'}</h3>
+          ${locked ? '' : `<div class="legend"><span class="ans-mark ans-yes">✓</span> kann <span class="ans-mark ans-maybe">?</span> vielleicht <span class="ans-mark ans-no">✕</span> kann nicht</div>`}
+        </div>
+        ${locked ? '' : '<p class="hint">Einfach antippen – deine Auswahl wird sofort gespeichert. Nochmal tippen entfernt die Antwort.</p>'}
+        ${matrix}
+        ${mobileCards}
+      </div>
+    `;
+
+    document.getElementById('nk-poll-back').addEventListener('click', () => { showNkPollList(); loadNkPolls(); });
+    view.querySelectorAll('[data-vote-option]').forEach(b => b.addEventListener('click', async () => {
+      const optId = +b.dataset.voteOption;
+      const opt = nkPollDetail.options.find(o => o.id === optId);
+      const current = answerOf(opt, me);
+      const next = current === b.dataset.voteAnswer ? null : b.dataset.voteAnswer;
+      try {
+        nkPollDetail = await api(`/api/nk/polls/${p.id}/votes`, { method: 'PUT', body: JSON.stringify({ votes: { [optId]: next } }) });
+        renderNkPollDetail();
+        toast('Antwort gespeichert');
+        refreshNkBadges();
+      } catch (err) { alert(err.message); }
+    }));
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('nk-poll-edit', () => openNkPollModal(nkPollDetail));
+    on('nk-poll-delete', async () => {
+      if (!confirm(`Umfrage „${p.title}“ mit allen Antworten löschen?`)) return;
+      await api(`/api/nk/polls/${p.id}`, { method: 'DELETE' });
+      showNkPollList();
+      await loadNkPolls();
+    });
+    on('nk-poll-close', async () => {
+      const sel = document.getElementById('nk-poll-final-select');
+      nkPollDetail = await api(`/api/nk/polls/${p.id}/close`, { method: 'POST', body: JSON.stringify({ final_option_id: +sel.value }) });
+      renderNkPollDetail();
+    });
+    on('nk-poll-reopen', async () => {
+      nkPollDetail = await api(`/api/nk/polls/${p.id}/close`, { method: 'POST', body: JSON.stringify({ reopen: true }) });
+      renderNkPollDetail();
+    });
+  }
+
+  // ---- Umfrage anlegen/bearbeiten ----
+  const nkPollModal = document.getElementById('nk-poll-modal-overlay');
+  let nkPollEditingId = null;
+
+  function nkOptionRowHtml(o) {
+    return `
+      <div class="nk-option-row" data-option-id="${o.id || ''}">
+        <input type="date" class="nko-date" value="${o.date || ''}" required>
+        <input type="time" class="nko-start" value="${o.start_time ? o.start_time.slice(0, 5) : ''}" title="Beginn">
+        <span class="nko-sep">–</span>
+        <input type="time" class="nko-end" value="${o.end_time ? o.end_time.slice(0, 5) : ''}" title="Ende (optional)">
+        <button type="button" class="icon-btn" data-remove-option title="Entfernen">✕</button>
+      </div>`;
+  }
+  function addNkOptionRow(o) {
+    const wrap = document.getElementById('nk-poll-options');
+    wrap.insertAdjacentHTML('beforeend', nkOptionRowHtml(o));
+    const row = wrap.lastElementChild;
+    row.querySelector('[data-remove-option]').addEventListener('click', () => {
+      if (wrap.children.length <= 1) { row.querySelectorAll('input').forEach(i => { i.value = ''; }); return; }
+      row.remove();
+    });
+    return row;
+  }
+  function lastOptionValues() {
+    const rows = document.querySelectorAll('#nk-poll-options .nk-option-row');
+    const last = rows[rows.length - 1];
+    if (!last) return {};
+    return { date: last.querySelector('.nko-date').value, start_time: last.querySelector('.nko-start').value, end_time: last.querySelector('.nko-end').value };
+  }
+  document.getElementById('nk-poll-add-option').addEventListener('click', () => {
+    const last = lastOptionValues();
+    let date = '';
+    if (last.date) date = isoDate(addDays(isoToDate(last.date), 1));
+    addNkOptionRow({ date, start_time: last.start_time, end_time: last.end_time }).querySelector('.nko-date').focus();
+  });
+  document.getElementById('nk-poll-add-same-day').addEventListener('click', () => {
+    const last = lastOptionValues();
+    addNkOptionRow({ date: last.date }).querySelector('.nko-start').focus();
+  });
+
+  function openNkPollModal(poll) {
+    nkPollEditingId = poll ? poll.id : null;
+    document.getElementById('nk-poll-modal-heading').textContent = poll ? 'Umfrage bearbeiten' : 'Neue Terminumfrage';
+    document.getElementById('nk-poll-submit').textContent = poll ? 'Speichern' : 'Umfrage anlegen';
+    document.getElementById('nk-poll-title').value = poll ? poll.title : '';
+    document.getElementById('nk-poll-location').value = poll ? (poll.location || '') : '';
+    document.getElementById('nk-poll-description').value = poll ? (poll.description || '') : '';
+    document.getElementById('nk-poll-options').innerHTML = '';
+    if (poll) poll.options.forEach(addNkOptionRow);
+    else { addNkOptionRow({ date: isoDate(addDays(new Date(), 7)), start_time: '19:00' }); }
+    nkPollModal.classList.remove('hidden');
+    setTimeout(() => document.getElementById('nk-poll-title').focus(), 0);
+  }
+  document.getElementById('nk-poll-new-btn').addEventListener('click', () => openNkPollModal(null));
+  document.getElementById('nk-poll-cancel').addEventListener('click', () => nkPollModal.classList.add('hidden'));
+  nkPollModal.addEventListener('click', (e) => { if (e.target === nkPollModal) nkPollModal.classList.add('hidden'); });
+
+  document.getElementById('nk-poll-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const options = [...document.querySelectorAll('#nk-poll-options .nk-option-row')].map(r => ({
+      id: r.dataset.optionId ? +r.dataset.optionId : null,
+      date: r.querySelector('.nko-date').value,
+      start_time: r.querySelector('.nko-start').value || null,
+      end_time: r.querySelector('.nko-end').value || null,
+    })).filter(o => o.date);
+    if (!options.length) { alert('Bitte mindestens einen Terminvorschlag mit Datum eintragen.'); return; }
+    if (nkPollEditingId && nkPollDetail) {
+      const removedWithVotes = nkPollDetail.options.filter(o => o.votes.length && !options.some(n => n.id === o.id));
+      if (removedWithVotes.length && !confirm(`${removedWithVotes.length} Termin(e) mit bereits abgegebenen Antworten werden entfernt. Fortfahren?`)) return;
+    }
+    const payload = {
+      title: document.getElementById('nk-poll-title').value.trim(),
+      location: document.getElementById('nk-poll-location').value.trim() || null,
+      description: document.getElementById('nk-poll-description').value.trim() || null,
+      options,
+    };
+    try {
+      const detail = nkPollEditingId
+        ? await api(`/api/nk/polls/${nkPollEditingId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api('/api/nk/polls', { method: 'POST', body: JSON.stringify(payload) });
+      nkPollModal.classList.add('hidden');
+      await loadNkPolls();
+      nkPollDetail = detail;
+      document.getElementById('nk-polls-list-view').classList.add('hidden');
+      document.getElementById('nk-poll-detail-view').classList.remove('hidden');
+      renderNkPollDetail();
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---------- Projekte (Konzerte) ----------
+  let nkConcerts = [];
+  let nkConcertDetail = null;
+  const NK_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abgesagt'];
+  const NK_FILE_CATEGORIES = ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Angebot/Rechnung', 'Sonstiges'];
+  const statusPill = (st) => `<span class="pill status-${(st || 'Planung').toLowerCase().replace(/[^a-zäöü]/g, '')}">${escapeHtml(st || 'Planung')}</span>`;
+
+  function showNkConcertList() {
+    document.getElementById('nk-projects-list-view').classList.remove('hidden');
+    document.getElementById('nk-concert-detail-view').classList.add('hidden');
+    nkConcertDetail = null;
+  }
+
+  async function loadNkConcerts() {
+    nkConcerts = await api('/api/nk/concerts');
+    const archived = (c) => c.status === 'Abgeschlossen' || c.status === 'Abgesagt';
+    const active = nkConcerts.filter(c => !archived(c));
+    const archive = nkConcerts.filter(archived);
+    document.getElementById('nk-concerts-list').innerHTML = active.length ? active.map(nkConcertCardHtml).join('') : `
+      <div class="empty-card">
+        <div class="empty-card-icon">🎵</div>
+        <strong>Noch keine Konzerte angelegt</strong>
+        <span>Lege ein Konzert an, um Verträge abzulegen und euch per Kommentar abzustimmen.</span>
+      </div>`;
+    document.getElementById('nk-concerts-archive-card').classList.toggle('hidden', !archive.length);
+    document.getElementById('nk-concerts-archive-count').textContent = `Archiv – abgeschlossen/abgesagt (${archive.length})`;
+    document.getElementById('nk-concerts-archive-list').innerHTML = archive.map(nkConcertCardHtml).join('');
+    document.querySelectorAll('[data-concert-card]').forEach(c => c.addEventListener('click', () => openNkConcert(+c.dataset.concertCard)));
+    refreshNkBadges();
+  }
+
+  function nkConcertCardHtml(c) {
+    const readState = c.comment_count
+      ? (c.unread_count ? `<span class="pill pill-accent">${c.unread_count} neu</span>` : (c.all_read ? '<span class="pill pill-ok">✓ Alle gelesen</span>' : '<span class="pill pill-muted">Nicht alle gelesen</span>'))
+      : '';
+    return `
+      <button type="button" class="nk-card concert-card ${c.unread_count ? 'has-unread' : ''}" data-concert-card="${c.id}">
+        ${dateBlockHtml(c.date)}
+        <div class="concert-card-body">
+          <div class="nk-card-top">${statusPill(c.status)}${readState}</div>
+          <div class="nk-card-title">${escapeHtml(c.title)}</div>
+          <div class="nk-card-meta">${[c.date ? fmtWeekdayDate(c.date) + (c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : '') : '', c.location ? '📍 ' + escapeHtml(c.location) : ''].filter(Boolean).join(' · ') || '&nbsp;'}</div>
+          <div class="concert-card-stats"><span>📎 ${c.file_count} Dokument${c.file_count === 1 ? '' : 'e'}</span><span>💬 ${c.comment_count} Kommentar${c.comment_count === 1 ? '' : 'e'}</span></div>
+        </div>
+      </button>`;
+  }
+
+  document.getElementById('nk-concerts-archive-toggle').addEventListener('click', () => {
+    const list = document.getElementById('nk-concerts-archive-list');
+    document.getElementById('nk-concerts-archive-chevron').classList.toggle('collapsed', list.classList.toggle('hidden'));
+  });
+
+  async function openNkConcert(id) {
+    nkConcertDetail = await api(`/api/nk/concerts/${id}`);
+    document.getElementById('nk-projects-list-view').classList.add('hidden');
+    document.getElementById('nk-concert-detail-view').classList.remove('hidden');
+    renderNkConcertDetail();
+    window.scrollTo({ top: 0 });
+  }
+
+  function fileIcon(f) {
+    const n = (f.filename || '').toLowerCase();
+    if (n.endsWith('.pdf')) return '📄';
+    if (/\.(png|jpe?g|gif|webp|heic)$/.test(n)) return '🖼️';
+    if (/\.(docx?|odt|pages)$/.test(n)) return '📝';
+    if (/\.(xlsx?|csv|numbers)$/.test(n)) return '📊';
+    return '📎';
+  }
+
+  function renderNkConcertDetail(opts = {}) {
+    const c = nkConcertDetail;
+    const view = document.getElementById('nk-concert-detail-view');
+    const draft = document.getElementById('nk-comment-input') ? document.getElementById('nk-comment-input').value : '';
+    const me = currentUser.id;
+    const members = c.members;
+    const unreadMine = c.comments.filter(cm => !cm.read_by_me).length;
+    const behind = members.filter(m => c.comments.some(cm => !cm.read_by.includes(m.user_id)));
+
+    const commentsHtml = c.comments.length ? c.comments.map(cm => {
+      const readers = members.filter(m => cm.read_by.includes(m.user_id));
+      const notYet = members.filter(m => !cm.read_by.includes(m.user_id));
+      const isFile = cm.kind === 'file';
+      return `
+        <div class="comment ${cm.read_by_me ? '' : 'is-unread'} ${isFile ? 'is-system' : ''}" data-comment="${cm.id}">
+          ${avatarHtml(cm.author)}
+          <div class="comment-main">
+            <div class="comment-head">
+              <strong>${escapeHtml(cm.author.name)}</strong>
+              <span class="comment-time">${fmtTimestamp(cm.created_at)}</span>
+              ${cm.read_by_me ? '' : '<span class="pill pill-accent pill-xs">neu</span>'}
+              ${cm.can_delete ? `<button type="button" class="icon-btn comment-del" data-delete-comment="${cm.id}" title="Kommentar löschen">✕</button>` : ''}
+            </div>
+            <div class="comment-body">${isFile ? '📎 ' : ''}${escapeHtml(cm.body)}</div>
+            <div class="comment-foot">
+              <div class="read-state" title="${readers.length ? 'Gelesen von: ' + escapeHtml(readers.map(r => r.name).join(', ')) : ''}${notYet.length ? ' · Noch nicht gelesen: ' + escapeHtml(notYet.map(r => r.name).join(', ')) : ''}">
+                ${readers.map(m => avatarHtml(m, 'xs')).join('')}${notYet.map(m => avatarHtml(m, 'xs faded')).join('')}
+                <span class="read-label">${notYet.length ? `gelesen ${readers.length}/${members.length}` : '✓ alle gelesen'}</span>
+              </div>
+              ${cm.read_by_me
+                ? (cm.user_id !== me ? `<button type="button" class="link-btn" data-unread-comment="${cm.id}">als ungelesen markieren</button>` : '')
+                : `<button type="button" class="read-btn" data-read-comment="${cm.id}">✓ Gelesen</button>`}
+            </div>
+          </div>
+        </div>`;
+    }).join('') : '<p class="empty-state">Noch keine Kommentare. Schreib den ersten!</p>';
+
+    const filesHtml = c.files.length ? c.files.map(f => `
+      <div class="file-row">
+        <span class="file-icon">${fileIcon(f)}</span>
+        <div class="file-main">
+          <a href="/api/nk/concerts/${c.id}/files/${f.id}/download" target="_blank" rel="noopener" class="file-name">${escapeHtml(f.filename)}</a>
+          <div class="file-meta">${escapeHtml(f.category || 'Sonstiges')} · ${fmtBytes(f.size_bytes)} · ${escapeHtml(f.uploaded_by.short)} · ${fmtTimestamp(f.uploaded_at)}${f.in_dropbox ? ' · in Dropbox gesichert' : ''}</div>
+        </div>
+        <a class="icon-btn" href="/api/nk/concerts/${c.id}/files/${f.id}/download?download=1" title="Herunterladen">⤓</a>
+        ${f.can_delete ? `<button type="button" class="icon-btn" data-delete-file="${f.id}" title="Entfernen">✕</button>` : ''}
+      </div>`).join('') : '<p class="empty-state">Noch keine Verträge oder Dokumente.</p>';
+
+    view.innerHTML = `
+      <button type="button" class="back-link" id="nk-concert-back">← Alle Projekte</button>
+      <div class="card detail-hero concert-hero">
+        ${dateBlockHtml(c.date)}
+        <div class="detail-hero-main">
+          <div class="detail-hero-kicker">
+            <select id="nk-concert-status-quick" class="status-select" title="Status ändern">
+              ${NK_STATUSES.map(st => `<option ${st === c.status ? 'selected' : ''}>${st}</option>`).join('')}
+            </select>
+          </div>
+          <h2 class="detail-title">${escapeHtml(c.title)}</h2>
+          <div class="detail-meta">
+            ${c.date ? `<span>📅 ${fmtWeekdayDate(c.date, true)}${c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : ''}</span>` : '<span>📅 Datum noch offen</span>'}
+            ${c.location ? `<span>📍 ${escapeHtml(c.location)}</span>` : ''}
+          </div>
+          ${c.notes ? `<p class="detail-notes">${escapeHtml(c.notes)}</p>` : ''}
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="ghost" id="nk-concert-edit">Bearbeiten</button>
+          ${c.can_manage ? '<button type="button" class="danger" id="nk-concert-delete">Löschen</button>' : ''}
+        </div>
+      </div>
+
+      <div class="concert-grid">
+        <div class="card concert-comments">
+          <div class="section-card-head">
+            <h3>Kommentare <span class="count-chip">${c.comments.length}</span></h3>
+            ${unreadMine ? `<button type="button" class="ghost" id="nk-read-all">✓ Alle ${unreadMine} als gelesen markieren</button>` : ''}
+          </div>
+          ${c.comments.length ? (behind.length
+            ? `<div class="sync-state sync-behind">Noch nicht alle auf dem gleichen Stand – offen bei: ${behind.map(m => `${avatarHtml(m, 'xs')} ${escapeHtml(m.name)}`).join(', ')}</div>`
+            : '<div class="sync-state sync-ok">✓ Alle sind auf dem gleichen Stand</div>') : ''}
+          <div class="comment-list">${commentsHtml}</div>
+          <form id="nk-comment-form" class="comment-form">
+            ${avatarHtml({ name: currentUser.display_name, short: currentUser.short_code, color: currentUser.color })}
+            <div class="comment-form-main">
+              <textarea id="nk-comment-input" rows="2" placeholder="Kommentar schreiben … (⌘/Strg + Enter zum Senden)"></textarea>
+              <div class="comment-form-actions"><button type="submit">Kommentieren</button></div>
+            </div>
+          </form>
+        </div>
+
+        <div class="card concert-files">
+          <div class="section-card-head"><h3>Verträge &amp; Dokumente <span class="count-chip">${c.files.length}</span></h3></div>
+          <div class="file-list">${filesHtml}</div>
+          <div class="upload-box">
+            <select id="nk-file-category">${NK_FILE_CATEGORIES.map(cat => `<option>${cat}</option>`).join('')}</select>
+            <label class="file-drop" id="nk-file-drop">
+              <input type="file" id="nk-file-input" multiple>
+              <span id="nk-file-drop-text"><strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder … max. 18 MB</small></span>
+            </label>
+            <button type="button" id="nk-file-upload">Hochladen</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const commentInput = document.getElementById('nk-comment-input');
+    commentInput.value = draft;
+    if (opts.focusComment) commentInput.focus();
+    if (opts.scrollToEnd) {
+      const list = view.querySelector('.comment-list');
+      if (list.lastElementChild) list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    const refresh = async (promise, o) => {
+      try { nkConcertDetail = await promise; renderNkConcertDetail(o); refreshNkBadges(); } catch (err) { alert(err.message); }
+    };
+    document.getElementById('nk-concert-back').addEventListener('click', () => { showNkConcertList(); loadNkConcerts(); });
+    document.getElementById('nk-concert-edit').addEventListener('click', () => openNkConcertModal(nkConcertDetail));
+    const del = document.getElementById('nk-concert-delete');
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm(`Konzert „${c.title}“ mit allen Kommentaren löschen?\n\nHochgeladene Dateien bleiben als Sicherung auf dem Server bzw. in Dropbox erhalten.`)) return;
+      await api(`/api/nk/concerts/${c.id}`, { method: 'DELETE' });
+      showNkConcertList();
+      await loadNkConcerts();
+    });
+    document.getElementById('nk-concert-status-quick').addEventListener('change', (e) =>
+      refresh(api(`/api/nk/concerts/${c.id}`, { method: 'PUT', body: JSON.stringify({ status: e.target.value }) })));
+    const readAll = document.getElementById('nk-read-all');
+    if (readAll) readAll.addEventListener('click', () => refresh(api(`/api/nk/concerts/${c.id}/read-all`, { method: 'POST' })));
+    view.querySelectorAll('[data-read-comment]').forEach(b => b.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/comments/${b.dataset.readComment}/read`, { method: 'POST' }))));
+    view.querySelectorAll('[data-unread-comment]').forEach(b => b.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/comments/${b.dataset.unreadComment}/read`, { method: 'POST', body: JSON.stringify({ unread: true }) }))));
+    view.querySelectorAll('[data-delete-comment]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Diesen Kommentar löschen?')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/comments/${b.dataset.deleteComment}`, { method: 'DELETE' }));
+    }));
+    view.querySelectorAll('[data-delete-file]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Dieses Dokument aus dem Projekt entfernen?')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/files/${b.dataset.deleteFile}`, { method: 'DELETE' }));
+    }));
+
+    const form = document.getElementById('nk-comment-form');
+    const submitComment = async () => {
+      const body = commentInput.value.trim();
+      if (!body) return;
+      commentInput.value = '';
+      await refresh(api(`/api/nk/concerts/${c.id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }), { scrollToEnd: true });
+    };
+    form.addEventListener('submit', (e) => { e.preventDefault(); submitComment(); });
+    commentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitComment(); } });
+
+    const fileInput = document.getElementById('nk-file-input');
+    const drop = document.getElementById('nk-file-drop');
+    const dropText = document.getElementById('nk-file-drop-text');
+    const showSelected = () => {
+      const files = [...fileInput.files];
+      dropText.innerHTML = files.length ? `<strong>${files.map(f => escapeHtml(f.name)).join(', ')}</strong><br><small>bereit zum Hochladen</small>` : '<strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder … max. 18 MB</small>';
+      drop.classList.toggle('has-file', !!files.length);
+    };
+    fileInput.addEventListener('change', showSelected);
+    ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('drag-over'); }));
+    ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('drag-over')));
+    drop.addEventListener('drop', (e) => { e.preventDefault(); fileInput.files = e.dataTransfer.files; showSelected(); });
+    document.getElementById('nk-file-upload').addEventListener('click', async (e) => {
+      const files = [...fileInput.files];
+      if (!files.length) { fileInput.click(); return; }
+      const tooBig = files.find(f => f.size > 18 * 1024 * 1024);
+      if (tooBig) { alert(`„${tooBig.name}“ ist größer als 18 MB.`); return; }
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'Lädt hoch …';
+      const category = document.getElementById('nk-file-category').value;
+      try {
+        for (const f of files) {
+          const base64 = await fileToBase64(f);
+          const res = await api(`/api/nk/concerts/${c.id}/files`, {
+            method: 'POST', body: JSON.stringify({ category, filename: f.name, file_base64: base64, mime_type: f.type || null }),
+          });
+          nkConcertDetail = res.detail;
+        }
+        renderNkConcertDetail();
+        toast(files.length === 1 ? 'Dokument hochgeladen' : `${files.length} Dokumente hochgeladen`);
+      } catch (err) {
+        alert('Upload fehlgeschlagen: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Hochladen';
+      }
+    });
+  }
+
+  // ---- Konzert anlegen/bearbeiten ----
+  const nkConcertModal = document.getElementById('nk-concert-modal-overlay');
+  let nkConcertEditingId = null;
+  document.getElementById('nk-concert-status').innerHTML = NK_STATUSES.map(st => `<option>${st}</option>`).join('');
+
+  function openNkConcertModal(c) {
+    nkConcertEditingId = c ? c.id : null;
+    document.getElementById('nk-concert-modal-heading').textContent = c ? 'Konzert bearbeiten' : 'Neues Konzert';
+    document.getElementById('nk-concert-submit').textContent = c ? 'Speichern' : 'Anlegen';
+    document.getElementById('nk-concert-title').value = c ? c.title : '';
+    document.getElementById('nk-concert-date').value = c ? (c.date || '') : '';
+    document.getElementById('nk-concert-time').value = c && c.time ? c.time.slice(0, 5) : '';
+    document.getElementById('nk-concert-location').value = c ? (c.location || '') : '';
+    document.getElementById('nk-concert-status').value = c ? (c.status || 'Planung') : 'Planung';
+    document.getElementById('nk-concert-notes').value = c ? (c.notes || '') : '';
+    nkConcertModal.classList.remove('hidden');
+    setTimeout(() => document.getElementById('nk-concert-title').focus(), 0);
+  }
+  document.getElementById('nk-concert-new-btn').addEventListener('click', () => openNkConcertModal(null));
+  document.getElementById('nk-concert-cancel').addEventListener('click', () => nkConcertModal.classList.add('hidden'));
+  nkConcertModal.addEventListener('click', (e) => { if (e.target === nkConcertModal) nkConcertModal.classList.add('hidden'); });
+  document.getElementById('nk-concert-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      title: document.getElementById('nk-concert-title').value.trim(),
+      date: document.getElementById('nk-concert-date').value || null,
+      time: document.getElementById('nk-concert-time').value || null,
+      location: document.getElementById('nk-concert-location').value.trim() || null,
+      status: document.getElementById('nk-concert-status').value,
+      notes: document.getElementById('nk-concert-notes').value.trim() || null,
+    };
+    if (!payload.title) return;
+    try {
+      nkConcertDetail = nkConcertEditingId
+        ? await api(`/api/nk/concerts/${nkConcertEditingId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api('/api/nk/concerts', { method: 'POST', body: JSON.stringify(payload) });
+      nkConcertModal.classList.add('hidden');
+      document.getElementById('nk-projects-list-view').classList.add('hidden');
+      document.getElementById('nk-concert-detail-view').classList.remove('hidden');
+      renderNkConcertDetail();
+    } catch (err) { alert(err.message); }
+  });
+
   async function init() {
     // Manche Browser stellen einen zuvor in dieses Feld eingegebenen Wert beim Neuladen
     // der Seite automatisch wieder her, unabhaengig von autocomplete="off" - deshalb hier
@@ -3300,16 +4269,35 @@
     initYearCalendarFromUrl();
     // Fenster fuer die zweite Jahreshaelfte sofort auf den Jahreskalender stellen, nicht erst
     // nachdem alle anderen Bereiche geladen sind - sonst sieht man vorher kurz andere Seiten.
-    if (ycHalf === 'h2') document.querySelector('[data-tab="yearcalendar"]').click();
+    if (ycHalf === 'h2') switchTab('yearcalendar', { restore: true });
     await loadAccount();
+    applyTabPermissions();
     await loadPeople();
-    await loadToolStartDate();
-    await loadProjects();
-    await loadActiveTimers();
-    await loadTasks();
-    await loadTimeEntries();
-    await loadWarnings();
+    // Nur laden, was fuer die freigegebenen Reiter gebraucht wird (Server lehnt den Rest ohnehin ab)
+    if (can('people') || can('timetracking')) await loadToolStartDate();
+    if (['tasks', 'calendar', 'people', 'yearcalendar'].some(can)) await loadProjects();
+    if (can('tasks') || can('timetracking')) await loadActiveTimers();
+    if (can('tasks') || can('calendar') || can('contracts')) await loadTasks();
+    if (can('timetracking')) { await loadTimeEntries(); await loadWarnings(); }
     applyRoleRestrictions();
+    resetTimeForm();
+
+    const allowed = MOBILE_TAB_ORDER.filter(can);
+    if (ycHalf === 'h2' && can('yearcalendar')) {
+      // bereits oben aktiviert
+    } else if (!allowed.length) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('page-title').textContent = 'Keine Bereiche freigegeben';
+      document.querySelector('main').insertAdjacentHTML('afterbegin', '<div class="empty-card"><div class="empty-card-icon">🔒</div><strong>Für dein Konto sind noch keine Bereiche freigegeben.</strong><span>Bitte an einen Admin wenden.</span></div>');
+    } else {
+      let last = null;
+      try { last = localStorage.getItem('office_last_tab'); } catch (e) { /* egal */ }
+      const sidebarOrder = [...document.querySelectorAll('.sidebar .tab-btn')].map(b => b.dataset.tab).filter(can);
+      const start = last && can(last) ? last : sidebarOrder[0];
+      switchTab(start, { restore: true, noScroll: true });
+    }
+    refreshNkBadges();
+    setInterval(refreshNkBadges, 60000);
   }
   init();
 })();

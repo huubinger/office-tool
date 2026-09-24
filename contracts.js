@@ -31,6 +31,35 @@ async function uploadContractFile(accessToken, folderName, filename, buffer) {
   return data.path_display || path;
 }
 
+// Laedt eine Datei an einen beliebigen Dropbox-Pfad hoch (z.B. fuer Neckarsulmer Konzerte).
+async function uploadFileToPath(accessToken, fullPath, buffer) {
+  const res = await fetch('https://content.dropboxapi.com/2/files/upload', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/octet-stream',
+      // Dropbox-API-Arg muss ASCII sein - Umlaute etc. als \uXXXX escapen
+      'Dropbox-API-Arg': JSON.stringify({ path: fullPath, mode: 'add', autorename: true, mute: true })
+        .replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')),
+    },
+    body: buffer,
+  });
+  if (!res.ok) throw new Error(`Dropbox-Upload-Fehler ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.path_display || fullPath;
+}
+
+// Kurzlebiger Download-Link (4 Std gueltig) fuer eine Datei in Dropbox.
+async function getTemporaryLink(accessToken, dropboxPath) {
+  const res = await fetch('https://api.dropboxapi.com/2/files/get_temporary_link', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: dropboxPath }),
+  });
+  if (!res.ok) throw new Error(`Dropbox-Link-Fehler ${res.status}: ${await res.text()}`);
+  return (await res.json()).link;
+}
+
 async function deleteContractFile(accessToken, dropboxPath) {
   await fetch('https://api.dropboxapi.com/2/files/delete_v2', {
     method: 'POST',
@@ -45,5 +74,7 @@ module.exports = {
   getAccessToken,
   sanitizeFolderName,
   uploadContractFile,
+  uploadFileToPath,
+  getTemporaryLink,
   deleteContractFile,
 };

@@ -1500,6 +1500,48 @@ form + .hint { margin-top: 8px; }
 .file-drop:hover, .file-drop.drag-over { border-color: var(--accent); background: var(--accent-soft); }
 .file-drop.has-file { border-style: solid; border-color: var(--accent); }
 
+/* ---------- Projekte: Ordnerstruktur ---------- */
+.folder-glyph {
+  width: 54px; height: 54px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  border-radius: 12px; background: var(--violet-soft); font-size: 28px;
+}
+.folder-date { color: #c4b5fd; font-variant-numeric: tabular-nums; }
+.folder-date-open { color: var(--ink-faint); font-weight: 600; }
+.folder-subs { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--line); font-size: 12px; color: var(--ink-soft); }
+.folder-subs em { font-style: normal; color: var(--ink-faint); margin-left: 4px; }
+.folder-subs .has-open em { color: var(--warn); font-weight: 600; }
+.folder-path { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--ink-soft); }
+.folder-path .link-btn { font-size: 13px; color: var(--accent); text-decoration: none; }
+.folder-path .link-btn:hover { text-decoration: underline; }
+.folder-path strong { color: var(--ink); }
+.folder-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.folder-tab {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; font-weight: 600;
+  background: var(--panel); border: 1px solid var(--line); color: var(--ink-soft);
+}
+.folder-tab:hover { color: var(--ink); border-color: #3d4652; filter: none; }
+.folder-tab.active { color: var(--ink); border-color: var(--violet); background: var(--violet-soft); }
+.folder-tab-icon { font-size: 17px; }
+.nk-todo-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.nk-todo-form input[type="text"] { flex: 3 1 220px; }
+.nk-todo-form select, .nk-todo-form input[type="date"] { flex: 1 1 130px; }
+.nk-todo-form input, .nk-todo-form select {
+  padding: 8px 10px; border-radius: var(--radius-sm); background: var(--field-bg); color: var(--ink);
+  border: 1px solid var(--field-border); font-size: 13px; font-family: inherit; min-width: 0;
+}
+.nk-todo-list { display: flex; flex-direction: column; gap: 6px; }
+.nk-todo {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px;
+  background: var(--panel-alt); border: 1px solid var(--line);
+}
+.nk-todo-main { flex: 1; min-width: 0; }
+.nk-todo-title { font-size: 13.5px; font-weight: 600; word-break: break-word; }
+.nk-todo .file-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.nk-todo.is-done .nk-todo-title { color: var(--ink-faint); text-decoration: line-through; font-weight: 500; }
+.todo-overdue { color: var(--danger); font-weight: 600; }
+.nk-todo-done { margin-top: 12px; }
+.nk-todo-done summary { cursor: pointer; color: var(--ink-soft); font-size: 13px; margin-bottom: 8px; }
+
 /* ---------- Benutzerverwaltung ---------- */
 .modal-xwide { width: 760px; max-width: 94vw; max-height: 90vh; overflow-y: auto; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
@@ -1583,6 +1625,10 @@ form + .hint { margin-top: 8px; }
   .section-head { flex-direction: column; align-items: stretch; }
   .section-head button { width: 100%; }
   .nk-card-grid { grid-template-columns: 1fr; }
+  .folder-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .folder-tab { flex: 1 0 auto; padding: 9px 11px; }
+  .nk-todo-form input, .nk-todo-form select { font-size: 16px; }
+  .nk-todo-form button { width: 100%; }
   .detail-hero { flex-wrap: wrap; padding: 14px; }
   .detail-hero .date-block { width: 54px; }
   .detail-actions { width: 100%; }

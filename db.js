@@ -334,6 +334,20 @@ CREATE TABLE IF NOT EXISTS nk_comment_reads (
   PRIMARY KEY (comment_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS nk_todos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  concert_id INTEGER NOT NULL REFERENCES nk_concerts(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  assignee_id INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  due_date TEXT,
+  done INTEGER DEFAULT 0,
+  done_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  done_at TEXT,
+  created_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_nk_todos_concert ON nk_todos(concert_id);
 CREATE INDEX IF NOT EXISTS idx_nk_options_poll ON nk_poll_options(poll_id);
 CREATE INDEX IF NOT EXISTS idx_nk_comments_concert ON nk_comments(concert_id);
 CREATE INDEX IF NOT EXISTS idx_nk_files_concert ON nk_concert_files(concert_id);

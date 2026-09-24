@@ -14,6 +14,19 @@ const DROPBOX_NK_FOLDER = process.env.DROPBOX_NK_FOLDER || '/Neckarsulmer Konzer
 const MAX_FILE_BYTES = 18 * 1024 * 1024;
 const VALID_ANSWERS = new Set(['yes', 'no', 'maybe']);
 const CONCERT_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abgesagt'];
+// Ordnerstruktur je Projekt: "<Datum> <Eventname>" -> Verträge / Sonstige Absprachen / 2Dos.
+// Dokumente landen je nach Kategorie im Ordner Verträge oder Sonstige Absprachen.
+const FOLDER_CONTRACTS = 'Verträge';
+const FOLDER_AGREEMENTS = 'Sonstige Absprachen';
+const CONTRACT_CATEGORIES = ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'];
+
+function folderForCategory(category) {
+  return CONTRACT_CATEGORIES.includes(category) ? FOLDER_CONTRACTS : FOLDER_AGREEMENTS;
+}
+
+function projectFolderName(concert) {
+  return `${concert.date ? concert.date + ' ' : ''}${contracts.sanitizeFolderName(concert.title)}`;
+}
 
 function canManage(req, createdBy) {
   return req.isAdmin || (createdBy && createdBy === req.user.id);
@@ -216,7 +229,7 @@ function register(app) {
     const members = membersWithTab(db, 'nk_projects');
     const files = db.prepare('SELECT * FROM nk_concert_files WHERE concert_id = ? ORDER BY uploaded_at DESC, id DESC').all(concert.id)
       .map(f => ({
-        id: f.id, category: f.category, filename: f.filename, size_bytes: f.size_bytes, mime_type: f.mime_type,
+        id: f.id, category: f.category, folder: folderForCategory(f.category), filename: f.filename, size_bytes: f.size_bytes, mime_type: f.mime_type,
         uploaded_at: f.uploaded_at, uploaded_by: displayForUserId(db, f.uploaded_by), in_dropbox: !!f.dropbox_path,
         can_delete: canManage(req, f.uploaded_by),
       }));
@@ -232,11 +245,21 @@ function register(app) {
           can_delete: canManage(req, c.user_id),
         };
       });
+    const todos = db.prepare('SELECT * FROM nk_todos WHERE concert_id = ? ORDER BY done, due_date IS NULL, due_date, id').all(concert.id)
+      .map(t => ({
+        ...t,
+        done: !!t.done,
+        assignee: t.assignee_id ? displayForUserId(db, t.assignee_id) : null,
+        done_by_display: t.done_by ? displayForUserId(db, t.done_by) : null,
+        can_delete: canManage(req, t.created_by),
+      }));
     return {
       ...concert,
+      folder_name: projectFolderName(concert),
       created_by_display: displayForUserId(db, concert.created_by),
       can_manage: canManage(req, concert.created_by),
-      files, comments, members, statuses: CONCERT_STATUSES,
+      files, comments, todos, members, statuses: CONCERT_STATUSES,
+      contract_categories: CONTRACT_CATEGORIES,
     };
   }
 
@@ -255,7 +278,11 @@ function register(app) {
       }
       return {
         ...c,
+        folder_name: projectFolderName(c),
         file_count: db.prepare('SELECT COUNT(*) AS c FROM nk_concert_files WHERE concert_id = ?').get(c.id).c,
+        contract_count: db.prepare(`SELECT COUNT(*) AS c FROM nk_concert_files WHERE concert_id = ? AND category IN (${CONTRACT_CATEGORIES.map(() => '?').join(',')})`).get(c.id, ...CONTRACT_CATEGORIES).c,
+        todo_open: db.prepare('SELECT COUNT(*) AS c FROM nk_todos WHERE concert_id = ? AND done = 0').get(c.id).c,
+        todo_total: db.prepare('SELECT COUNT(*) AS c FROM nk_todos WHERE concert_id = ?').get(c.id).c,
         comment_count: commentIds.length,
         unread_count: unreadForUserStmt.get(c.id, req.user.id).c,
         all_read: allRead,
@@ -335,7 +362,7 @@ function register(app) {
     if (contracts.isDropboxConfigured()) {
       try {
         const token = await contracts.getAccessToken();
-        const folder = `${contracts.sanitizeFolderName(c.title)}${c.date ? ' ' + c.date : ''}`;
+        const folder = `${projectFolderName(c)}/${folderForCategory(category || 'Sonstiges')}`;
         dropboxPath = await contracts.uploadFileToPath(token, `${DROPBOX_NK_FOLDER}/${folder}/${cleanName}`, buffer);
       } catch (err) {
         console.error('[NK] Dropbox-Kopie fehlgeschlagen:', err.message);
@@ -349,7 +376,7 @@ function register(app) {
 
     // Hinweis im Verlauf, damit alle mitbekommen, dass ein neues Dokument da ist
     const commentInfo = db.prepare("INSERT INTO nk_comments (concert_id, user_id, body, kind) VALUES (?, ?, ?, 'file')")
-      .run(c.id, req.user.id, `hat „${cleanName}“ (${category || 'Sonstiges'}) hochgeladen.`);
+      .run(c.id, req.user.id, `hat „${cleanName}“ in ${folderForCategory(category || 'Sonstiges')} (${category || 'Sonstiges'}) hochgeladen.`);
     db.prepare('INSERT OR IGNORE INTO nk_comment_reads (comment_id, user_id) VALUES (?, ?)').run(commentInfo.lastInsertRowid, req.user.id);
 
     res.status(201).json({ id: info.lastInsertRowid, detail: concertDetail(c.id, req) });
@@ -382,6 +409,46 @@ function register(app) {
     if (!canManage(req, f.uploaded_by)) return res.status(403).json({ error: 'Nur wer hochgeladen hat oder ein Admin darf die Datei entfernen' });
     // Nur der Eintrag verschwindet; die Datei selbst bleibt auf dem Volume und in Dropbox als Sicherung.
     db.prepare('DELETE FROM nk_concert_files WHERE id = ?').run(f.id);
+    res.json(concertDetail(req.params.id, req));
+  });
+
+  // ---------- 2Dos ----------
+  const cleanDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+  const validUserId = (id) => (id && db.prepare('SELECT id FROM app_users WHERE id = ?').get(+id) ? +id : null);
+
+  app.post('/api/nk/concerts/:id/todos', (req, res) => {
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    const b = req.body || {};
+    const title = String(b.title || '').trim();
+    if (!title) return res.status(400).json({ error: '2Do ist leer' });
+    db.prepare('INSERT INTO nk_todos (concert_id, title, assignee_id, due_date, created_by) VALUES (?, ?, ?, ?, ?)')
+      .run(c.id, title.slice(0, 500), validUserId(b.assignee_id), cleanDate(b.due_date), req.user.id);
+    res.status(201).json(concertDetail(c.id, req));
+  });
+
+  app.put('/api/nk/concerts/:id/todos/:todoId', (req, res) => {
+    const t = db.prepare('SELECT * FROM nk_todos WHERE id = ? AND concert_id = ?').get(req.params.todoId, req.params.id);
+    if (!t) return res.status(404).json({ error: '2Do nicht gefunden' });
+    const b = req.body || {};
+    const done = b.done !== undefined ? !!b.done : !!t.done;
+    db.prepare('UPDATE nk_todos SET title = ?, assignee_id = ?, due_date = ?, done = ?, done_by = ?, done_at = ? WHERE id = ?').run(
+      b.title !== undefined ? (String(b.title).trim().slice(0, 500) || t.title) : t.title,
+      b.assignee_id !== undefined ? validUserId(b.assignee_id) : t.assignee_id,
+      b.due_date !== undefined ? cleanDate(b.due_date) : t.due_date,
+      done ? 1 : 0,
+      done ? (t.done ? t.done_by : req.user.id) : null,
+      done ? (t.done ? t.done_at : new Date().toISOString().slice(0, 19).replace('T', ' ')) : null,
+      t.id
+    );
+    res.json(concertDetail(req.params.id, req));
+  });
+
+  app.delete('/api/nk/concerts/:id/todos/:todoId', (req, res) => {
+    const t = db.prepare('SELECT * FROM nk_todos WHERE id = ? AND concert_id = ?').get(req.params.todoId, req.params.id);
+    if (!t) return res.status(404).json({ error: '2Do nicht gefunden' });
+    if (!canManage(req, t.created_by)) return res.status(403).json({ error: 'Nur wer das 2Do angelegt hat oder ein Admin darf es löschen' });
+    db.prepare('DELETE FROM nk_todos WHERE id = ?').run(t.id);
     res.json(concertDetail(req.params.id, req));
   });
 

@@ -3952,8 +3952,15 @@
   // ---------- Projekte (Konzerte) ----------
   let nkConcerts = [];
   let nkConcertDetail = null;
+  let nkConcertFolder = 'contracts';
   const NK_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abgesagt'];
-  const NK_FILE_CATEGORIES = ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Angebot/Rechnung', 'Sonstiges'];
+  // Ordnerstruktur je Projekt: "<Datum> <Eventname>" -> Verträge / Sonstige Absprachen / 2Dos
+  const NK_FOLDERS = {
+    contracts: { name: 'Verträge', icon: '📑', categories: ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'] },
+    agreements: { name: 'Sonstige Absprachen', icon: '💬', categories: ['Sonstiges', 'Angebot/Rechnung', 'Protokoll/Notiz'] },
+    todos: { name: '2Dos', icon: '☑️' },
+  };
+  const nkFolderTitle = (c) => `${c.date ? fmtDateDE(c.date) + ' ' : ''}${c.title}`;
   const statusPill = (st) => `<span class="pill status-${(st || 'Planung').toLowerCase().replace(/[^a-zäöü]/g, '')}">${escapeHtml(st || 'Planung')}</span>`;
 
   function showNkConcertList() {
@@ -3971,12 +3978,16 @@
       <div class="empty-card">
         <div class="empty-card-icon">🎵</div>
         <strong>Noch keine Konzerte angelegt</strong>
-        <span>Lege ein Konzert an, um Verträge abzulegen und euch per Kommentar abzustimmen.</span>
+        <span>Jedes Konzert bekommt einen Ordner „Datum + Eventname“ mit den Unterordnern Verträge, Sonstige Absprachen und 2Dos.</span>
       </div>`;
     document.getElementById('nk-concerts-archive-card').classList.toggle('hidden', !archive.length);
     document.getElementById('nk-concerts-archive-count').textContent = `Archiv – abgeschlossen/abgesagt (${archive.length})`;
     document.getElementById('nk-concerts-archive-list').innerHTML = archive.map(nkConcertCardHtml).join('');
-    document.querySelectorAll('[data-concert-card]').forEach(c => c.addEventListener('click', () => openNkConcert(+c.dataset.concertCard)));
+    document.querySelectorAll('[data-concert-card]').forEach(el => el.addEventListener('click', () => {
+      // Neue Kommentare? Dann direkt im Ordner "Sonstige Absprachen" öffnen
+      const concert = nkConcerts.find(x => x.id === +el.dataset.concertCard);
+      openNkConcert(+el.dataset.concertCard, concert && concert.unread_count ? 'agreements' : null);
+    }));
     refreshNkBadges();
   }
 
@@ -3986,12 +3997,16 @@
       : '';
     return `
       <button type="button" class="nk-card concert-card ${c.unread_count ? 'has-unread' : ''}" data-concert-card="${c.id}">
-        ${dateBlockHtml(c.date)}
+        <div class="folder-glyph" aria-hidden="true">📁</div>
         <div class="concert-card-body">
           <div class="nk-card-top">${statusPill(c.status)}${readState}</div>
-          <div class="nk-card-title">${escapeHtml(c.title)}</div>
-          <div class="nk-card-meta">${[c.date ? fmtWeekdayDate(c.date) + (c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : '') : '', c.location ? '📍 ' + escapeHtml(c.location) : ''].filter(Boolean).join(' · ') || '&nbsp;'}</div>
-          <div class="concert-card-stats"><span>📎 ${c.file_count} Dokument${c.file_count === 1 ? '' : 'e'}</span><span>💬 ${c.comment_count} Kommentar${c.comment_count === 1 ? '' : 'e'}</span></div>
+          <div class="nk-card-title">${c.date ? `<span class="folder-date">${fmtDateDE(c.date)}</span> ` : '<span class="folder-date folder-date-open">Datum offen</span> '}${escapeHtml(c.title)}</div>
+          <div class="nk-card-meta">${[c.date ? WD_SHORT[isoToDate(c.date).getDay()] + (c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : '') : '', c.location ? '📍 ' + escapeHtml(c.location) : ''].filter(Boolean).join(' · ') || '&nbsp;'}</div>
+          <div class="folder-subs">
+            <span>📑 Verträge <em>${c.contract_count}</em></span>
+            <span>💬 Sonstige Absprachen <em>${c.file_count - c.contract_count + c.comment_count}</em></span>
+            <span class="${c.todo_open ? 'has-open' : ''}">☑️ 2Dos <em>${c.todo_total ? `${c.todo_open} offen` : '0'}</em></span>
+          </div>
         </div>
       </button>`;
   }
@@ -4001,8 +4016,9 @@
     document.getElementById('nk-concerts-archive-chevron').classList.toggle('collapsed', list.classList.toggle('hidden'));
   });
 
-  async function openNkConcert(id) {
+  async function openNkConcert(id, folder) {
     nkConcertDetail = await api(`/api/nk/concerts/${id}`);
+    nkConcertFolder = folder || 'contracts';
     document.getElementById('nk-projects-list-view').classList.add('hidden');
     document.getElementById('nk-concert-detail-view').classList.remove('hidden');
     renderNkConcertDetail();
@@ -4055,7 +4071,7 @@
         </div>`;
     }).join('') : '<p class="empty-state">Noch keine Kommentare. Schreib den ersten!</p>';
 
-    const filesHtml = c.files.length ? c.files.map(f => `
+    const fileRowHtml = (f) => `
       <div class="file-row">
         <span class="file-icon">${fileIcon(f)}</span>
         <div class="file-main">
@@ -4064,10 +4080,94 @@
         </div>
         <a class="icon-btn" href="/api/nk/concerts/${c.id}/files/${f.id}/download?download=1" title="Herunterladen">⤓</a>
         ${f.can_delete ? `<button type="button" class="icon-btn" data-delete-file="${f.id}" title="Entfernen">✕</button>` : ''}
-      </div>`).join('') : '<p class="empty-state">Noch keine Verträge oder Dokumente.</p>';
+      </div>`;
+    const contractFiles = c.files.filter(f => f.folder === 'Verträge');
+    const otherFiles = c.files.filter(f => f.folder !== 'Verträge');
+    const openTodos = c.todos.filter(t => !t.done);
+    const doneTodos = c.todos.filter(t => t.done);
+    const folder = NK_FOLDERS[nkConcertFolder] ? nkConcertFolder : 'contracts';
+
+    const filesCardHtml = (key, files, emptyText) => `
+      <div class="card concert-files">
+        <div class="section-card-head"><h3>${key === 'contracts' ? 'Verträge' : 'Dokumente'} <span class="count-chip">${files.length}</span></h3></div>
+        <div class="file-list">${files.length ? files.map(fileRowHtml).join('') : `<p class="empty-state">${emptyText}</p>`}</div>
+        <div class="upload-box">
+          <select id="nk-file-category">${NK_FOLDERS[key].categories.map(cat => `<option>${cat}</option>`).join('')}</select>
+          <label class="file-drop" id="nk-file-drop">
+            <input type="file" id="nk-file-input" multiple>
+            <span id="nk-file-drop-text"><strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder … max. 18 MB</small></span>
+          </label>
+          <button type="button" id="nk-file-upload">In „${NK_FOLDERS[key].name}“ hochladen</button>
+        </div>
+      </div>`;
+
+    const commentsCardHtml = `
+      <div class="card concert-comments">
+        <div class="section-card-head">
+          <h3>Kommentare <span class="count-chip">${c.comments.length}</span></h3>
+          ${unreadMine ? `<button type="button" class="ghost" id="nk-read-all">✓ Alle ${unreadMine} als gelesen markieren</button>` : ''}
+        </div>
+        ${c.comments.length ? (behind.length
+          ? `<div class="sync-state sync-behind">Noch nicht alle auf dem gleichen Stand – offen bei: ${behind.map(m => `${avatarHtml(m, 'xs')} ${escapeHtml(m.name)}`).join(', ')}</div>`
+          : '<div class="sync-state sync-ok">✓ Alle sind auf dem gleichen Stand</div>') : ''}
+        <div class="comment-list">${commentsHtml}</div>
+        <form id="nk-comment-form" class="comment-form">
+          ${avatarHtml({ name: currentUser.display_name, short: currentUser.short_code, color: currentUser.color })}
+          <div class="comment-form-main">
+            <textarea id="nk-comment-input" rows="2" placeholder="Absprache / Kommentar schreiben … (⌘/Strg + Enter zum Senden)"></textarea>
+            <div class="comment-form-actions"><button type="submit">Kommentieren</button></div>
+          </div>
+        </form>
+      </div>`;
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const todoRowHtml = (t) => `
+      <div class="nk-todo ${t.done ? 'is-done' : ''}">
+        <input type="checkbox" class="task-done-checkbox" data-todo-toggle="${t.id}" ${t.done ? 'checked' : ''} title="${t.done ? 'Wieder öffnen' : 'Erledigt'}">
+        <div class="nk-todo-main">
+          <div class="nk-todo-title">${escapeHtml(t.title)}</div>
+          <div class="file-meta">
+            ${t.assignee ? `${avatarHtml(t.assignee, 'xs')} ${escapeHtml(t.assignee.name)}` : 'Niemand zugeordnet'}
+            ${t.due_date ? ` · <span class="${!t.done && t.due_date < todayIso ? 'todo-overdue' : ''}">fällig ${fmtWeekdayDate(t.due_date, true)}</span>` : ''}
+            ${t.done && t.done_by_display ? ` · erledigt von ${escapeHtml(t.done_by_display.short)} ${fmtTimestamp(t.done_at)}` : ''}
+          </div>
+        </div>
+        ${t.can_delete ? `<button type="button" class="icon-btn" data-todo-delete="${t.id}" title="2Do löschen">✕</button>` : ''}
+      </div>`;
+    const todosCardHtml = `
+      <div class="card nk-todos-card">
+        <div class="section-card-head"><h3>2Dos <span class="count-chip">${openTodos.length} offen</span></h3></div>
+        <form id="nk-todo-form" class="nk-todo-form">
+          <input type="text" id="nk-todo-title" placeholder="Neues 2Do, z.B. GEMA anmelden" required>
+          <select id="nk-todo-assignee"><option value="">Wer?</option>${members.map(m => `<option value="${m.user_id}">${escapeHtml(m.name)}</option>`).join('')}</select>
+          <input type="date" id="nk-todo-due" title="Fällig bis">
+          <button type="submit">+ Hinzufügen</button>
+        </form>
+        <div class="nk-todo-list">${openTodos.length ? openTodos.map(todoRowHtml).join('') : '<p class="empty-state">Keine offenen 2Dos.</p>'}</div>
+        ${doneTodos.length ? `
+          <details class="nk-todo-done">
+            <summary>Erledigt (${doneTodos.length})</summary>
+            <div class="nk-todo-list">${doneTodos.map(todoRowHtml).join('')}</div>
+          </details>` : ''}
+      </div>`;
+
+    const folderCounts = {
+      contracts: contractFiles.length,
+      agreements: otherFiles.length + c.comments.length,
+      todos: openTodos.length,
+    };
+    const folderContent = folder === 'contracts'
+      ? filesCardHtml('contracts', contractFiles, 'Noch keine Verträge in diesem Ordner.')
+      : folder === 'agreements'
+        ? `<div class="concert-grid">${commentsCardHtml}${filesCardHtml('agreements', otherFiles, 'Noch keine Dokumente in diesem Ordner.')}</div>`
+        : todosCardHtml;
 
     view.innerHTML = `
-      <button type="button" class="back-link" id="nk-concert-back">← Alle Projekte</button>
+      <nav class="folder-path">
+        <button type="button" class="link-btn" id="nk-concert-back">📁 Projekte</button>
+        <span>›</span><span>${escapeHtml(nkFolderTitle(c))}</span>
+        <span>›</span><strong>${NK_FOLDERS[folder].name}</strong>
+      </nav>
       <div class="card detail-hero concert-hero">
         ${dateBlockHtml(c.date)}
         <div class="detail-hero-main">
@@ -4076,7 +4176,7 @@
               ${NK_STATUSES.map(st => `<option ${st === c.status ? 'selected' : ''}>${st}</option>`).join('')}
             </select>
           </div>
-          <h2 class="detail-title">${escapeHtml(c.title)}</h2>
+          <h2 class="detail-title">📁 ${escapeHtml(nkFolderTitle(c))}</h2>
           <div class="detail-meta">
             ${c.date ? `<span>📅 ${fmtWeekdayDate(c.date, true)}${c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : ''}</span>` : '<span>📅 Datum noch offen</span>'}
             ${c.location ? `<span>📍 ${escapeHtml(c.location)}</span>` : ''}
@@ -4089,47 +4189,32 @@
         </div>
       </div>
 
-      <div class="concert-grid">
-        <div class="card concert-comments">
-          <div class="section-card-head">
-            <h3>Kommentare <span class="count-chip">${c.comments.length}</span></h3>
-            ${unreadMine ? `<button type="button" class="ghost" id="nk-read-all">✓ Alle ${unreadMine} als gelesen markieren</button>` : ''}
-          </div>
-          ${c.comments.length ? (behind.length
-            ? `<div class="sync-state sync-behind">Noch nicht alle auf dem gleichen Stand – offen bei: ${behind.map(m => `${avatarHtml(m, 'xs')} ${escapeHtml(m.name)}`).join(', ')}</div>`
-            : '<div class="sync-state sync-ok">✓ Alle sind auf dem gleichen Stand</div>') : ''}
-          <div class="comment-list">${commentsHtml}</div>
-          <form id="nk-comment-form" class="comment-form">
-            ${avatarHtml({ name: currentUser.display_name, short: currentUser.short_code, color: currentUser.color })}
-            <div class="comment-form-main">
-              <textarea id="nk-comment-input" rows="2" placeholder="Kommentar schreiben … (⌘/Strg + Enter zum Senden)"></textarea>
-              <div class="comment-form-actions"><button type="submit">Kommentieren</button></div>
-            </div>
-          </form>
-        </div>
-
-        <div class="card concert-files">
-          <div class="section-card-head"><h3>Verträge &amp; Dokumente <span class="count-chip">${c.files.length}</span></h3></div>
-          <div class="file-list">${filesHtml}</div>
-          <div class="upload-box">
-            <select id="nk-file-category">${NK_FILE_CATEGORIES.map(cat => `<option>${cat}</option>`).join('')}</select>
-            <label class="file-drop" id="nk-file-drop">
-              <input type="file" id="nk-file-input" multiple>
-              <span id="nk-file-drop-text"><strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder … max. 18 MB</small></span>
-            </label>
-            <button type="button" id="nk-file-upload">Hochladen</button>
-          </div>
-        </div>
+      <div class="folder-tabs" role="tablist">
+        ${Object.entries(NK_FOLDERS).map(([key, f]) => `
+          <button type="button" role="tab" class="folder-tab ${key === folder ? 'active' : ''}" data-nk-folder="${key}" aria-selected="${key === folder}">
+            <span class="folder-tab-icon">${key === folder ? '📂' : '📁'}</span>
+            <span class="folder-tab-name">${f.name}</span>
+            <span class="count-chip">${key === 'todos' ? `${folderCounts[key]} offen` : folderCounts[key]}</span>
+            ${key === 'agreements' && unreadMine ? `<span class="pill pill-accent pill-xs">${unreadMine} neu</span>` : ''}
+          </button>`).join('')}
       </div>
+
+      ${folderContent}
     `;
 
     const commentInput = document.getElementById('nk-comment-input');
-    commentInput.value = draft;
-    if (opts.focusComment) commentInput.focus();
+    if (commentInput) {
+      commentInput.value = draft;
+      if (opts.focusComment) commentInput.focus();
+    }
     if (opts.scrollToEnd) {
       const list = view.querySelector('.comment-list');
-      if (list.lastElementChild) list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (list && list.lastElementChild) list.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+    view.querySelectorAll('[data-nk-folder]').forEach(b => b.addEventListener('click', () => {
+      nkConcertFolder = b.dataset.nkFolder;
+      renderNkConcertDetail();
+    }));
 
     const refresh = async (promise, o) => {
       try { nkConcertDetail = await promise; renderNkConcertDetail(o); refreshNkBadges(); } catch (err) { alert(err.message); }
@@ -4160,6 +4245,26 @@
       refresh(api(`/api/nk/concerts/${c.id}/files/${b.dataset.deleteFile}`, { method: 'DELETE' }));
     }));
 
+    const todoForm = document.getElementById('nk-todo-form');
+    if (todoForm) todoForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('nk-todo-title').value.trim();
+      if (!title) return;
+      await refresh(api(`/api/nk/concerts/${c.id}/todos`, { method: 'POST', body: JSON.stringify({
+        title,
+        assignee_id: document.getElementById('nk-todo-assignee').value || null,
+        due_date: document.getElementById('nk-todo-due').value || null,
+      }) }));
+      const again = document.getElementById('nk-todo-title');
+      if (again) again.focus();
+    });
+    view.querySelectorAll('[data-todo-toggle]').forEach(cb => cb.addEventListener('change', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/todos/${cb.dataset.todoToggle}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) }))));
+    view.querySelectorAll('[data-todo-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Dieses 2Do löschen?')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/todos/${b.dataset.todoDelete}`, { method: 'DELETE' }));
+    }));
+
     const form = document.getElementById('nk-comment-form');
     const submitComment = async () => {
       const body = commentInput.value.trim();
@@ -4167,10 +4272,13 @@
       commentInput.value = '';
       await refresh(api(`/api/nk/concerts/${c.id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }), { scrollToEnd: true });
     };
-    form.addEventListener('submit', (e) => { e.preventDefault(); submitComment(); });
-    commentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitComment(); } });
+    if (form) {
+      form.addEventListener('submit', (e) => { e.preventDefault(); submitComment(); });
+      commentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitComment(); } });
+    }
 
     const fileInput = document.getElementById('nk-file-input');
+    if (!fileInput) return;
     const drop = document.getElementById('nk-file-drop');
     const dropText = document.getElementById('nk-file-drop-text');
     const showSelected = () => {
@@ -4204,7 +4312,7 @@
       } catch (err) {
         alert('Upload fehlgeschlagen: ' + err.message);
         btn.disabled = false;
-        btn.textContent = 'Hochladen';
+        btn.textContent = `In „${NK_FOLDERS[folder].name}“ hochladen`;
       }
     });
   }
@@ -4242,6 +4350,7 @@
     };
     if (!payload.title) return;
     try {
+      if (!nkConcertEditingId) nkConcertFolder = 'contracts';
       nkConcertDetail = nkConcertEditingId
         ? await api(`/api/nk/concerts/${nkConcertEditingId}`, { method: 'PUT', body: JSON.stringify(payload) })
         : await api('/api/nk/concerts', { method: 'POST', body: JSON.stringify(payload) });

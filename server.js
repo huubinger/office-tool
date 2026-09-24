@@ -17,6 +17,7 @@ const { fetchAndParseIcs, buildIcs } = require('./icalparser');
 const contracts = require('./contracts');
 const access = require('./access');
 const nk = require('./nk');
+const ensemble = require('./ensemble');
 const PDFDocument = require('pdfkit');
 
 const app = express();
@@ -104,6 +105,10 @@ app.use((req, res, next) => {
   // Personenliste darf jeder lesen (Namen/Farben), aendern nur mit Reiter "Personen"
   if (req.path.startsWith('/api/people') && req.method !== 'GET' && !req.tabs.includes('people')) {
     return res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
+  }
+  // Ensemble ist ein privater Bereich: nur Admins, unabhaengig von den Reiter-Freigaben
+  if (req.path.startsWith('/api/nk/ensemble')) {
+    return req.isAdmin ? next() : res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
   }
   const rule = API_TAB_RULES.find(([prefix]) => req.path.startsWith(prefix));
   if (rule && !rule[1].some(t => req.tabs.includes(t))) {
@@ -1909,6 +1914,7 @@ app.delete('/api/contract-events/:id/items/:itemId', (req, res) => {
 });
 
 nk.register(app);
+ensemble.register(app);
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

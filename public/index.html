@@ -60,6 +60,11 @@
         Projekte
         <span class="nav-badge hidden" data-badge="nk_projects"></span>
       </button>
+      <button class="tab-btn" data-tab="nk_ensemble" data-title="Ensemble" data-group="Neckarsulmer Konzerte">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="5" width="15" height="10.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.25 5v10.5M10 5v10.5M13.75 5v10.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 5h2.5v5.5H5zM8.75 5h2.5v5.5h-2.5zM12.5 5H15v5.5h-2.5z" fill="currentColor"/></svg>
+        Ensemble
+        <span class="private-chip" title="Nur für dich sichtbar">privat</span>
+      </button>
     </nav>
   </aside>
 
@@ -649,6 +654,57 @@
     </div>
     <div id="nk-concert-detail-view" class="hidden"></div>
   </section>
+
+  <!-- ===================== NK: ENSEMBLE (privat) ===================== -->
+  <section id="tab-nk_ensemble" class="tab-panel">
+    <div class="section-head">
+      <p class="section-intro">🔒 Nur für dich sichtbar – Ensemble mit Stimmumfang, Tanz, Schauspiel und Notizen.</p>
+      <button type="button" id="ens-new-btn">+ Neue Person</button>
+    </div>
+    <div class="card ens-overview hidden" id="ens-overview">
+      <div class="section-card-head">
+        <h3>Stimmumfänge im Überblick</h3>
+        <div class="ens-sort">
+          <button type="button" class="ghost active" data-ens-sort="pitch">nach Tonhöhe</button>
+          <button type="button" class="ghost" data-ens-sort="name">nach Name</button>
+        </div>
+      </div>
+      <div id="ens-range-chart" class="ens-range-chart"></div>
+    </div>
+    <div id="ens-list" class="ens-grid"></div>
+  </section>
+
+  <!-- Ensemble-Mitglied anlegen/bearbeiten -->
+  <div id="ens-modal-overlay" class="modal-overlay hidden">
+    <div class="modal modal-xwide">
+      <h3 id="ens-modal-heading">Neue Person</h3>
+      <form id="ens-form">
+        <label>Name
+          <input type="text" id="ens-name" required placeholder="Vor- und Nachname">
+        </label>
+        <div class="ens-range-head">
+          <span>Stimmumfang</span>
+          <span class="hint">Tiefsten und höchsten Ton auf der Klaviatur anklicken</span>
+        </div>
+        <div class="ens-range-info" id="ens-range-info"></div>
+        <div class="piano-scroll"><div class="piano" id="ens-piano"></div></div>
+        <label>Tanz
+          <textarea id="ens-dance" rows="2" placeholder="z.B. Erfahrung, Stil, Stärken …"></textarea>
+        </label>
+        <label>Schauspiel
+          <textarea id="ens-acting" rows="2" placeholder="z.B. Rollenerfahrung, Typ, Sprechstimme …"></textarea>
+        </label>
+        <label>Weitere Kommentare
+          <textarea id="ens-notes" rows="3"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="ens-submit">Speichern</button>
+          <button type="button" id="ens-cancel" class="secondary">Abbrechen</button>
+          <button type="button" id="ens-delete" class="danger hidden">Löschen</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Neue / bearbeitete Terminumfrage -->
   <div id="nk-poll-modal-overlay" class="modal-overlay hidden">

@@ -87,14 +87,18 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people'];
+  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'nk_ensemble'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte',
+    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble',
   };
   let activeTab = null;
 
-  function can(tab) { return !currentUser.tabs || currentUser.tabs.includes(tab); }
+  function can(tab) {
+    // Ensemble ist privat und nur für Admins, unabhängig von den Reiter-Freigaben
+    if (tab === 'nk_ensemble') return !!currentUser.is_admin;
+    return !currentUser.tabs || currentUser.tabs.includes(tab);
+  }
 
   function sidebarBtn(tab) { return document.querySelector(`.sidebar .tab-btn[data-tab="${tab}"]`); }
 
@@ -119,6 +123,7 @@
     if (tab === 'contracts') { loadContractEvents(); }
     if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
+    if (tab === 'nk_ensemble') { loadEnsemble(); }
   }
 
   document.querySelectorAll('.sidebar .tab-btn').forEach(btn => {
@@ -128,7 +133,7 @@
   // Blendet nicht freigegebene Reiter aus und baut die mobile Navigation passend auf.
   function applyTabPermissions() {
     document.querySelectorAll('.sidebar .tab-btn').forEach(btn => btn.classList.toggle('hidden', !can(btn.dataset.tab)));
-    const anyNk = can('nk_polls') || can('nk_projects');
+    const anyNk = can('nk_polls') || can('nk_projects') || can('nk_ensemble');
     document.getElementById('nk-section-label').classList.toggle('hidden', !anyNk);
     const anyMain = LEGACY_TABS.some(can);
     document.querySelector('.sidebar-section-label').classList.toggle('hidden', !anyMain);
@@ -4513,5 +4518,201 @@
     refreshNkBadges();
     setInterval(refreshNkBadges, 60000);
   }
+  // ================= ENSEMBLE (privat) =================
+  // Töne als MIDI-Nummern (60 = C4). Klaviatur von C2 bis C7.
+  const ENS_LOW = 36;
+  const ENS_HIGH = 96;
+  const NOTE_NAMES_DE = ['C', 'Cis', 'D', 'Dis', 'E', 'F', 'Fis', 'G', 'Gis', 'A', 'B', 'H'];
+  const isBlackKey = (n) => [1, 3, 6, 8, 10].includes(n % 12);
+  const noteName = (n) => (n === null || n === undefined ? '–' : `${NOTE_NAMES_DE[n % 12]}${Math.floor(n / 12) - 1}`);
+  function rangeSpanText(low, high) {
+    if (low === null || high === null) return '';
+    const semis = high - low;
+    const oct = Math.floor(semis / 12);
+    const rest = semis % 12;
+    const parts = [];
+    if (oct) parts.push(`${oct} Oktave${oct === 1 ? '' : 'n'}`);
+    if (rest || !oct) parts.push(`${rest} Halbt${rest === 1 ? 'on' : 'öne'}`);
+    return `${parts.join(' + ')} (${(semis / 12).toFixed(1).replace('.', ',')} Okt.)`;
+  }
+  const whiteKeysBetween = (a, b) => { let c = 0; for (let n = a; n <= b; n++) if (!isBlackKey(n)) c++; return c; };
+  // horizontale Position (0–100 %) eines Tons auf der Klaviatur-Achse
+  function notePos(n) {
+    const total = whiteKeysBetween(ENS_LOW, ENS_HIGH);
+    const w = 100 / total;
+    const whitesBefore = whiteKeysBetween(ENS_LOW, n) - (isBlackKey(n) ? 0 : 1);
+    return isBlackKey(n) ? whitesBefore * w : (whitesBefore + 0.5) * w;
+  }
+
+  let ensMembers = [];
+  let ensSort = 'pitch';
+  let ensEditing = null;
+  let ensRange = { low: null, high: null };
+
+  async function loadEnsemble() {
+    ensMembers = await api('/api/nk/ensemble');
+    renderEnsemble();
+  }
+
+  function ensTicksHtml() {
+    let t = '';
+    for (let n = ENS_LOW; n <= ENS_HIGH; n += 12) t += `<span class="ens-tick" style="left:${notePos(n)}%"></span>`;
+    return t;
+  }
+  function ensRangeBarHtml(m) {
+    if (m.range_low === null || m.range_high === null) return `<div class="ens-bar-track">${ensTicksHtml()}<span class="ens-bar-empty">Stimmumfang noch offen</span></div>`;
+    const a = notePos(m.range_low);
+    const b = notePos(m.range_high);
+    return `<div class="ens-bar-track">${ensTicksHtml()}
+      <div class="ens-bar" style="left:${a}%;width:${Math.max(b - a, 0.8)}%"></div>
+    </div>`;
+  }
+  function ensAxisHtml() {
+    let marks = '';
+    for (let n = ENS_LOW; n <= ENS_HIGH; n += 12) marks += `<span class="ens-axis-mark" style="left:${notePos(n)}%">${noteName(n)}</span>`;
+    return `<div class="ens-axis">${marks}</div>`;
+  }
+
+  function renderEnsemble() {
+    const withRange = ensMembers.filter(m => m.range_low !== null && m.range_high !== null);
+    document.getElementById('ens-overview').classList.toggle('hidden', !ensMembers.length);
+    const sorted = [...ensMembers].sort((a, b) => {
+      if (ensSort === 'name') return a.name.localeCompare(b.name, 'de');
+      const ma = a.range_low === null ? -1 : a.range_low + a.range_high;
+      const mb = b.range_low === null ? -1 : b.range_low + b.range_high;
+      return mb - ma || a.name.localeCompare(b.name, 'de');
+    });
+    document.querySelectorAll('[data-ens-sort]').forEach(b => b.classList.toggle('active', b.dataset.ensSort === ensSort));
+    const lowest = withRange.length ? Math.min(...withRange.map(m => m.range_low)) : null;
+    const highest = withRange.length ? Math.max(...withRange.map(m => m.range_high)) : null;
+    document.getElementById('ens-range-chart').innerHTML = `
+      ${withRange.length ? `<div class="ens-total">Gesamtumfang des Ensembles: <strong>${noteName(lowest)} – ${noteName(highest)}</strong> · ${rangeSpanText(lowest, highest)}</div>` : ''}
+      <div class="ens-chart-rows">
+        ${sorted.map(m => `
+          <button type="button" class="ens-chart-row" data-ens-edit="${m.id}">
+            <span class="ens-chart-name">${escapeHtml(m.name)}</span>
+            <span class="ens-chart-bar">${ensRangeBarHtml(m)}</span>
+            <span class="ens-chart-range">${m.range_low !== null ? `${noteName(m.range_low)}–${noteName(m.range_high)}` : ''}</span>
+          </button>`).join('')}
+        <div class="ens-chart-row ens-chart-axis-row"><span class="ens-chart-name"></span><span class="ens-chart-bar">${ensAxisHtml()}</span><span class="ens-chart-range"></span></div>
+      </div>`;
+
+    const noteBlock = (label, text) => text ? `<div class="ens-note"><span>${label}</span><p>${escapeHtml(text)}</p></div>` : '';
+    document.getElementById('ens-list').innerHTML = ensMembers.length ? [...ensMembers].sort((a, b) => a.name.localeCompare(b.name, 'de')).map(m => `
+      <div class="card ens-card">
+        <div class="ens-card-head">
+          <div>
+            <div class="ens-card-name">${escapeHtml(m.name)}</div>
+            <div class="ens-card-range">${m.range_low !== null
+              ? `🎵 ${noteName(m.range_low)} – ${noteName(m.range_high)} <em>${rangeSpanText(m.range_low, m.range_high)}</em>`
+              : '<em>Stimmumfang noch nicht eingetragen</em>'}</div>
+          </div>
+          <button type="button" class="ghost" data-ens-edit="${m.id}">Bearbeiten</button>
+        </div>
+        ${m.range_low !== null ? ensRangeBarHtml(m) : ''}
+        ${noteBlock('💃 Tanz', m.dance_notes)}
+        ${noteBlock('🎭 Schauspiel', m.acting_notes)}
+        ${noteBlock('📝 Weitere Kommentare', m.notes)}
+      </div>`).join('') : `
+      <div class="empty-card">
+        <div class="empty-card-icon">🎤</div>
+        <strong>Noch niemand im Ensemble</strong>
+        <span>Lege Personen an und klicke ihren Stimmumfang auf der Klaviatur an.</span>
+      </div>`;
+    document.querySelectorAll('#tab-nk_ensemble [data-ens-edit]').forEach(b => b.addEventListener('click', () =>
+      openEnsModal(ensMembers.find(m => m.id === +b.dataset.ensEdit))));
+  }
+  document.querySelectorAll('[data-ens-sort]').forEach(b => b.addEventListener('click', () => { ensSort = b.dataset.ensSort; renderEnsemble(); }));
+
+  // ---- Klaviatur ----
+  function renderPiano() {
+    const { low, high } = ensRange;
+    const total = whiteKeysBetween(ENS_LOW, ENS_HIGH);
+    const w = 100 / total;
+    let whites = '';
+    let blacks = '';
+    let wi = 0;
+    for (let n = ENS_LOW; n <= ENS_HIGH; n++) {
+      const inRange = low !== null && n >= low && n <= (high !== null ? high : low);
+      const cls = `${inRange ? 'in-range' : ''} ${n === low || n === high ? 'is-edge' : ''} ${n === 60 ? 'is-c4' : ''}`;
+      if (isBlackKey(n)) {
+        blacks += `<button type="button" class="piano-key black ${cls}" data-note="${n}" style="left:${wi * w - w * 0.31}%;width:${w * 0.62}%" title="${noteName(n)}"></button>`;
+      } else {
+        whites += `<button type="button" class="piano-key white ${cls}" data-note="${n}" style="width:${w}%" title="${noteName(n)}">${n % 12 === 0 ? `<span>${noteName(n)}</span>` : ''}</button>`;
+        wi++;
+      }
+    }
+    document.getElementById('ens-piano').innerHTML = whites + blacks;
+    document.getElementById('ens-range-info').innerHTML = low === null
+      ? '<span class="hint">Noch kein Ton gewählt – zuerst den tiefsten Ton anklicken.</span>'
+      : `<span>Tiefster Ton <strong>${noteName(low)}</strong></span>
+         <span>Höchster Ton <strong>${high !== null ? noteName(high) : '… jetzt anklicken'}</strong></span>
+         ${high !== null ? `<span>Umfang <strong>${rangeSpanText(low, high)}</strong></span>` : ''}
+         <button type="button" class="link-btn" id="ens-range-reset">zurücksetzen</button>`;
+    const reset = document.getElementById('ens-range-reset');
+    if (reset) reset.addEventListener('click', () => { ensRange = { low: null, high: null }; renderPiano(); });
+  }
+  // 1. Klick = tiefster Ton, 2. Klick = höchster Ton, danach verschiebt ein Klick die nähere Grenze
+  document.getElementById('ens-piano').addEventListener('click', (e) => {
+    const key = e.target.closest('[data-note]');
+    if (!key) return;
+    const n = +key.dataset.note;
+    let { low, high } = ensRange;
+    if (low === null) low = n;
+    else if (high === null) { high = n; if (high < low) [low, high] = [high, low]; }
+    else if (Math.abs(n - low) <= Math.abs(n - high)) low = Math.min(n, high);
+    else high = Math.max(n, low);
+    ensRange = { low, high };
+    renderPiano();
+  });
+
+  const ensModal = document.getElementById('ens-modal-overlay');
+  function openEnsModal(m) {
+    ensEditing = m || null;
+    document.getElementById('ens-modal-heading').textContent = m ? m.name : 'Neue Person';
+    document.getElementById('ens-name').value = m ? m.name : '';
+    document.getElementById('ens-dance').value = m ? (m.dance_notes || '') : '';
+    document.getElementById('ens-acting').value = m ? (m.acting_notes || '') : '';
+    document.getElementById('ens-notes').value = m ? (m.notes || '') : '';
+    document.getElementById('ens-delete').classList.toggle('hidden', !m);
+    ensRange = { low: m ? m.range_low : null, high: m ? m.range_high : null };
+    renderPiano();
+    ensModal.classList.remove('hidden');
+    // Klaviatur auf den gewählten Bereich (bzw. die Mitte) scrollen - wichtig am Handy
+    const scroller = ensModal.querySelector('.piano-scroll');
+    const center = ensRange.low !== null ? notePos(Math.round((ensRange.low + (ensRange.high ?? ensRange.low)) / 2)) : notePos(60);
+    requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth * center / 100 - scroller.clientWidth / 2; });
+    if (!m) setTimeout(() => document.getElementById('ens-name').focus(), 0);
+  }
+  document.getElementById('ens-new-btn').addEventListener('click', () => openEnsModal(null));
+  document.getElementById('ens-cancel').addEventListener('click', () => ensModal.classList.add('hidden'));
+  ensModal.addEventListener('click', (e) => { if (e.target === ensModal) ensModal.classList.add('hidden'); });
+  document.getElementById('ens-delete').addEventListener('click', async () => {
+    if (!ensEditing || !confirm(`„${ensEditing.name}“ aus dem Ensemble löschen?`)) return;
+    await api(`/api/nk/ensemble/${ensEditing.id}`, { method: 'DELETE' });
+    ensModal.classList.add('hidden');
+    loadEnsemble();
+  });
+  document.getElementById('ens-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: document.getElementById('ens-name').value.trim(),
+      range_low: ensRange.low,
+      range_high: ensRange.high !== null ? ensRange.high : ensRange.low,
+      dance_notes: document.getElementById('ens-dance').value,
+      acting_notes: document.getElementById('ens-acting').value,
+      notes: document.getElementById('ens-notes').value,
+    };
+    if (!payload.name) return;
+    try {
+      await api(ensEditing ? `/api/nk/ensemble/${ensEditing.id}` : '/api/nk/ensemble', {
+        method: ensEditing ? 'PUT' : 'POST', body: JSON.stringify(payload),
+      });
+      ensModal.classList.add('hidden');
+      toast('Gespeichert');
+      loadEnsemble();
+    } catch (err) { alert(err.message); }
+  });
+
   init();
 })();

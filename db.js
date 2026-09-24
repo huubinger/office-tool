@@ -347,6 +347,20 @@ CREATE TABLE IF NOT EXISTS nk_todos (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS nk_ensemble (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  range_low INTEGER,
+  range_high INTEGER,
+  dance_notes TEXT,
+  acting_notes TEXT,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_nk_ensemble_owner ON nk_ensemble(owner_id);
 CREATE INDEX IF NOT EXISTS idx_nk_todos_concert ON nk_todos(concert_id);
 CREATE INDEX IF NOT EXISTS idx_nk_options_poll ON nk_poll_options(poll_id);
 CREATE INDEX IF NOT EXISTS idx_nk_comments_concert ON nk_comments(concert_id);

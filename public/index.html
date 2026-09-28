@@ -73,6 +73,14 @@
         Finder
       </button>
     </nav>
+    <div class="sidebar-section-label" id="marketing-section-label">Marketing</div>
+    <nav class="tabs" id="marketing-tabs">
+      <button class="tab-btn" data-tab="marketing" data-title="Social Media &amp; Grafik" data-group="Marketing">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M3.5 8v4a1 1 0 0 0 1 1H6l5 3.5v-13L6 7H4.5a1 1 0 0 0-1 1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 7.5a3.5 3.5 0 0 1 0 5M15.8 5a6.5 6.5 0 0 1 0 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Social Media &amp; Grafik
+        <span class="nav-badge hidden" data-badge="marketing"></span>
+      </button>
+    </nav>
   </aside>
 
   <!-- Wird per JS aus den freigegebenen Reitern aufgebaut (max. 4 + "Mehr") -->
@@ -716,6 +724,101 @@
     </div>
   </section>
 
+  <!-- ===================== MARKETING: SOCIAL MEDIA & GRAFIK ===================== -->
+  <section id="tab-marketing" class="tab-panel">
+    <div class="finder-modes mk-modes" role="tablist">
+      <button type="button" class="finder-mode active" data-mk-mode="posts"><span>✅</span> Freigabe <span class="mk-mode-count hidden" id="mk-pending-count"></span></button>
+      <button type="button" class="finder-mode" data-mk-mode="campaigns"><span>📣</span> Kampagnen</button>
+      <button type="button" class="finder-mode" data-mk-mode="designs"><span>🎨</span> Grafik &amp; Druck</button>
+      <button type="button" class="finder-mode" data-mk-mode="settings"><span>⚙️</span> Einstellungen</button>
+    </div>
+    <div id="mk-status" class="mk-status hidden"></div>
+
+    <!-- Freigabe -->
+    <div class="mk-view" data-mk-view="posts">
+      <div class="mk-post-filter">
+        <button type="button" class="mk-chip active" data-mk-post-filter="open">Zur Freigabe</button>
+        <button type="button" class="mk-chip" data-mk-post-filter="planned">Geplant</button>
+        <button type="button" class="mk-chip" data-mk-post-filter="published">Veröffentlicht</button>
+        <button type="button" class="mk-chip" data-mk-post-filter="rejected">Verworfen</button>
+      </div>
+      <div id="mk-posts" class="mk-posts"></div>
+    </div>
+
+    <!-- Kampagnen -->
+    <div class="mk-view hidden" data-mk-view="campaigns">
+      <div class="card">
+        <div class="section-card-head">
+          <div>
+            <h3>Kampagnen</h3>
+            <p class="section-intro">Eine Kampagne bewirbt ein Event über mehrere Tage: Jeden Morgen um 7 Uhr entsteht der Post-Entwurf für den nächsten Tag. Veröffentlicht wird er erst nach Freigabe – zur eingestellten Uhrzeit.</p>
+          </div>
+          <button type="button" id="mk-new-campaign">+ Neue Kampagne</button>
+        </div>
+        <div id="mk-campaigns" class="mk-campaigns"></div>
+      </div>
+    </div>
+
+    <!-- Grafik & Druck -->
+    <div class="mk-view hidden" data-mk-view="designs">
+      <div class="card">
+        <div class="section-card-head">
+          <div>
+            <h3>Grafik &amp; Druck</h3>
+            <p class="section-intro">Plakate, Flyer und Bauzaunbanner im Flyeralarm-Format gestalten lassen – mit Beschnitt und Sicherheitsabstand, Export als druckfertige PDF.</p>
+          </div>
+          <button type="button" id="mk-new-design">+ Neue Grafik</button>
+        </div>
+        <div id="mk-designs" class="mk-designs"></div>
+      </div>
+      <div id="mk-design-detail" class="hidden"></div>
+    </div>
+
+    <!-- Einstellungen -->
+    <div class="mk-view hidden" data-mk-view="settings">
+      <div class="card settings-card">
+        <h3>Verbindungen</h3>
+        <div id="mk-connections" class="mk-connections"></div>
+      </div>
+      <div class="card settings-card">
+        <h3>Marke &amp; Texte</h3>
+        <form id="mk-settings-form" class="mk-form">
+          <label>Markenvorgaben für die Gestaltung
+            <textarea id="mk-set-brand" rows="4" placeholder="z.B. Farben Kreatief: Violett #6b2fa0, Gelb #ffd23f; Ansprache mit „ihr“; Tonfall herzlich, frech; Logo immer unten rechts"></textarea>
+          </label>
+          <div class="mk-form-grid">
+            <label>Logo (Dropbox-Datei, am besten PNG mit transparentem Hintergrund)
+              <div class="mk-path-field"><input type="text" id="mk-set-logo" placeholder="/Kreatief/Logo/logo.png"><button type="button" class="ghost" data-mk-pick-input="mk-set-logo">Wählen</button></div>
+            </label>
+            <label>Instagram-Konto
+              <input type="text" id="mk-set-ig" placeholder="@kreatief_neckarsulm">
+            </label>
+            <label>Feste Hashtags
+              <input type="text" id="mk-set-hashtags" placeholder="#kreatief #neckarsulm #kulturimunterland">
+            </label>
+            <label>Veranstalter im Kulturkalender (Filter)
+              <input type="text" id="mk-set-kk" placeholder="Kreatief">
+            </label>
+            <label>Standard-Uhrzeit für Posts
+              <input type="time" id="mk-set-time" value="18:00">
+            </label>
+          </div>
+          <div class="form-actions"><button type="submit">Speichern</button></div>
+        </form>
+      </div>
+      <div class="card settings-card">
+        <div class="section-card-head">
+          <div>
+            <h3>Druckformate (Flyeralarm)</h3>
+            <p class="section-intro">Endformat, Beschnitt je Seite und Sicherheitsabstand. Die Grafiken werden im Datenformat (Endformat + Beschnitt) als PDF erzeugt. Werte bei Bedarf mit dem Datenblatt des jeweiligen Flyeralarm-Produkts abgleichen.</p>
+          </div>
+          <button type="button" class="ghost" id="mk-new-preset">+ Format</button>
+        </div>
+        <div id="mk-presets" class="mk-presets"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ===================== NK: ENSEMBLE (privat) ===================== -->
   <section id="tab-nk_ensemble" class="tab-panel">
     <div class="section-head">
@@ -996,6 +1099,129 @@
       <button id="entry-menu-remove-series" class="danger-btn hidden">Ganze Serie entfernen (mehrtägig)</button>
       <button id="entry-menu-cancel" class="secondary">Abbrechen</button>
     </div>
+  </div>
+</div>
+
+<!-- Marketing: Kampagne -->
+<div id="mk-campaign-overlay" class="modal-overlay hidden">
+  <div class="modal modal-xwide">
+    <div class="modal-head">
+      <h3 id="mk-campaign-title">Neue Kampagne</h3>
+      <button type="button" class="secondary" data-mk-close>Schließen</button>
+    </div>
+    <form id="mk-campaign-form">
+      <label id="mk-kk-wrap">Event aus dem Kulturkalender übernehmen
+        <select id="mk-kk-select"><option value="">– wird geladen –</option></select>
+      </label>
+      <div class="mk-form-grid">
+        <label class="mk-span2">Titel der Veranstaltung<input type="text" id="mk-c-title" required></label>
+        <label>Datum<input type="date" id="mk-c-date" required></label>
+        <label>Beginn<input type="time" id="mk-c-time"></label>
+        <label class="mk-span2">Ort<input type="text" id="mk-c-location"></label>
+        <label class="mk-span2">Ticket-Link<input type="url" id="mk-c-ticket" placeholder="https://"></label>
+        <label class="mk-span2">Eintritt<input type="text" id="mk-c-price" placeholder="z.B. VVK 15 € / AK 18 €"></label>
+      </div>
+      <label>Beschreibung<textarea id="mk-c-desc" rows="3"></textarea></label>
+      <label>Fotos &amp; Videos (Dropbox-Ordner, Unterordner werden mit durchsucht)
+        <div class="mk-path-field"><input type="text" id="mk-c-folder" placeholder="/Kreatief/Musical 2026/Proben"><button type="button" class="ghost" data-mk-pick-folder="mk-c-folder">Ordner wählen</button></div>
+        <span class="hint mk-folder-count" id="mk-c-folder-count"></span>
+      </label>
+      <div class="mk-form-grid">
+        <label>Bewerben ab
+          <div class="mk-inline"><input type="number" id="mk-c-days" min="1" max="120" value="14"><span>Tage vor dem Event</span></div>
+          <span class="hint" id="mk-c-start-hint"></span>
+        </label>
+        <label>Uhrzeit der Posts<input type="time" id="mk-c-posttime" value="18:00"></label>
+        <label>Format
+          <select id="mk-c-kind">
+            <option value="auto">Automatisch (Beitrag oder Story)</option>
+            <option value="feed">Immer Beitrag</option>
+            <option value="story">Immer Story</option>
+          </select>
+        </label>
+        <div class="mk-platforms">
+          <span>Plattformen</span>
+          <label class="inline-check"><input type="checkbox" id="mk-c-ig" checked> Instagram</label>
+          <label class="inline-check"><input type="checkbox" id="mk-c-fb" checked> Facebook</label>
+        </div>
+      </div>
+      <label>Wie sollen die Posts aussehen? <span class="finder-optional">(optional)</span>
+        <textarea id="mk-c-style" rows="2" placeholder="z.B. knallige Zirkusfarben, viel Rot und Gold, verspielt"></textarea>
+      </label>
+      <label>Weitere Infos für die Posts <span class="finder-optional">(optional)</span>
+        <textarea id="mk-c-notes" rows="2" placeholder="z.B. Mitwirkende, Besonderheiten, Sponsoren, was betont werden soll"></textarea>
+      </label>
+      <div id="mk-c-active-wrap"><label class="inline-check"><input type="checkbox" id="mk-c-active" checked> Kampagne aktiv (tägliche Entwürfe)</label></div>
+      <div id="mk-campaign-error" class="login-error hidden"></div>
+      <div class="form-actions"><button type="submit" id="mk-campaign-save">Kampagne starten</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Marketing: Grafik anlegen/bearbeiten -->
+<div id="mk-design-overlay" class="modal-overlay hidden">
+  <div class="modal modal-xwide">
+    <div class="modal-head">
+      <h3 id="mk-design-title">Neue Grafik</h3>
+      <button type="button" class="secondary" data-mk-close>Schließen</button>
+    </div>
+    <form id="mk-design-form">
+      <div class="mk-form-grid">
+        <label class="mk-span2">Titel<input type="text" id="mk-d-title" required placeholder="z.B. Plakat Musical 2026"></label>
+        <label>Format<select id="mk-d-preset" required></select></label>
+        <label>Zu Kampagne/Event <span class="finder-optional">(optional)</span><select id="mk-d-campaign"></select></label>
+      </div>
+      <label>Informationen, die draufsollen
+        <textarea id="mk-d-content" rows="4" placeholder="z.B. Titel, Datum, Uhrzeit, Ort, Vorverkauf, Sponsoren, Veranstalter …"></textarea>
+      </label>
+      <label>So soll die Grafik aussehen <span class="finder-optional">(leer lassen = ganz neue Gestaltung kreieren)</span>
+        <textarea id="mk-d-brief" rows="3" placeholder="z.B. großes Foto vom Ensemble, dunkler Hintergrund, Titel in Gold, elegant"></textarea>
+      </label>
+      <label>Fotos aus der Dropbox <span class="finder-optional">(bis zu 8)</span></label>
+      <div class="mk-media-picked" id="mk-d-media"></div>
+      <button type="button" class="ghost" id="mk-d-add-media">+ Fotos wählen</button>
+      <div id="mk-design-error" class="login-error hidden"></div>
+      <div class="form-actions"><button type="submit" id="mk-design-save">Speichern &amp; gestalten</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Marketing: Dropbox-Auswahl -->
+<div id="mk-picker-overlay" class="modal-overlay hidden">
+  <div class="modal modal-xwide">
+    <div class="modal-head">
+      <h3 id="mk-picker-title">Dropbox</h3>
+      <button type="button" class="secondary" data-mk-close>Abbrechen</button>
+    </div>
+    <div class="mk-crumbs" id="mk-picker-crumbs"></div>
+    <div class="mk-picker-list" id="mk-picker-list"></div>
+    <div class="form-actions mk-picker-actions">
+      <button type="button" id="mk-picker-ok">Diesen Ordner wählen</button>
+      <span class="hint" id="mk-picker-hint"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Marketing: Druckformat -->
+<div id="mk-preset-overlay" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3 id="mk-preset-title">Druckformat</h3>
+      <button type="button" class="secondary" data-mk-close>Schließen</button>
+    </div>
+    <form id="mk-preset-form">
+      <div class="mk-form-grid">
+        <label class="mk-span2">Name<input type="text" id="mk-p-name" required></label>
+        <label>Kategorie<input type="text" id="mk-p-category" list="mk-p-cats"><datalist id="mk-p-cats"><option value="Flyer"><option value="Plakat"><option value="Banner"><option value="Sonstiges"></datalist></label>
+        <span></span>
+        <label>Endformat Breite (mm)<input type="number" step="0.1" id="mk-p-w" required></label>
+        <label>Endformat Höhe (mm)<input type="number" step="0.1" id="mk-p-h" required></label>
+        <label>Beschnitt je Seite (mm)<input type="number" step="0.1" id="mk-p-bleed" required></label>
+        <label>Sicherheitsabstand (mm)<input type="number" step="0.1" id="mk-p-safe" required></label>
+      </div>
+      <label>Hinweise (werden der Gestaltung mitgegeben)<textarea id="mk-p-notes" rows="2"></textarea></label>
+      <div class="form-actions"><button type="submit">Speichern</button><button type="button" class="danger" id="mk-p-delete">Löschen</button></div>
+    </form>
   </div>
 </div>
 

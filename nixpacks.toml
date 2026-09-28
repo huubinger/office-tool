@@ -1,0 +1,3 @@
+# Ghostscript wird fuer die CMYK-Umwandlung der Druck-PDFs (Marketing > Grafik & Druck) gebraucht
+[phases.setup]
+aptPkgs = ["...", "ghostscript"]

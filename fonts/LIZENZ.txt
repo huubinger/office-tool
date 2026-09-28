@@ -1,0 +1,5 @@
+Die Schriften in diesem Ordner stammen von Google Fonts und stehen unter der
+SIL Open Font License 1.1 (https://openfontlicense.org) - Nutzung, Einbettung in
+Grafiken/PDFs und Weitergabe mit der Software sind erlaubt.
+Anton, Bebas Neue, Oswald, Archivo Black, Montserrat, Inter, Space Grotesk,
+Playfair Display, DM Serif Display, Abril Fatface, Caveat.

@@ -19,6 +19,7 @@ const access = require('./access');
 const nk = require('./nk');
 const ensemble = require('./ensemble');
 const finder = require('./finder');
+const marketing = require('./marketing');
 const PDFDocument = require('pdfkit');
 
 const app = express();
@@ -59,6 +60,8 @@ const PUBLIC_PATHS = new Set([
 ]);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
+  // Freigegebene Social-Media-Bilder muessen fuer Instagram/Facebook ohne Login abrufbar sein
+  if (/^\/m\/[a-f0-9]{32}\.jpg$/.test(req.path)) return next();
   if (req.session && req.session.userId) {
     // Konto bei jeder Anfrage frisch laden, damit geaenderte Rechte/Personen-Verknuepfungen
     // sofort gelten (ohne Neu-Anmeldung) und geloeschte Konten ausgesperrt werden.
@@ -114,6 +117,10 @@ app.use((req, res, next) => {
   // Finder (Förder-/Presse-/Sponsorensuche): Admins immer, sonst per Reiter-Freigabe
   if (req.path.startsWith('/api/finder')) {
     return req.isAdmin || req.tabs.includes('finder') ? next() : res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
+  }
+  // Marketing (Social Media & Grafik): Admins immer, sonst per Reiter-Freigabe
+  if (req.path.startsWith('/api/marketing')) {
+    return req.isAdmin || req.tabs.includes('marketing') ? next() : res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
   }
   const rule = API_TAB_RULES.find(([prefix]) => req.path.startsWith(prefix));
   if (rule && !rule[1].some(t => req.tabs.includes(t))) {
@@ -1921,6 +1928,7 @@ app.delete('/api/contract-events/:id/items/:itemId', (req, res) => {
 nk.register(app);
 ensemble.register(app);
 finder.register(app);
+marketing.register(app);
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

@@ -87,10 +87,10 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'nk_ensemble'];
+  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'nk_ensemble'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble', finder: 'Finder',
+    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
 
@@ -99,6 +99,7 @@
     if (tab === 'nk_ensemble') return !!currentUser.is_admin;
     // Finder: Admins immer, alle anderen nur mit ausdrücklicher Freigabe
     if (tab === 'finder') return !!currentUser.is_admin || (currentUser.tabs || []).includes('finder');
+    if (tab === 'marketing') return !!currentUser.is_admin || (currentUser.tabs || []).includes('marketing');
     return !currentUser.tabs || currentUser.tabs.includes(tab);
   }
 
@@ -127,6 +128,7 @@
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
     if (tab === 'nk_ensemble') { loadEnsemble(); }
     if (tab === 'finder') { loadFinder(); }
+    if (tab === 'marketing') { loadMarketing(); }
   }
 
   document.querySelectorAll('.sidebar .tab-btn').forEach(btn => {
@@ -139,6 +141,7 @@
     const anyNk = can('nk_polls') || can('nk_projects') || can('nk_ensemble');
     document.getElementById('nk-section-label').classList.toggle('hidden', !anyNk);
     document.getElementById('kreatief-section-label').classList.toggle('hidden', !can('finder'));
+    document.getElementById('marketing-section-label').classList.toggle('hidden', !can('marketing'));
     const anyMain = LEGACY_TABS.some(can);
     document.querySelector('.sidebar-section-label').classList.toggle('hidden', !anyMain);
 
@@ -3008,7 +3011,7 @@
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'],
     ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'],
-    ['finder', 'Kreatief · Finder'],
+    ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
     nk: ['nk_polls', 'nk_projects'],
@@ -4522,6 +4525,8 @@
     }
     refreshNkBadges();
     setInterval(refreshNkBadges, 60000);
+    refreshMkBadge();
+    setInterval(() => { mkStatus = null; refreshMkBadge(); }, 120000);
   }
   // ================= ENSEMBLE (privat) =================
   // Töne als MIDI-Nummern (60 = C4). Klaviatur von C2 bis C7.
@@ -5008,6 +5013,866 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
+
+  // ================= MARKETING (Social Media & Grafik) =================
+  // Kampagnen erzeugen täglich Post-Entwürfe (KI-Gestaltung aus Dropbox-Fotos), die hier
+  // freigegeben werden. Dazu Druckgrafiken im Flyeralarm-Format mit PDF-Export.
+  let mkMode = 'posts';
+  let mkPostFilter = 'open';
+  let mkStatus = null;
+  let mkPosts = [];
+  let mkCampaigns = [];
+  let mkDesigns = [];
+  let mkPresets = [];
+  let mkKkEvents = null;
+  let mkPoll = null;
+  let mkOpenDesignId = null;
+  let mkEditingCampaign = null;
+  let mkEditingDesign = null;
+  let mkDesignMedia = [];
+  let mkEditingPreset = null;
+  try { mkMode = localStorage.getItem('office_mk_mode') || 'posts'; } catch (e) { /* egal */ }
+
+  const MK_POST_GROUPS = {
+    open: ['generating', 'pending', 'error', 'failed'],
+    planned: ['approved', 'publishing'],
+    published: ['published'],
+    rejected: ['rejected'],
+  };
+  const MK_STATUS_LABELS = {
+    generating: 'Wird gestaltet …', pending: 'Wartet auf Freigabe', approved: 'Freigegeben', publishing: 'Wird veröffentlicht …',
+    published: 'Veröffentlicht', failed: 'Veröffentlichung fehlgeschlagen', rejected: 'Verworfen', error: 'Fehler bei der Erstellung',
+  };
+  const mkFile = (f) => `/api/marketing/files/${f}`;
+  const mkWeekday = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const mkTodayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Berlin' });
+  const mkAddDays = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const mkDaysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 86400000);
+
+  async function loadMarketing() {
+    renderMkModes();
+    try {
+      mkStatus = await api('/api/marketing/status');
+    } catch (e) { mkStatus = null; }
+    renderMkStatus();
+    if (mkMode === 'posts') await loadMkPosts();
+    if (mkMode === 'campaigns') await loadMkCampaigns();
+    if (mkMode === 'designs') await loadMkDesigns();
+    if (mkMode === 'settings') await loadMkSettings();
+    refreshMkBadge();
+  }
+
+  function renderMkModes() {
+    document.querySelectorAll('[data-mk-mode]').forEach(b => b.classList.toggle('active', b.dataset.mkMode === mkMode));
+    document.querySelectorAll('[data-mk-view]').forEach(v => v.classList.toggle('hidden', v.dataset.mkView !== mkMode));
+  }
+
+  function renderMkStatus() {
+    const el = document.getElementById('mk-status');
+    const s = mkStatus;
+    if (!s) { el.classList.add('hidden'); return; }
+    const missing = [];
+    if (!s.ai) missing.push('Die KI-Gestaltung ist nicht eingerichtet (ANTHROPIC_API_KEY fehlt).');
+    if (!s.dropbox) missing.push('Die Dropbox ist nicht verbunden – Posts entstehen dann nur aus dem Kulturkalender-Bild bzw. rein grafisch.');
+    if (!s.meta.instagram && !s.meta.facebook) missing.push('Instagram/Facebook sind noch nicht verbunden: Freigegebene Posts werden nicht automatisch veröffentlicht – Bild herunterladen, Text kopieren und selbst posten.');
+    el.classList.toggle('hidden', !missing.length || mkMode === 'settings');
+    el.innerHTML = missing.map(m => `<div>ℹ️ ${escapeHtml(m)}</div>`).join('') + '<button type="button" class="ghost" data-mk-goto="settings">Einstellungen</button>';
+    const cnt = document.getElementById('mk-pending-count');
+    cnt.textContent = s.pending;
+    cnt.classList.toggle('hidden', !s.pending);
+  }
+
+  async function refreshMkBadge() {
+    if (!can('marketing')) return;
+    let n = mkStatus ? mkStatus.pending : null;
+    if (n === null) {
+      try { mkStatus = await api('/api/marketing/status'); n = mkStatus.pending; } catch (e) { return; }
+    }
+    document.querySelectorAll('[data-badge="marketing"]').forEach(el => {
+      el.textContent = n > 99 ? '99+' : String(n);
+      el.classList.toggle('hidden', !n);
+    });
+  }
+
+  function scheduleMkPoll() {
+    clearTimeout(mkPoll);
+    const busy = mkPosts.some(p => p.status === 'generating' || p.status === 'publishing') || mkDesigns.some(d => d.status === 'generating');
+    if (!busy) return;
+    mkPoll = setTimeout(async () => {
+      if (activeTab !== 'marketing') return;
+      const wasBusyPosts = mkPosts.filter(p => p.status === 'generating').length;
+      try {
+        if (mkMode === 'posts' || mkMode === 'campaigns') {
+          mkPosts = await api('/api/marketing/posts');
+          if (mkMode === 'posts') renderMkPosts();
+          else { mkCampaigns = await api('/api/marketing/campaigns'); renderMkCampaigns(); }
+          const nowBusy = mkPosts.filter(p => p.status === 'generating').length;
+          if (nowBusy < wasBusyPosts) {
+            toast('Neuer Entwurf ist fertig');
+            mkStatus = await api('/api/marketing/status');
+            renderMkStatus();
+            refreshMkBadge();
+          }
+        } else if (mkMode === 'designs') {
+          const before = mkDesigns.filter(d => d.status === 'generating').map(d => d.id);
+          mkDesigns = await api('/api/marketing/designs');
+          renderMkDesigns();
+          if (mkOpenDesignId) renderMkDesignDetail();
+          if (before.some(id => (mkDesigns.find(d => d.id === id) || {}).status !== 'generating')) toast('Grafik ist fertig');
+        }
+      } catch (e) { /* nächster Versuch */ }
+      scheduleMkPoll();
+    }, 6000);
+  }
+
+  // ---------- Freigabe ----------
+  async function loadMkPosts() {
+    mkPosts = await api('/api/marketing/posts');
+    renderMkPosts();
+    scheduleMkPoll();
+  }
+
+  function mkPostCard(p) {
+    const overdue = p.status === 'pending' && p.publish_at < `${mkTodayIso()} ${new Date().toTimeString().slice(0, 5)}`;
+    const isVideo = p.media_type === 'video';
+    const media = p.status === 'generating'
+      ? `<div class="mk-post-media mk-${p.kind} is-loading"><span class="finder-spinner"></span><span>Die KI gestaltet …<br><small>dauert 2–5 Minuten</small></span></div>`
+      : isVideo
+        ? `<div class="mk-post-media mk-${p.kind}"><video src="/api/marketing/posts/${p.id}/video" controls preload="none" playsinline></video></div>`
+        : p.image_file
+          ? `<a class="mk-post-media mk-${p.kind}" href="${mkFile(p.image_file)}" target="_blank" rel="noopener"><img src="${mkFile(p.image_file)}" alt="Entwurf" loading="lazy"></a>`
+          : `<div class="mk-post-media mk-${p.kind} is-empty">Kein Bild</div>`;
+    const editable = ['pending', 'failed', 'error', 'approved', 'rejected'].includes(p.status);
+    const plat = (k, label) => `<label class="mk-plat"><input type="checkbox" data-mk-plat="${k}" ${p.platforms.includes(k) ? 'checked' : ''} ${editable ? '' : 'disabled'}> ${label}</label>`;
+    const metaOk = mkStatus && (mkStatus.meta.instagram || mkStatus.meta.facebook);
+    let actions = '';
+    if (p.status === 'pending' || p.status === 'rejected') {
+      actions = `<button type="button" data-mk-act="approve">Freigeben</button>
+        <button type="button" class="secondary" data-mk-act="redo">Ändern …</button>
+        ${p.status === 'pending' ? '<button type="button" class="ghost" data-mk-act="reject">Verwerfen</button>' : ''}`;
+    } else if (p.status === 'error') {
+      actions = `<button type="button" data-mk-act="retry">Erneut versuchen</button><button type="button" class="ghost" data-mk-act="delete">Löschen</button>`;
+    } else if (p.status === 'failed') {
+      actions = `${metaOk ? '<button type="button" data-mk-act="publish">Erneut veröffentlichen</button>' : ''}
+        <button type="button" class="secondary" data-mk-act="manual">Selbst gepostet</button>
+        <button type="button" class="ghost" data-mk-act="redo">Ändern …</button>`;
+    } else if (p.status === 'approved') {
+      actions = `${metaOk ? '<button type="button" class="secondary" data-mk-act="publish">Jetzt veröffentlichen</button>' : '<button type="button" class="secondary" data-mk-act="manual">Selbst gepostet</button>'}
+        <button type="button" class="ghost" data-mk-act="unapprove">Freigabe zurücknehmen</button>`;
+    }
+    const downloads = p.status !== 'generating' && (p.image_file || p.caption) ? `
+      <div class="mk-post-tools">
+        ${p.image_file ? `<a class="ghost-link" href="${mkFile(p.image_file)}" download="kreatief-${p.post_date}.jpg">Bild laden</a>` : ''}
+        ${isVideo ? `<a class="ghost-link" href="/api/marketing/posts/${p.id}/video" target="_blank" rel="noopener">Video öffnen</a>` : ''}
+        ${p.caption ? '<button type="button" class="ghost" data-mk-act="copy">Text kopieren</button>' : ''}
+      </div>` : '';
+    return `
+      <article class="mk-post status-${p.status}" data-mk-post="${p.id}">
+        ${media}
+        <div class="mk-post-body">
+          <div class="mk-post-head">
+            <div>
+              <div class="mk-post-when">${escapeHtml(mkWeekday(p.post_date))} · ${escapeHtml(p.publish_at.slice(11))} Uhr ${overdue ? '<span class="mk-overdue">Zeit verpasst – wird nach Freigabe sofort gepostet</span>' : ''}</div>
+              <strong>${escapeHtml(p.campaign_title || 'Kampagne gelöscht')}</strong>
+            </div>
+            <span class="mk-badge mk-badge-${p.status}">${escapeHtml(MK_STATUS_LABELS[p.status] || p.status)}</span>
+          </div>
+          <div class="mk-post-tags">
+            <span class="mk-tag">${p.kind === 'story' ? 'Story' : isVideo ? 'Reel' : 'Beitrag'}</span>
+            ${p.angle ? `<span class="mk-tag mk-tag-soft">${escapeHtml(p.angle)}</span>` : ''}
+            ${plat('instagram', 'Instagram')}${plat('facebook', 'Facebook')}
+          </div>
+          ${p.error ? `<div class="mk-error">${escapeHtml(p.error)}</div>` : ''}
+          ${p.status !== 'generating' ? `
+            <textarea class="mk-caption" data-mk-caption rows="7" ${editable ? '' : 'readonly'} placeholder="Bildunterschrift">${escapeHtml(p.caption || '')}</textarea>
+            ${p.kind === 'story' ? '<div class="hint">Bei Storys wird der Text nicht mitgepostet – die Infos stehen auf der Grafik.</div>' : ''}
+            ${p.design_notes ? `<div class="mk-notes">💡 ${escapeHtml(p.design_notes)}</div>` : ''}
+            ${p.hint ? `<div class="mk-notes">✏️ Wunsch: ${escapeHtml(p.hint)}</div>` : ''}
+          ` : ''}
+          ${p.approved_at && ['approved', 'publishing', 'published'].includes(p.status) ? `<div class="hint">Freigegeben ${escapeHtml(finderDate(p.approved_at))}${p.published_at ? ` · veröffentlicht ${escapeHtml(finderDate(p.published_at))}` : ''}</div>` : ''}
+          <div class="mk-redo hidden" data-mk-redo>
+            <textarea rows="2" data-mk-feedback placeholder="Was soll anders werden? z.B. „anderes Foto“, „Headline größer“, „mehr Dringlichkeit“"></textarea>
+            <div class="mk-redo-actions">
+              <button type="button" data-mk-act="revise">Überarbeiten</button>
+              <button type="button" class="secondary" data-mk-act="renew">Ganz neu gestalten</button>
+            </div>
+          </div>
+          <div class="mk-post-actions">${actions}</div>
+          ${downloads}
+        </div>
+      </article>`;
+  }
+
+  function renderMkPosts() {
+    const el = document.getElementById('mk-posts');
+    document.querySelectorAll('[data-mk-post-filter]').forEach(b => b.classList.toggle('active', b.dataset.mkPostFilter === mkPostFilter));
+    let list = mkPosts.filter(p => MK_POST_GROUPS[mkPostFilter].includes(p.status));
+    list = mkPostFilter === 'open' || mkPostFilter === 'planned'
+      ? list.sort((a, b) => a.publish_at.localeCompare(b.publish_at))
+      : list.sort((a, b) => b.publish_at.localeCompare(a.publish_at));
+    if (!list.length) {
+      const texts = {
+        open: ['Nichts zu tun', mkCampaigns.length || mkPosts.length ? 'Alle Entwürfe sind bearbeitet. Neue entstehen jeden Morgen für laufende Kampagnen.' : 'Lege unter „Kampagnen“ ein Event an – dann entstehen hier täglich Post-Entwürfe zur Freigabe.'],
+        planned: ['Nichts geplant', 'Freigegebene Posts erscheinen hier bis zur Veröffentlichung.'],
+        published: ['Noch nichts veröffentlicht', ''],
+        rejected: ['Nichts verworfen', ''],
+      }[mkPostFilter];
+      el.innerHTML = `<div class="empty-card"><div class="empty-card-icon">📭</div><strong>${escapeHtml(texts[0])}</strong><span>${escapeHtml(texts[1])}</span></div>`;
+      return;
+    }
+    el.innerHTML = list.map(mkPostCard).join('');
+  }
+
+  async function mkPostAction(id, path, body) {
+    const updated = await api(`/api/marketing/posts/${id}${path}`, { method: path ? 'POST' : 'PUT', body: JSON.stringify(body || {}) });
+    mkPosts = mkPosts.map(p => (p.id === id ? { ...p, ...updated } : p));
+    renderMkPosts();
+    scheduleMkPoll();
+    try { mkStatus = await api('/api/marketing/status'); renderMkStatus(); refreshMkBadge(); } catch (e) { /* egal */ }
+    return updated;
+  }
+
+  document.getElementById('mk-posts').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-mk-act]');
+    if (!btn) return;
+    const card = btn.closest('[data-mk-post]');
+    const id = +card.dataset.mkPost;
+    const p = mkPosts.find(x => x.id === id);
+    const act = btn.dataset.mkAct;
+    try {
+      if (act === 'copy') {
+        try { await navigator.clipboard.writeText(p.caption || ''); toast('Text kopiert'); } catch (err) { prompt('Text:', p.caption || ''); }
+        return;
+      }
+      if (act === 'redo') {
+        const box = card.querySelector('[data-mk-redo]');
+        box.classList.toggle('hidden');
+        if (!box.classList.contains('hidden')) box.querySelector('textarea').focus();
+        return;
+      }
+      btn.disabled = true;
+      if (act === 'approve') {
+        const caption = card.querySelector('[data-mk-caption]');
+        if (caption && caption.value !== (p.caption || '')) await mkPostAction(id, '', { caption: caption.value });
+        await mkPostAction(id, '/approve');
+        toast(mkStatus && (mkStatus.meta.instagram || mkStatus.meta.facebook) ? 'Freigegeben – wird zur geplanten Zeit gepostet' : 'Freigegeben');
+      } else if (act === 'reject') {
+        await mkPostAction(id, '/reject');
+      } else if (act === 'unapprove') {
+        await mkPostAction(id, '/unapprove');
+      } else if (act === 'publish') {
+        if (!confirm('Jetzt sofort veröffentlichen?')) { btn.disabled = false; return; }
+        btn.textContent = 'Wird gepostet …';
+        const r = await mkPostAction(id, '/publish-now');
+        toast(r.status === 'published' ? 'Veröffentlicht 🎉' : 'Veröffentlichung fehlgeschlagen');
+      } else if (act === 'manual') {
+        await mkPostAction(id, '/mark-published');
+      } else if (act === 'retry') {
+        await mkPostAction(id, '/regenerate', {});
+      } else if (act === 'revise' || act === 'renew') {
+        const fb = card.querySelector('[data-mk-feedback]').value.trim();
+        if (act === 'revise' && !fb) { alert('Bitte kurz beschreiben, was anders werden soll.'); btn.disabled = false; return; }
+        await mkPostAction(id, '/regenerate', { feedback: fb, mode: act === 'renew' ? 'new' : 'revise' });
+      } else if (act === 'delete') {
+        if (!confirm('Diesen Eintrag löschen?')) { btn.disabled = false; return; }
+        await api(`/api/marketing/posts/${id}`, { method: 'DELETE' });
+        mkPosts = mkPosts.filter(x => x.id !== id);
+        renderMkPosts();
+      }
+    } catch (err) {
+      alert(err.message);
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('mk-posts').addEventListener('change', async (e) => {
+    const card = e.target.closest('[data-mk-post]');
+    if (!card) return;
+    const id = +card.dataset.mkPost;
+    try {
+      if (e.target.matches('[data-mk-caption]')) {
+        await api(`/api/marketing/posts/${id}`, { method: 'PUT', body: JSON.stringify({ caption: e.target.value }) })
+          .then(u => { mkPosts = mkPosts.map(p => (p.id === id ? { ...p, ...u } : p)); });
+        toast('Text gespeichert');
+      } else if (e.target.matches('[data-mk-plat]')) {
+        const platforms = [...card.querySelectorAll('[data-mk-plat]:checked')].map(x => x.dataset.mkPlat);
+        await api(`/api/marketing/posts/${id}`, { method: 'PUT', body: JSON.stringify({ platforms }) })
+          .then(u => { mkPosts = mkPosts.map(p => (p.id === id ? { ...p, ...u } : p)); });
+      }
+    } catch (err) { alert(err.message); }
+  });
+  document.querySelectorAll('[data-mk-post-filter]').forEach(b => b.addEventListener('click', () => {
+    mkPostFilter = b.dataset.mkPostFilter;
+    renderMkPosts();
+  }));
+
+  // ---------- Kampagnen ----------
+  async function loadMkCampaigns() {
+    [mkCampaigns, mkPosts] = await Promise.all([api('/api/marketing/campaigns'), api('/api/marketing/posts')]);
+    renderMkCampaigns();
+    scheduleMkPoll();
+  }
+
+  function renderMkCampaigns() {
+    const el = document.getElementById('mk-campaigns');
+    if (!mkCampaigns.length) {
+      el.innerHTML = '<div class="empty-card"><div class="empty-card-icon">📣</div><strong>Noch keine Kampagne</strong><span>Lege ein Event an, das beworben werden soll – am einfachsten direkt aus dem Kulturkalender.</span></div>';
+      return;
+    }
+    const today = mkTodayIso();
+    el.innerHTML = mkCampaigns.map(c => {
+      const total = mkDaysBetween(c.start_date, c.event_date) + 1;
+      const done = Math.min(Math.max(mkDaysBetween(c.start_date, today) + 1, 0), total);
+      const past = c.event_date < today;
+      const left = mkDaysBetween(today, c.event_date);
+      const pc = c.post_counts || {};
+      const posts = mkPosts.filter(p => p.campaign_id === c.id && p.status !== 'rejected').sort((a, b) => a.post_date.localeCompare(b.post_date));
+      const state = past ? 'Beendet' : !c.active ? 'Pausiert' : c.start_date > today ? `Startet ${mkWeekday(c.start_date)}` : left === 0 ? 'Heute!' : `noch ${left} ${left === 1 ? 'Tag' : 'Tage'}`;
+      return `
+      <article class="mk-campaign ${past || !c.active ? 'is-inactive' : ''}" data-mk-campaign="${c.id}">
+        <div class="mk-campaign-head">
+          <div>
+            <h4>${escapeHtml(c.title)}</h4>
+            <div class="mk-campaign-meta">${escapeHtml(mkWeekday(c.event_date))}${c.event_time ? ` · ${escapeHtml(c.event_time)} Uhr` : ''}${c.location ? ` · ${escapeHtml(c.location)}` : ''}</div>
+          </div>
+          <span class="mk-badge ${past || !c.active ? '' : 'mk-badge-approved'}">${escapeHtml(state)}</span>
+        </div>
+        <div class="mk-progress"><span style="width:${total ? Math.round((done / total) * 100) : 0}%"></span></div>
+        <div class="mk-campaign-meta">Posts täglich ${escapeHtml(c.post_time)} Uhr ab ${escapeHtml(mkWeekday(c.start_date))} · ${c.post_kind === 'auto' ? 'Beitrag/Story' : c.post_kind === 'story' ? 'Story' : 'Beitrag'} · ${c.platforms.map(x => (x === 'instagram' ? 'Instagram' : 'Facebook')).join(' + ') || 'keine Plattform'}</div>
+        <div class="mk-campaign-meta">${c.dropbox_folder ? `📁 ${escapeHtml(c.dropbox_folder)}` : '📁 kein Dropbox-Ordner'}${c.ticket_url ? ` · <a href="${escapeHtml(c.ticket_url)}" target="_blank" rel="noopener">Tickets ↗</a>` : ''}</div>
+        <div class="mk-strip">${posts.map(p => `<span class="mk-strip-item status-${p.status}" title="${escapeHtml(mkWeekday(p.post_date))}: ${escapeHtml(MK_STATUS_LABELS[p.status])}${p.angle ? ' – ' + escapeHtml(p.angle) : ''}">${p.image_file ? `<img src="${mkFile(p.image_file)}" alt="" loading="lazy">` : p.status === 'generating' ? '…' : p.media_type === 'video' ? '▶' : '·'}</span>`).join('')}</div>
+        <div class="mk-campaign-meta">${pc.pending ? `<strong class="mk-warn">${pc.pending} zur Freigabe</strong> · ` : ''}${pc.approved ? `${pc.approved} geplant · ` : ''}${pc.published || 0} veröffentlicht</div>
+        <div class="mk-campaign-actions">
+          ${!past ? '<button type="button" class="secondary" data-mk-cact="generate">Entwurf erzeugen</button>' : ''}
+          <button type="button" class="ghost" data-mk-cact="edit">Bearbeiten</button>
+          ${!past ? `<button type="button" class="ghost" data-mk-cact="toggle">${c.active ? 'Pausieren' : 'Fortsetzen'}</button>` : ''}
+          <button type="button" class="ghost" data-mk-cact="delete">Löschen</button>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  document.getElementById('mk-campaigns').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-mk-cact]');
+    if (!btn) return;
+    const c = mkCampaigns.find(x => x.id === +btn.closest('[data-mk-campaign]').dataset.mkCampaign);
+    const act = btn.dataset.mkCact;
+    try {
+      if (act === 'edit') return openMkCampaign(c);
+      if (act === 'generate') {
+        const hint = prompt('Entwurf für den nächsten freien Tag erzeugen.\nOptional: besonderer Wunsch für diesen Post?', '');
+        if (hint === null) return;
+        btn.disabled = true;
+        await api(`/api/marketing/campaigns/${c.id}/generate`, { method: 'POST', body: JSON.stringify({ hint }) });
+        toast('Entwurf wird gestaltet – er erscheint unter „Freigabe“');
+        return loadMkCampaigns();
+      }
+      if (act === 'toggle') {
+        await api(`/api/marketing/campaigns/${c.id}`, { method: 'PUT', body: JSON.stringify({ active: !c.active }) });
+        return loadMkCampaigns();
+      }
+      if (act === 'delete') {
+        if (!confirm(`Kampagne „${c.title}“ mit allen Entwürfen löschen? Bereits veröffentlichte Posts bleiben auf Instagram/Facebook bestehen.`)) return;
+        await api(`/api/marketing/campaigns/${c.id}`, { method: 'DELETE' });
+        return loadMkCampaigns();
+      }
+    } catch (err) {
+      alert(err.message);
+      btn.disabled = false;
+    }
+  });
+
+  function mkCampaignStartHint() {
+    const date = document.getElementById('mk-c-date').value;
+    const days = +document.getElementById('mk-c-days').value || 0;
+    const el = document.getElementById('mk-c-start-hint');
+    if (!date) { el.textContent = ''; return; }
+    let start = mkAddDays(date, -days);
+    const today = mkTodayIso();
+    el.textContent = start < today ? `Start heute, ${mkDaysBetween(today, date) + 1} Posts` : `Start ${mkWeekday(start)}, ${days + 1} Posts`;
+  }
+  ['mk-c-date', 'mk-c-days'].forEach(id => document.getElementById(id).addEventListener('input', mkCampaignStartHint));
+
+  async function mkFolderCount(pathValue) {
+    const el = document.getElementById('mk-c-folder-count');
+    if (!pathValue) { el.textContent = ''; return; }
+    el.textContent = 'Zähle Medien …';
+    try {
+      const r = await api(`/api/marketing/dropbox/count?path=${encodeURIComponent(pathValue)}`);
+      el.textContent = `${r.images} Fotos, ${r.videos} Videos gefunden`;
+    } catch (err) { el.textContent = err.message; }
+  }
+  document.getElementById('mk-c-folder').addEventListener('change', (e) => mkFolderCount(e.target.value.trim()));
+
+  async function openMkCampaign(c) {
+    mkEditingCampaign = c || null;
+    const f = (id) => document.getElementById(id);
+    f('mk-campaign-title').textContent = c ? 'Kampagne bearbeiten' : 'Neue Kampagne';
+    f('mk-campaign-save').textContent = c ? 'Speichern' : 'Kampagne starten';
+    f('mk-campaign-error').classList.add('hidden');
+    f('mk-kk-wrap').classList.toggle('hidden', !!c);
+    f('mk-c-active-wrap').classList.toggle('hidden', !c);
+    f('mk-c-title').value = c ? c.title : '';
+    f('mk-c-date').value = c ? c.event_date : '';
+    f('mk-c-time').value = c ? (c.event_time || '') : '';
+    f('mk-c-location').value = c ? (c.location || '') : '';
+    f('mk-c-ticket').value = c ? (c.ticket_url || '') : '';
+    f('mk-c-price').value = c ? (c.price || '') : '';
+    f('mk-c-desc').value = c ? (c.description || '') : '';
+    f('mk-c-folder').value = c ? (c.dropbox_folder || '') : '';
+    f('mk-c-days').value = c ? Math.max(mkDaysBetween(c.start_date, c.event_date), 1) : 14;
+    f('mk-c-posttime').value = c ? c.post_time : ((mkSettingsCache && mkSettingsCache.default_post_time) || '18:00');
+    f('mk-c-kind').value = c ? c.post_kind : 'auto';
+    f('mk-c-ig').checked = c ? c.platforms.includes('instagram') : true;
+    f('mk-c-fb').checked = c ? c.platforms.includes('facebook') : true;
+    f('mk-c-style').value = c ? (c.style_brief || '') : '';
+    f('mk-c-notes').value = c ? (c.notes || '') : '';
+    f('mk-c-active').checked = c ? !!c.active : true;
+    f('mk-campaign-form').dataset.kkId = c && c.kk_id ? c.kk_id : '';
+    f('mk-campaign-form').dataset.kkImage = c && c.kk_image_url ? c.kk_image_url : '';
+    mkCampaignStartHint();
+    mkFolderCount(f('mk-c-folder').value.trim());
+    document.getElementById('mk-campaign-overlay').classList.remove('hidden');
+    if (!c) {
+      const sel = f('mk-kk-select');
+      if (!mkKkEvents) {
+        sel.innerHTML = '<option value="">– wird geladen –</option>';
+        try { mkKkEvents = await api('/api/marketing/kk-events'); } catch (err) { mkKkEvents = []; sel.innerHTML = `<option value="">${escapeHtml(err.message)}</option>`; return; }
+      }
+      sel.innerHTML = `<option value="">${mkKkEvents.length ? '– Event wählen oder unten selbst eintragen –' : 'Keine kommenden Events gefunden – bitte unten eintragen'}</option>` +
+        mkKkEvents.map((ev, i) => `<option value="${i}">${escapeHtml(fmtDateDE(ev.event_date))} · ${escapeHtml(ev.title)}</option>`).join('');
+    }
+  }
+
+  document.getElementById('mk-kk-select').addEventListener('change', (e) => {
+    const ev = mkKkEvents && mkKkEvents[+e.target.value];
+    if (!ev || e.target.value === '') return;
+    const f = (id) => document.getElementById(id);
+    f('mk-c-title').value = ev.title;
+    f('mk-c-date').value = ev.event_date;
+    f('mk-c-time').value = ev.event_time || '';
+    f('mk-c-location').value = ev.location || '';
+    f('mk-c-ticket').value = ev.ticket_url || '';
+    f('mk-c-price').value = ev.price || '';
+    f('mk-c-desc').value = ev.description || '';
+    f('mk-campaign-form').dataset.kkId = ev.kk_id;
+    f('mk-campaign-form').dataset.kkImage = ev.kk_image_url || '';
+    mkCampaignStartHint();
+  });
+
+  document.getElementById('mk-campaign-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = (id) => document.getElementById(id);
+    const date = f('mk-c-date').value;
+    const days = Math.max(+f('mk-c-days').value || 1, 1);
+    let start = mkAddDays(date, -days);
+    if (!mkEditingCampaign && start < mkTodayIso()) start = mkTodayIso();
+    if (mkEditingCampaign && start < mkEditingCampaign.start_date && mkEditingCampaign.start_date <= mkTodayIso()) start = start < mkTodayIso() ? mkEditingCampaign.start_date : start;
+    const payload = {
+      title: f('mk-c-title').value, event_date: date, event_time: f('mk-c-time').value, location: f('mk-c-location').value,
+      ticket_url: f('mk-c-ticket').value, price: f('mk-c-price').value, description: f('mk-c-desc').value,
+      dropbox_folder: f('mk-c-folder').value, start_date: start, post_time: f('mk-c-posttime').value, post_kind: f('mk-c-kind').value,
+      platforms: [f('mk-c-ig').checked && 'instagram', f('mk-c-fb').checked && 'facebook'].filter(Boolean),
+      style_brief: f('mk-c-style').value, notes: f('mk-c-notes').value,
+      kk_id: f('mk-campaign-form').dataset.kkId || null, kk_image_url: f('mk-campaign-form').dataset.kkImage || '',
+    };
+    if (mkEditingCampaign) payload.active = f('mk-c-active').checked;
+    const btn = f('mk-campaign-save');
+    btn.disabled = true;
+    try {
+      if (mkEditingCampaign) await api(`/api/marketing/campaigns/${mkEditingCampaign.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      else {
+        await api('/api/marketing/campaigns', { method: 'POST', body: JSON.stringify(payload) });
+        toast('Kampagne gestartet – der erste Entwurf wird gerade gestaltet');
+      }
+      document.getElementById('mk-campaign-overlay').classList.add('hidden');
+      await loadMkCampaigns();
+    } catch (err) {
+      f('mk-campaign-error').textContent = err.message;
+      f('mk-campaign-error').classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('mk-new-campaign').addEventListener('click', () => openMkCampaign(null));
+
+  // ---------- Dropbox-Auswahl ----------
+  // mode: 'folder' (Ordner wählen), 'file' (eine Datei), 'files' (mehrere Fotos)
+  let mkPicker = null;
+  function openMkPicker(mode, startPath, onDone, preselected) {
+    mkPicker = { mode, path: null, onDone, selected: new Set(preselected || []) };
+    document.getElementById('mk-picker-title').textContent = mode === 'folder' ? 'Ordner wählen' : mode === 'file' ? 'Datei wählen' : 'Fotos wählen';
+    document.getElementById('mk-picker-ok').textContent = mode === 'folder' ? 'Diesen Ordner wählen' : 'Übernehmen';
+    document.getElementById('mk-picker-ok').classList.toggle('hidden', mode === 'file');
+    document.getElementById('mk-picker-overlay').classList.remove('hidden');
+    let start = startPath || '';
+    if (start && mode !== 'folder') start = start.split('/').slice(0, -1).join('/');
+    mkPickerGo(start || (mkStatus && mkStatus.dropbox_root) || '');
+  }
+  async function mkPickerGo(p) {
+    const list = document.getElementById('mk-picker-list');
+    list.innerHTML = '<div class="empty-state">Lade …</div>';
+    let data;
+    try { data = await api(`/api/marketing/dropbox/list?path=${encodeURIComponent(p)}`); } catch (err) {
+      list.innerHTML = `<div class="mk-error">${escapeHtml(err.message)}</div>`;
+      if (p) list.innerHTML += '<button type="button" class="ghost" data-mk-pick-path="">Zum Anfang</button>';
+      return;
+    }
+    mkPicker.path = data.path;
+    const parts = data.path.split('/').filter(Boolean);
+    document.getElementById('mk-picker-crumbs').innerHTML = `<button type="button" class="ghost" data-mk-pick-path="">Dropbox</button>` +
+      parts.map((seg, i) => `<span>›</span><button type="button" class="ghost" data-mk-pick-path="${escapeHtml('/' + parts.slice(0, i + 1).join('/'))}">${escapeHtml(seg)}</button>`).join('');
+    const folders = data.entries.filter(x => x.type === 'folder');
+    const files = data.entries.filter(x => x.type === 'file' && (mkPicker.mode === 'folder' || x.media === 'image'));
+    list.innerHTML = folders.map(x => `<button type="button" class="mk-pick-folder" data-mk-pick-path="${escapeHtml(x.path)}">📁 ${escapeHtml(x.name)}</button>`).join('') +
+      (files.length ? `<div class="mk-pick-grid">${files.slice(0, 300).map(x => `
+        <button type="button" class="mk-pick-file ${mkPicker.selected.has(x.path) ? 'selected' : ''} ${mkPicker.mode === 'folder' ? 'is-static' : ''}" data-mk-pick-file="${escapeHtml(x.path)}" title="${escapeHtml(x.name)}">
+          <img src="/api/marketing/dropbox/thumb?path=${encodeURIComponent(x.path)}" alt="" loading="lazy">
+          ${x.media === 'video' ? '<span class="mk-pick-video">▶</span>' : ''}
+          <span class="mk-pick-name">${escapeHtml(x.name)}</span>
+        </button>`).join('')}</div>` : '') +
+      (!folders.length && !files.length ? '<div class="empty-state">Dieser Ordner ist leer.</div>' : '');
+    mkPickerHint();
+  }
+  function mkPickerHint() {
+    const el = document.getElementById('mk-picker-hint');
+    el.textContent = mkPicker.mode === 'files' ? `${mkPicker.selected.size} ausgewählt` : '';
+  }
+  document.getElementById('mk-picker-overlay').addEventListener('click', (e) => {
+    const nav = e.target.closest('[data-mk-pick-path]');
+    if (nav) return mkPickerGo(nav.dataset.mkPickPath);
+    const file = e.target.closest('[data-mk-pick-file]');
+    if (file && mkPicker.mode !== 'folder') {
+      const p = file.dataset.mkPickFile;
+      if (mkPicker.mode === 'file') {
+        document.getElementById('mk-picker-overlay').classList.add('hidden');
+        return mkPicker.onDone(p);
+      }
+      if (mkPicker.selected.has(p)) mkPicker.selected.delete(p);
+      else if (mkPicker.selected.size < 8) mkPicker.selected.add(p);
+      else toast('Maximal 8 Fotos');
+      file.classList.toggle('selected', mkPicker.selected.has(p));
+      mkPickerHint();
+    }
+  });
+  document.getElementById('mk-picker-ok').addEventListener('click', () => {
+    document.getElementById('mk-picker-overlay').classList.add('hidden');
+    mkPicker.onDone(mkPicker.mode === 'folder' ? mkPicker.path : [...mkPicker.selected]);
+  });
+  document.addEventListener('click', (e) => {
+    const folderBtn = e.target.closest('[data-mk-pick-folder]');
+    if (folderBtn) {
+      const input = document.getElementById(folderBtn.dataset.mkPickFolder);
+      openMkPicker('folder', input.value.trim(), (p) => { input.value = p; input.dispatchEvent(new Event('change')); });
+    }
+    const fileBtn = e.target.closest('[data-mk-pick-input]');
+    if (fileBtn) {
+      const input = document.getElementById(fileBtn.dataset.mkPickInput);
+      openMkPicker('file', input.value.trim(), (p) => { input.value = p; });
+    }
+    if (e.target.closest('[data-mk-close]')) e.target.closest('.modal-overlay').classList.add('hidden');
+    const go = e.target.closest('[data-mk-goto]');
+    if (go) setMkMode(go.dataset.mkGoto);
+  });
+
+  // ---------- Grafik & Druck ----------
+  async function loadMkDesigns() {
+    [mkDesigns, mkPresets, mkCampaigns] = await Promise.all([api('/api/marketing/designs'), api('/api/marketing/presets'), api('/api/marketing/campaigns')]);
+    renderMkDesigns();
+    if (mkOpenDesignId) renderMkDesignDetail();
+    scheduleMkPoll();
+  }
+
+  function renderMkDesigns() {
+    const el = document.getElementById('mk-designs');
+    if (!mkDesigns.length) {
+      el.innerHTML = '<div class="empty-card"><div class="empty-card-icon">🎨</div><strong>Noch keine Grafik</strong><span>Lege ein Plakat, einen Flyer oder ein Bauzaunbanner an – die KI gestaltet es im passenden Druckformat.</span></div>';
+      return;
+    }
+    el.innerHTML = mkDesigns.map(d => {
+      const v = d.versions[0];
+      return `
+      <button type="button" class="mk-design-tile ${mkOpenDesignId === d.id ? 'active' : ''}" data-mk-design="${d.id}">
+        <span class="mk-design-thumb">${d.status === 'generating' ? '<span class="finder-spinner"></span>' : v ? `<img src="${mkFile(v.preview_file)}" alt="" loading="lazy">` : '<span>Noch kein Entwurf</span>'}</span>
+        <strong>${escapeHtml(d.title)}</strong>
+        <span class="mk-design-sub">${escapeHtml(d.format.name)} · ${d.versions.length} ${d.versions.length === 1 ? 'Fassung' : 'Fassungen'}${d.status === 'error' ? ' · <em class="mk-warn">Fehler</em>' : ''}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function renderMkDesignDetail() {
+    const el = document.getElementById('mk-design-detail');
+    const d = mkDesigns.find(x => x.id === mkOpenDesignId);
+    if (!d) { el.classList.add('hidden'); mkOpenDesignId = null; return; }
+    el.classList.remove('hidden');
+    const f = d.format;
+    const campaign = mkCampaigns.find(c => c.id === d.campaign_id);
+    el.innerHTML = `
+      <div class="card mk-design-card">
+        <div class="section-card-head">
+          <div>
+            <h3>${escapeHtml(d.title)}</h3>
+            <div class="mk-campaign-meta">${escapeHtml(f.name)} · Endformat ${f.width_mm} × ${f.height_mm} mm · Beschnitt ${f.bleed_mm} mm · Datenformat ${f.width_mm + 2 * f.bleed_mm} × ${f.height_mm + 2 * f.bleed_mm} mm${campaign ? ` · ${escapeHtml(campaign.title)}` : ''}</div>
+          </div>
+          <div class="mk-campaign-actions">
+            <button type="button" class="ghost" data-mk-dact="edit">Angaben bearbeiten</button>
+            <button type="button" class="ghost" data-mk-dact="delete">Löschen</button>
+            <button type="button" class="secondary" data-mk-dact="close">Schließen</button>
+          </div>
+        </div>
+        ${d.status === 'generating' ? '<div class="finder-running"><span class="finder-spinner"></span><div><strong>Die KI gestaltet …</strong><span>Entwurf, Selbstkontrolle und Feinschliff dauern meist 3–6 Minuten.</span></div></div>' : ''}
+        ${d.status === 'error' ? `<div class="mk-error">${escapeHtml(d.error || 'Fehler')}</div>` : ''}
+        ${!d.versions.length && d.status !== 'generating' ? '<div class="form-actions"><button type="button" data-mk-dact="generate">Jetzt gestalten</button></div>' : ''}
+        <div class="mk-versions">
+          ${d.versions.map((v, i) => `
+            <div class="mk-version" data-mk-version="${v.id}">
+              <a href="${mkFile(v.preview_file)}" target="_blank" rel="noopener" class="mk-version-img"><img src="${mkFile(v.preview_file)}" alt="Fassung ${d.versions.length - i}" loading="lazy"></a>
+              <div class="mk-version-body">
+                <div class="mk-post-head"><strong>Fassung ${d.versions.length - i}${i === 0 ? ' (neueste)' : ''}</strong><span class="hint">${escapeHtml(finderDate(v.created_at))}</span></div>
+                ${v.feedback ? `<div class="mk-notes">✏️ ${escapeHtml(v.feedback)}</div>` : ''}
+                ${v.notes ? `<div class="mk-notes">💡 ${escapeHtml(v.notes)}</div>` : ''}
+                <div class="mk-post-actions">
+                  <a class="ghost-link" href="/api/marketing/designs/${d.id}/versions/${v.id}/pdf" data-mk-pdf>Druck-PDF</a>
+                  <a class="ghost-link" href="${mkFile(v.preview_file)}" download="${escapeHtml(d.title)}.jpg">Vorschau-JPG</a>
+                  <button type="button" class="ghost" data-mk-dact="delversion">Löschen</button>
+                </div>
+                <textarea rows="2" data-mk-vfeedback placeholder="Änderungswünsche zu dieser Fassung, z.B. „Datum größer“, „anderes Foto“, „Sponsorenleiste unten“"></textarea>
+                <div class="mk-redo-actions">
+                  <button type="button" data-mk-dact="revise" ${d.status === 'generating' ? 'disabled' : ''}>Diese Fassung anpassen</button>
+                  <button type="button" class="secondary" data-mk-dact="new" ${d.status === 'generating' ? 'disabled' : ''}>Ganz neu kreieren</button>
+                </div>
+              </div>
+            </div>`).join('')}
+        </div>
+        <p class="hint">Die PDF hat das Datenformat inkl. Beschnitt, Texte sind als Vektorpfade eingebettet (keine Schriftprobleme). Die PDF wird für den Druck in CMYK umgerechnet – sehr leuchtende Bildschirmfarben wirken gedruckt etwas matter. Beim Hochladen prüft der Flyeralarm-Datencheck die Datei noch einmal.</p>
+      </div>`;
+  }
+
+  document.getElementById('mk-designs').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-mk-design]');
+    if (!t) return;
+    mkOpenDesignId = +t.dataset.mkDesign;
+    renderMkDesigns();
+    renderMkDesignDetail();
+    document.getElementById('mk-design-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  document.getElementById('mk-design-detail').addEventListener('click', async (e) => {
+    const pdf = e.target.closest('[data-mk-pdf]');
+    if (pdf) { toast('PDF wird erstellt …'); return; }
+    const btn = e.target.closest('[data-mk-dact]');
+    if (!btn) return;
+    const d = mkDesigns.find(x => x.id === mkOpenDesignId);
+    const act = btn.dataset.mkDact;
+    const vEl = btn.closest('[data-mk-version]');
+    try {
+      if (act === 'close') { mkOpenDesignId = null; renderMkDesigns(); return renderMkDesignDetail(); }
+      if (act === 'edit') return openMkDesign(d);
+      if (act === 'delete') {
+        if (!confirm(`Grafik „${d.title}“ mit allen Fassungen löschen?`)) return;
+        await api(`/api/marketing/designs/${d.id}`, { method: 'DELETE' });
+        mkOpenDesignId = null;
+        return loadMkDesigns();
+      }
+      if (act === 'delversion') {
+        if (!confirm('Diese Fassung löschen?')) return;
+        await api(`/api/marketing/designs/${d.id}/versions/${vEl.dataset.mkVersion}`, { method: 'DELETE' });
+        return loadMkDesigns();
+      }
+      let body = {};
+      if (act === 'revise') {
+        const fb = vEl.querySelector('[data-mk-vfeedback]').value.trim();
+        if (!fb) return alert('Bitte beschreiben, was angepasst werden soll.');
+        body = { feedback: fb, base_version_id: +vEl.dataset.mkVersion };
+      } else if (act === 'new') {
+        body = { feedback: vEl ? vEl.querySelector('[data-mk-vfeedback]').value.trim() : '' };
+      }
+      btn.disabled = true;
+      await api(`/api/marketing/designs/${d.id}/generate`, { method: 'POST', body: JSON.stringify(body) });
+      await loadMkDesigns();
+    } catch (err) {
+      alert(err.message);
+      btn.disabled = false;
+    }
+  });
+
+  function renderMkDesignMedia() {
+    document.getElementById('mk-d-media').innerHTML = mkDesignMedia.map(p => `
+      <span class="mk-media-chip" title="${escapeHtml(p)}"><img src="/api/marketing/dropbox/thumb?path=${encodeURIComponent(p)}" alt=""><button type="button" class="icon-btn" data-mk-unpick="${escapeHtml(p)}">✕</button></span>`).join('') ||
+      '<span class="hint">Keine Fotos gewählt – dann wird das Kulturkalender-Bild der Kampagne genutzt oder rein grafisch gestaltet.</span>';
+  }
+  document.getElementById('mk-d-media').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mk-unpick]');
+    if (!b) return;
+    mkDesignMedia = mkDesignMedia.filter(p => p !== b.dataset.mkUnpick);
+    renderMkDesignMedia();
+  });
+  document.getElementById('mk-d-add-media').addEventListener('click', () => {
+    const campaign = mkCampaigns.find(c => c.id === +document.getElementById('mk-d-campaign').value);
+    const start = mkDesignMedia[0] ? mkDesignMedia[0] : (campaign && campaign.dropbox_folder ? campaign.dropbox_folder + '/x' : '');
+    openMkPicker('files', start, (paths) => { mkDesignMedia = paths; renderMkDesignMedia(); }, mkDesignMedia);
+  });
+
+  function openMkDesign(d) {
+    mkEditingDesign = d || null;
+    const f = (id) => document.getElementById(id);
+    f('mk-design-title').textContent = d ? 'Grafik bearbeiten' : 'Neue Grafik';
+    f('mk-design-save').textContent = d ? 'Speichern' : 'Speichern & gestalten';
+    f('mk-design-error').classList.add('hidden');
+    f('mk-d-title').value = d ? d.title : '';
+    const cats = [...new Set(mkPresets.map(p => p.category))];
+    f('mk-d-preset').innerHTML = cats.map(cat => `<optgroup label="${escapeHtml(cat)}">${mkPresets.filter(p => p.category === cat).map(p =>
+      `<option value="${p.id}">${escapeHtml(p.name)} (${p.width_mm} × ${p.height_mm} mm)</option>`).join('')}</optgroup>`).join('');
+    if (d && d.preset_id) f('mk-d-preset').value = d.preset_id;
+    f('mk-d-campaign').innerHTML = '<option value="">– keine –</option>' + mkCampaigns.map(c => `<option value="${c.id}">${escapeHtml(c.title)} (${escapeHtml(fmtDateDE(c.event_date))})</option>`).join('');
+    f('mk-d-campaign').value = d && d.campaign_id ? d.campaign_id : '';
+    f('mk-d-content').value = d ? (d.content || '') : '';
+    f('mk-d-brief').value = d ? (d.brief || '') : '';
+    mkDesignMedia = d ? d.media.slice() : [];
+    renderMkDesignMedia();
+    document.getElementById('mk-design-overlay').classList.remove('hidden');
+  }
+  document.getElementById('mk-new-design').addEventListener('click', () => openMkDesign(null));
+  document.getElementById('mk-d-campaign').addEventListener('change', (e) => {
+    const c = mkCampaigns.find(x => x.id === +e.target.value);
+    const content = document.getElementById('mk-d-content');
+    if (c && !content.value.trim()) {
+      content.value = [c.title, `${fmtDateDE(c.event_date)}${c.event_time ? `, ${c.event_time} Uhr` : ''}`, c.location, c.price, c.ticket_url ? `Tickets: ${c.ticket_url}` : ''].filter(Boolean).join('\n');
+    }
+  });
+
+  document.getElementById('mk-design-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = (id) => document.getElementById(id);
+    const payload = {
+      title: f('mk-d-title').value, preset_id: +f('mk-d-preset').value, campaign_id: f('mk-d-campaign').value || null,
+      content: f('mk-d-content').value, brief: f('mk-d-brief').value, media: mkDesignMedia,
+    };
+    const btn = f('mk-design-save');
+    btn.disabled = true;
+    try {
+      let d;
+      if (mkEditingDesign) {
+        const formatChanged = mkEditingDesign.preset_id !== payload.preset_id;
+        d = await api(`/api/marketing/designs/${mkEditingDesign.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        if (formatChanged && d.versions.length && confirm('Format geändert – jetzt eine neue Fassung im neuen Format gestalten?')) {
+          await api(`/api/marketing/designs/${d.id}/generate`, { method: 'POST', body: JSON.stringify({ feedback: 'Neues Format – Gestaltung an das neue Seitenverhältnis anpassen.', base_version_id: d.versions[0].id }) });
+        }
+      } else {
+        d = await api('/api/marketing/designs', { method: 'POST', body: JSON.stringify(payload) });
+        await api(`/api/marketing/designs/${d.id}/generate`, { method: 'POST', body: '{}' });
+      }
+      mkOpenDesignId = d.id;
+      document.getElementById('mk-design-overlay').classList.add('hidden');
+      await loadMkDesigns();
+    } catch (err) {
+      f('mk-design-error').textContent = err.message;
+      f('mk-design-error').classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- Einstellungen ----------
+  let mkSettingsCache = null;
+  async function loadMkSettings() {
+    const [settings, presets] = await Promise.all([api('/api/marketing/settings'), api('/api/marketing/presets')]);
+    mkSettingsCache = settings;
+    mkPresets = presets;
+    const f = (id) => document.getElementById(id);
+    f('mk-set-brand').value = settings.brand || '';
+    f('mk-set-logo').value = settings.logo_path || '';
+    f('mk-set-ig').value = settings.instagram_handle || '';
+    f('mk-set-hashtags').value = settings.hashtags || '';
+    f('mk-set-kk').value = settings.kk_filter || '';
+    f('mk-set-time').value = settings.default_post_time || '18:00';
+    renderMkPresets();
+    renderMkConnections(null);
+    try { renderMkConnections(await api('/api/marketing/meta-check')); } catch (e) { /* egal */ }
+  }
+
+  function renderMkConnections(check) {
+    const s = mkStatus || { ai: false, dropbox: false, meta: {} };
+    const row = (ok, label, detail) => `<div class="mk-conn ${ok ? 'ok' : 'off'}"><span class="mk-conn-dot"></span><div><strong>${escapeHtml(label)}</strong><span>${detail}</span></div></div>`;
+    const igDetail = check && check.instagram ? `verbunden als ${escapeHtml(check.instagram)}` : check && check.instagramError ? escapeHtml(check.instagramError) : s.meta.instagram ? 'eingerichtet' : 'nicht verbunden – Variablen META_IG_USER_ID und META_PAGE_TOKEN';
+    const fbDetail = check && check.facebook ? `Seite „${escapeHtml(check.facebook)}“` : check && check.facebookError ? escapeHtml(check.facebookError) : s.meta.facebook ? 'eingerichtet' : 'nicht verbunden – Variablen META_PAGE_ID und META_PAGE_TOKEN';
+    document.getElementById('mk-connections').innerHTML =
+      row(s.ai, 'KI-Gestaltung (Claude)', s.ai ? 'bereit' : 'ANTHROPIC_API_KEY fehlt') +
+      row(s.dropbox, 'Dropbox', s.dropbox ? `verbunden${s.dropbox_root ? ` · Startordner ${escapeHtml(s.dropbox_root)}` : ''}` : 'DROPBOX_APP_KEY / _SECRET / _REFRESH_TOKEN fehlen') +
+      row(s.meta.instagram && !(check && check.instagramError), 'Instagram', igDetail) +
+      row(s.meta.facebook && !(check && check.facebookError), 'Facebook', fbDetail) +
+      '<p class="hint">Solange Instagram/Facebook nicht verbunden sind, funktioniert alles außer dem automatischen Posten: Freigegebene Bilder herunterladen, Text kopieren und selbst posten.</p>';
+  }
+
+  function renderMkPresets() {
+    const el = document.getElementById('mk-presets');
+    el.innerHTML = `<table class="mk-preset-table"><thead><tr><th>Format</th><th>Endformat</th><th>Beschnitt</th><th>Datenformat</th><th>Sicherheit</th><th></th></tr></thead><tbody>
+      ${mkPresets.map(p => `<tr data-mk-preset="${p.id}"><td><strong>${escapeHtml(p.name)}</strong><span class="hint">${escapeHtml(p.category)}${p.notes ? ' · ' + escapeHtml(p.notes) : ''}</span></td>
+        <td>${p.width_mm} × ${p.height_mm} mm</td><td>${p.bleed_mm} mm</td><td>${p.width_mm + 2 * p.bleed_mm} × ${p.height_mm + 2 * p.bleed_mm} mm</td><td>${p.safe_mm} mm</td>
+        <td><button type="button" class="ghost" data-mk-edit-preset>Ändern</button></td></tr>`).join('')}
+    </tbody></table>`;
+  }
+
+  function openMkPreset(p) {
+    mkEditingPreset = p || null;
+    const f = (id) => document.getElementById(id);
+    f('mk-preset-title').textContent = p ? 'Druckformat ändern' : 'Neues Druckformat';
+    f('mk-p-name').value = p ? p.name : '';
+    f('mk-p-category').value = p ? p.category : '';
+    f('mk-p-w').value = p ? p.width_mm : '';
+    f('mk-p-h').value = p ? p.height_mm : '';
+    f('mk-p-bleed').value = p ? p.bleed_mm : 1;
+    f('mk-p-safe').value = p ? p.safe_mm : 4;
+    f('mk-p-notes').value = p ? (p.notes || '') : '';
+    f('mk-p-delete').classList.toggle('hidden', !p);
+    document.getElementById('mk-preset-overlay').classList.remove('hidden');
+  }
+  document.getElementById('mk-presets').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-mk-edit-preset]')) return;
+    openMkPreset(mkPresets.find(p => p.id === +e.target.closest('[data-mk-preset]').dataset.mkPreset));
+  });
+  document.getElementById('mk-new-preset').addEventListener('click', () => openMkPreset(null));
+  document.getElementById('mk-preset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = (id) => document.getElementById(id);
+    const payload = {
+      name: f('mk-p-name').value, category: f('mk-p-category').value, width_mm: f('mk-p-w').value, height_mm: f('mk-p-h').value,
+      bleed_mm: f('mk-p-bleed').value, safe_mm: f('mk-p-safe').value, notes: f('mk-p-notes').value,
+    };
+    try {
+      if (mkEditingPreset) await api(`/api/marketing/presets/${mkEditingPreset.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      else await api('/api/marketing/presets', { method: 'POST', body: JSON.stringify(payload) });
+      document.getElementById('mk-preset-overlay').classList.add('hidden');
+      mkPresets = await api('/api/marketing/presets');
+      renderMkPresets();
+    } catch (err) { alert(err.message); }
+  });
+  document.getElementById('mk-p-delete').addEventListener('click', async () => {
+    if (!mkEditingPreset || !confirm(`Format „${mkEditingPreset.name}“ löschen? Bestehende Grafiken behalten ihr Format.`)) return;
+    await api(`/api/marketing/presets/${mkEditingPreset.id}`, { method: 'DELETE' });
+    document.getElementById('mk-preset-overlay').classList.add('hidden');
+    mkPresets = await api('/api/marketing/presets');
+    renderMkPresets();
+  });
+
+  document.getElementById('mk-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = (id) => document.getElementById(id);
+    try {
+      mkSettingsCache = await api('/api/marketing/settings', { method: 'PUT', body: JSON.stringify({
+        brand: f('mk-set-brand').value, logo_path: f('mk-set-logo').value, instagram_handle: f('mk-set-ig').value,
+        hashtags: f('mk-set-hashtags').value, kk_filter: f('mk-set-kk').value, default_post_time: f('mk-set-time').value,
+      }) });
+      mkKkEvents = null;
+      toast('Einstellungen gespeichert');
+    } catch (err) { alert(err.message); }
+  });
+
+  function setMkMode(mode) {
+    mkMode = mode;
+    try { localStorage.setItem('office_mk_mode', mkMode); } catch (e) { /* egal */ }
+    loadMarketing();
+  }
+  document.querySelectorAll('[data-mk-mode]').forEach(b => b.addEventListener('click', () => setMkMode(b.dataset.mkMode)));
 
   init();
 })();

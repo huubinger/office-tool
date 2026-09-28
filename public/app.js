@@ -87,16 +87,18 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'nk_ensemble'];
+  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'nk_ensemble'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble',
+    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble', finder: 'Finder',
   };
   let activeTab = null;
 
   function can(tab) {
     // Ensemble ist privat und nur für Admins, unabhängig von den Reiter-Freigaben
     if (tab === 'nk_ensemble') return !!currentUser.is_admin;
+    // Finder: Admins immer, alle anderen nur mit ausdrücklicher Freigabe
+    if (tab === 'finder') return !!currentUser.is_admin || (currentUser.tabs || []).includes('finder');
     return !currentUser.tabs || currentUser.tabs.includes(tab);
   }
 
@@ -124,6 +126,7 @@
     if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
     if (tab === 'nk_ensemble') { loadEnsemble(); }
+    if (tab === 'finder') { loadFinder(); }
   }
 
   document.querySelectorAll('.sidebar .tab-btn').forEach(btn => {
@@ -135,6 +138,7 @@
     document.querySelectorAll('.sidebar .tab-btn').forEach(btn => btn.classList.toggle('hidden', !can(btn.dataset.tab)));
     const anyNk = can('nk_polls') || can('nk_projects') || can('nk_ensemble');
     document.getElementById('nk-section-label').classList.toggle('hidden', !anyNk);
+    document.getElementById('kreatief-section-label').classList.toggle('hidden', !can('finder'));
     const anyMain = LEGACY_TABS.some(can);
     document.querySelector('.sidebar-section-label').classList.toggle('hidden', !anyMain);
 
@@ -3004,6 +3008,7 @@
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'],
     ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'],
+    ['finder', 'Kreatief · Finder'],
   ];
   const TAB_PRESETS = {
     nk: ['nk_polls', 'nk_projects'],
@@ -4712,6 +4717,296 @@
       toast('Gespeichert');
       loadEnsemble();
     } catch (err) { alert(err.message); }
+  });
+
+  // ================= FINDER (Kreatief) =================
+  // Fördergeld-, Pressekontakt- und Sponsorensuche per KI-Websuche. Die Suche läuft auf dem
+  // Server im Hintergrund; hier wird der Stand alle paar Sekunden abgefragt.
+  const FINDER_MODES = {
+    foerder: {
+      intro: 'Sucht im Internet nach Förderprogrammen für den Kreatief e.V. – von Stadt und Landkreis über Land, Bund und EU bis zu Stiftungen. Gib an, um welche Förderrichtung es gehen soll.',
+      categoryLabel: 'Förderrichtung',
+      categoryPlaceholder: 'z.B. Musik & Konzerte',
+      categories: ['Musik & Konzerte', 'Kulturarbeit allgemein', 'Soziokultur', 'Kinder & Jugend', 'Integration & Inklusion', 'Ehrenamt & Vereinsarbeit', 'Veranstaltungstechnik & Investitionen', 'Räume & Kulturkeller', 'Digitalisierung', 'Festivals & Großveranstaltungen'],
+      notesPlaceholder: 'z.B. konkretes Projekt, Budget, Zeitraum',
+      statuses: { new: 'Neu', interesting: 'Interessant', contacted: 'Beantragt', success: 'Bewilligt', declined: 'Abgelehnt / passt nicht' },
+      labels: { type: 'Fördergeber', reason: 'Warum es passt', amount: 'Förderhöhe', deadline: 'Frist', location: 'Gebiet' },
+      empty: 'Noch keine Förderprogramme gespeichert – starte oben eine Suche.',
+    },
+    presse: {
+      intro: 'Findet Zeitungen, Amtsblätter, Radio, Online-Kalender, Stadtmagazine und weitere Werbemöglichkeiten rund um den Aufführungsort – mit E-Mail-Adressen und anderen Kontaktwegen.',
+      place: true,
+      notesPlaceholder: 'z.B. Art der Veranstaltung, Zielgruppe, Datum',
+      statuses: { new: 'Neu', interesting: 'Interessant', contacted: 'Angeschrieben', success: 'Veröffentlicht', declined: 'Kein Interesse' },
+      labels: { type: 'Art', reason: 'Warum lohnend', amount: 'Kosten', deadline: 'Vorlauf / Redaktionsschluss', location: 'Ort' },
+      empty: 'Noch keine Pressekontakte gespeichert – starte oben eine Suche.',
+    },
+    sponsor: {
+      intro: 'Sucht mögliche Sponsoren im Umkreis – bevorzugt Firmen und Institutionen, die schon andere Events und Initiativen unterstützt haben (mit Beleg) – samt Kontaktdaten.',
+      place: true,
+      categoryLabel: 'Branche / Schwerpunkt (optional)',
+      categoryPlaceholder: 'z.B. Handwerk, Banken, Autoindustrie',
+      categories: ['Banken & Sparkassen', 'Energieversorger & Stadtwerke', 'Industrie & Automobil', 'Handwerk', 'Handel & Gastronomie', 'Stiftungen'],
+      notesPlaceholder: 'z.B. Veranstaltung, gesuchte Summe, Gegenleistungen',
+      statuses: { new: 'Neu', interesting: 'Interessant', contacted: 'Angefragt', success: 'Zugesagt', declined: 'Abgesagt' },
+      labels: { type: 'Branche', reason: 'Hat schon unterstützt', amount: 'Typische Höhe', deadline: 'Fristen', location: 'Sitz' },
+      empty: 'Noch keine Sponsoren gespeichert – starte oben eine Suche.',
+    },
+  };
+  let finderMode = 'foerder';
+  let finderSearches = [];
+  let finderResults = [];
+  let finderPoll = null;
+  let finderFilter = { search: '', status: '' };
+  try { finderMode = localStorage.getItem('office_finder_mode') || 'foerder'; } catch (e) { /* egal */ }
+  if (!FINDER_MODES[finderMode]) finderMode = 'foerder';
+
+  function finderParamsText(s) {
+    const p = s.params || {};
+    if (s.kind === 'foerder') return p.category || '';
+    return `${p.place || ''} · ${p.radius || ''} km${p.category ? ` · ${p.category}` : ''}`;
+  }
+  function finderDate(iso) {
+    const d = new Date(String(iso).replace(' ', 'T') + 'Z');
+    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  const finderUrl = (u) => (/^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : null);
+  function finderLinkify(text) {
+    return escapeHtml(text).replace(/https?:\/\/[^\s,;<]+/g, (m) => `<a href="${m}" target="_blank" rel="noopener">${m.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</a>`);
+  }
+
+  function renderFinderForm() {
+    const m = FINDER_MODES[finderMode];
+    document.querySelectorAll('[data-finder-mode]').forEach(b => b.classList.toggle('active', b.dataset.finderMode === finderMode));
+    document.getElementById('finder-intro').textContent = m.intro;
+    document.getElementById('finder-form').dataset.mode = finderMode;
+    const catWrap = document.querySelector('.finder-field-category');
+    catWrap.classList.toggle('hidden', !m.categoryLabel);
+    if (m.categoryLabel) {
+      document.getElementById('finder-category-label').textContent = m.categoryLabel;
+      const cat = document.getElementById('finder-category');
+      cat.placeholder = m.categoryPlaceholder;
+      cat.required = finderMode === 'foerder';
+      document.getElementById('finder-category-list').innerHTML = m.categories.map(c => `<option value="${escapeHtml(c)}">`).join('');
+    }
+    document.querySelector('.finder-field-place').classList.toggle('hidden', !m.place);
+    document.querySelector('.finder-field-radius').classList.toggle('hidden', !m.place);
+    document.getElementById('finder-place').required = !!m.place;
+    document.getElementById('finder-notes').placeholder = m.notesPlaceholder;
+    document.getElementById('finder-filter-status').innerHTML = '<option value="">Alle Status</option>' +
+      Object.entries(m.statuses).map(([k, v]) => `<option value="${k}" ${finderFilter.status === k ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  }
+
+  async function loadFinder() {
+    renderFinderForm();
+    const mode = finderMode;
+    const [searches, results] = await Promise.all([
+      api(`/api/finder/searches?kind=${mode}`),
+      api(`/api/finder/results?kind=${mode}`),
+    ]);
+    if (mode !== finderMode) return;
+    finderSearches = searches;
+    finderResults = results;
+    renderFinderStatus();
+    renderFinderResults();
+    scheduleFinderPoll();
+  }
+
+  function scheduleFinderPoll() {
+    clearTimeout(finderPoll);
+    if (!finderSearches.some(s => s.status === 'running')) return;
+    finderPoll = setTimeout(async () => {
+      const running = finderSearches.filter(s => s.status === 'running');
+      let finished = null;
+      for (const s of running) {
+        try {
+          const fresh = await api(`/api/finder/searches/${s.id}`);
+          if (fresh.status !== 'running') finished = fresh;
+        } catch (e) { /* nächster Versuch */ }
+      }
+      if (finished) {
+        toast(finished.status === 'done' ? `Suche fertig: ${finished.result_count} neue Treffer` : 'Suche fehlgeschlagen');
+        if (activeTab === 'finder') return loadFinder();
+        finderSearches = finderSearches.filter(s => s.status !== 'running');
+      }
+      scheduleFinderPoll();
+    }, 5000);
+  }
+
+  function renderFinderStatus() {
+    const running = finderSearches.find(s => s.status === 'running');
+    const runEl = document.getElementById('finder-running');
+    runEl.classList.toggle('hidden', !running);
+    document.getElementById('finder-submit').disabled = !!running;
+    if (running) {
+      runEl.innerHTML = `<span class="finder-spinner"></span><div><strong>Suche läuft …</strong><span>${escapeHtml(finderParamsText(running))} · gestartet ${finderDate(running.created_at)}</span></div>`;
+    }
+    const last = finderSearches.find(s => s.status !== 'running');
+    const lastEl = document.getElementById('finder-last');
+    const showLast = last && !running;
+    lastEl.classList.toggle('hidden', !showLast);
+    if (showLast) {
+      lastEl.classList.toggle('is-error', last.status === 'error');
+      lastEl.innerHTML = last.status === 'error'
+        ? `<strong>Letzte Suche fehlgeschlagen</strong> (${escapeHtml(finderParamsText(last))}): ${escapeHtml(last.error || '')}`
+        : `<strong>Letzte Suche</strong> · ${escapeHtml(finderParamsText(last))} · ${finderDate(last.finished_at || last.created_at)} · ${last.result_count} neue Treffer${last.summary ? `<p>${escapeHtml(last.summary)}</p>` : ''}`;
+    }
+    const sel = document.getElementById('finder-filter-search');
+    if (finderFilter.search && !finderSearches.some(s => String(s.id) === finderFilter.search)) finderFilter.search = '';
+    sel.innerHTML = '<option value="">Alle Suchen</option>' + finderSearches.filter(s => s.status === 'done').map(s =>
+      `<option value="${s.id}" ${finderFilter.search === String(s.id) ? 'selected' : ''}>${escapeHtml(finderParamsText(s))} (${finderDate(s.created_at).slice(0, 10)})</option>`).join('');
+  }
+
+  function filteredFinderResults() {
+    return finderResults.filter(r =>
+      (!finderFilter.search || String(r.search_id) === finderFilter.search) &&
+      (!finderFilter.status || r.status === finderFilter.status));
+  }
+
+  function renderFinderResults() {
+    const m = FINDER_MODES[finderMode];
+    const list = filteredFinderResults();
+    document.getElementById('finder-count').textContent = list.length;
+    const el = document.getElementById('finder-results');
+    if (!list.length) {
+      el.innerHTML = `<div class="empty-card"><div class="empty-card-icon">🔎</div><strong>${finderResults.length ? 'Keine Treffer für diesen Filter' : 'Noch nichts gefunden'}</strong><span>${finderResults.length ? 'Filter oben ändern.' : escapeHtml(m.empty)}</span></div>`;
+      return;
+    }
+    const row = (label, val) => val ? `<div class="finder-meta"><span>${escapeHtml(label)}</span><strong>${escapeHtml(val)}</strong></div>` : '';
+    el.innerHTML = list.map(r => {
+      const mails = String(r.email || '').split(/[,;\s]+/).filter(x => x.includes('@'));
+      const web = finderUrl(r.website);
+      const src = finderUrl(r.source_url);
+      return `
+      <article class="finder-card status-${r.status}" data-finder-id="${r.id}">
+        <div class="finder-card-head">
+          <div class="finder-card-title">
+            <h4>${web ? `<a href="${escapeHtml(web)}" target="_blank" rel="noopener">${escapeHtml(r.name)}</a>` : escapeHtml(r.name)}</h4>
+            ${r.type ? `<span class="finder-type">${escapeHtml(r.type)}</span>` : ''}
+          </div>
+          <div class="finder-card-actions">
+            <select data-finder-status aria-label="Status">${Object.entries(m.statuses).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('')}</select>
+            <button type="button" class="icon-btn" data-finder-delete title="Eintrag löschen">✕</button>
+          </div>
+        </div>
+        ${r.description ? `<p class="finder-desc">${escapeHtml(r.description)}</p>` : ''}
+        ${r.reason ? `<div class="finder-reason"><span>${escapeHtml(m.labels.reason)}</span>${escapeHtml(r.reason)}</div>` : ''}
+        <div class="finder-metas">
+          ${row(m.labels.amount, r.amount)}${row(m.labels.deadline, r.deadline)}${row(m.labels.location, r.location)}
+        </div>
+        <div class="finder-contact">
+          ${r.contact_person ? `<div>👤 ${escapeHtml(r.contact_person)}</div>` : ''}
+          ${mails.length ? `<div>✉️ ${mails.map(x => `<a href="mailto:${escapeHtml(x)}">${escapeHtml(x)}</a>`).join(', ')}</div>` : (r.email ? `<div>✉️ ${escapeHtml(r.email)}</div>` : '')}
+          ${r.phone ? `<div>📞 <a href="tel:${escapeHtml(r.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(r.phone)}</a></div>` : ''}
+          ${r.other_contact ? `<div>🔗 ${finderLinkify(r.other_contact)}</div>` : ''}
+          ${!r.contact_person && !r.email && !r.phone && !r.other_contact ? '<div class="finder-muted">Keine Kontaktdaten gefunden – ggf. über die Website.</div>' : ''}
+        </div>
+        <textarea class="finder-notes" data-finder-notes rows="1" placeholder="Eigene Notiz …">${escapeHtml(r.notes || '')}</textarea>
+        <div class="finder-card-foot">
+          ${src ? `<a href="${escapeHtml(src)}" target="_blank" rel="noopener">Quelle ansehen ↗</a>` : '<span></span>'}
+          <span>gefunden ${finderDate(r.created_at).slice(0, 10)}</span>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  async function updateFinderResult(id, patch) {
+    const updated = await api(`/api/finder/results/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+    finderResults = finderResults.map(r => (r.id === updated.id ? updated : r));
+    return updated;
+  }
+
+  document.getElementById('finder-results').addEventListener('change', async (e) => {
+    const card = e.target.closest('[data-finder-id]');
+    if (!card) return;
+    const id = +card.dataset.finderId;
+    try {
+      if (e.target.matches('[data-finder-status]')) {
+        const r = await updateFinderResult(id, { status: e.target.value });
+        card.className = `finder-card status-${r.status}`;
+        if (finderFilter.status) renderFinderResults();
+      } else if (e.target.matches('[data-finder-notes]')) {
+        await updateFinderResult(id, { notes: e.target.value });
+        toast('Notiz gespeichert');
+      }
+    } catch (err) { alert(err.message); }
+  });
+  document.getElementById('finder-results').addEventListener('click', async (e) => {
+    if (!e.target.closest('[data-finder-delete]')) return;
+    const card = e.target.closest('[data-finder-id]');
+    const r = finderResults.find(x => x.id === +card.dataset.finderId);
+    if (!r || !confirm(`„${r.name}“ aus der Liste löschen?`)) return;
+    await api(`/api/finder/results/${r.id}`, { method: 'DELETE' });
+    finderResults = finderResults.filter(x => x.id !== r.id);
+    renderFinderResults();
+  });
+
+  document.querySelectorAll('[data-finder-mode]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.finderMode === finderMode) return;
+    finderMode = b.dataset.finderMode;
+    finderFilter = { search: '', status: '' };
+    try { localStorage.setItem('office_finder_mode', finderMode); } catch (e) { /* egal */ }
+    document.getElementById('finder-category').value = '';
+    document.getElementById('finder-notes').value = '';
+    finderResults = [];
+    finderSearches = [];
+    renderFinderStatus();
+    renderFinderResults();
+    loadFinder();
+  }));
+  document.getElementById('finder-filter-search').addEventListener('change', (e) => { finderFilter.search = e.target.value; renderFinderResults(); });
+  document.getElementById('finder-filter-status').addEventListener('change', (e) => { finderFilter.status = e.target.value; renderFinderResults(); });
+
+  document.getElementById('finder-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      kind: finderMode,
+      category: document.getElementById('finder-category').value.trim(),
+      place: document.getElementById('finder-place').value.trim(),
+      radius: document.getElementById('finder-radius').value,
+      notes: document.getElementById('finder-notes').value.trim(),
+    };
+    const btn = document.getElementById('finder-submit');
+    btn.disabled = true;
+    try {
+      const s = await api('/api/finder/searches', { method: 'POST', body: JSON.stringify(payload) });
+      finderSearches.unshift(s);
+      renderFinderStatus();
+      scheduleFinderPoll();
+    } catch (err) {
+      alert(err.message);
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('finder-copy-mails').addEventListener('click', async () => {
+    const mails = [...new Set(filteredFinderResults().flatMap(r => String(r.email || '').split(/[,;\s]+/).filter(x => x.includes('@'))))];
+    if (!mails.length) return toast('Keine E-Mail-Adressen in der Liste');
+    try {
+      await navigator.clipboard.writeText(mails.join('; '));
+      toast(`${mails.length} E-Mail-Adressen kopiert`);
+    } catch (err) {
+      prompt('E-Mail-Adressen:', mails.join('; '));
+    }
+  });
+
+  document.getElementById('finder-export').addEventListener('click', () => {
+    const m = FINDER_MODES[finderMode];
+    const cols = [
+      ['name', 'Name'], ['type', m.labels.type], ['description', 'Beschreibung'], ['reason', m.labels.reason],
+      ['amount', m.labels.amount], ['deadline', m.labels.deadline], ['location', m.labels.location],
+      ['contact_person', 'Ansprechpartner'], ['email', 'E-Mail'], ['phone', 'Telefon'], ['other_contact', 'Weitere Kontaktwege'],
+      ['website', 'Website'], ['source_url', 'Quelle'], ['status', 'Status'], ['notes', 'Notiz'],
+    ];
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [cols.map(c => cell(c[1])).join(';')].concat(filteredFinderResults().map(r =>
+      cols.map(([k]) => cell(k === 'status' ? m.statuses[r.status] : r[k])).join(';')));
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${{ foerder: 'Foerdergelder', presse: 'Pressekontakte', sponsor: 'Sponsoren' }[finderMode]}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
 
   init();

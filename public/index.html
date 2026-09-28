@@ -66,6 +66,13 @@
         <span class="private-chip" title="Nur für dich sichtbar">privat</span>
       </button>
     </nav>
+    <div class="sidebar-section-label" id="kreatief-section-label">Kreatief</div>
+    <nav class="tabs" id="kreatief-tabs">
+      <button class="tab-btn" data-tab="finder" data-title="Finder" data-group="Kreatief">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="8.5" cy="8.5" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M12.3 12.3l4.2 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8.5 6v5M6 8.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        Finder
+      </button>
+    </nav>
   </aside>
 
   <!-- Wird per JS aus den freigegebenen Reitern aufgebaut (max. 4 + "Mehr") -->
@@ -653,6 +660,60 @@
       </div>
     </div>
     <div id="nk-concert-detail-view" class="hidden"></div>
+  </section>
+
+  <!-- ===================== KREATIEF: FINDER ===================== -->
+  <section id="tab-finder" class="tab-panel">
+    <div class="finder-modes" role="tablist">
+      <button type="button" class="finder-mode active" data-finder-mode="foerder"><span>💶</span> Fördergelder</button>
+      <button type="button" class="finder-mode" data-finder-mode="presse"><span>📰</span> Pressekontakte</button>
+      <button type="button" class="finder-mode" data-finder-mode="sponsor"><span>🤝</span> Sponsoren</button>
+    </div>
+
+    <div class="card finder-search-card">
+      <p class="section-intro" id="finder-intro"></p>
+      <form id="finder-form" class="finder-form">
+        <label class="finder-field-place">Ort der Aufführung
+          <input type="text" id="finder-place" placeholder="z.B. Neckarsulm" autocomplete="off">
+        </label>
+        <label class="finder-field-radius">Umkreis
+          <select id="finder-radius">
+            <option value="10">10 km</option>
+            <option value="25" selected>25 km</option>
+            <option value="50">50 km</option>
+            <option value="75">75 km</option>
+            <option value="100">100 km</option>
+          </select>
+        </label>
+        <label class="finder-field-category">
+          <span id="finder-category-label">Förderrichtung</span>
+          <input type="text" id="finder-category" list="finder-category-list" autocomplete="off">
+          <datalist id="finder-category-list"></datalist>
+        </label>
+        <label class="finder-field-notes">Zusätzliche Hinweise <span class="finder-optional">(optional)</span>
+          <input type="text" id="finder-notes" autocomplete="off">
+        </label>
+        <div class="finder-submit-row">
+          <button type="submit" id="finder-submit">Suche starten</button>
+          <span class="hint">Die KI durchsucht das Internet – das dauert meist 1 bis 3 Minuten. Du kannst solange weiterarbeiten.</span>
+        </div>
+      </form>
+      <div id="finder-running" class="finder-running hidden"></div>
+      <div id="finder-last" class="finder-last hidden"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-card-head">
+        <h3>Gespeicherte Treffer <span class="count-chip" id="finder-count">0</span></h3>
+        <div class="finder-tools">
+          <select id="finder-filter-search" aria-label="Nach Suche filtern"></select>
+          <select id="finder-filter-status" aria-label="Nach Status filtern"></select>
+          <button type="button" class="ghost" id="finder-copy-mails">E-Mails kopieren</button>
+          <button type="button" class="ghost" id="finder-export">CSV</button>
+        </div>
+      </div>
+      <div id="finder-results" class="finder-results"></div>
+    </div>
   </section>
 
   <!-- ===================== NK: ENSEMBLE (privat) ===================== -->

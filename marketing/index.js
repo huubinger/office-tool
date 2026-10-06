@@ -122,6 +122,53 @@ CREATE TABLE IF NOT EXISTS mk_design_versions (
 );
 `);
 
+// ---------- Konten (mehrere Instagram-/Facebook-Auftritte) ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS mk_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  handle TEXT,
+  about TEXT,
+  brand TEXT,
+  logo_path TEXT,
+  hashtags TEXT,
+  kk_filter TEXT,
+  website TEXT,
+  token TEXT,
+  token_kind TEXT,
+  token_expires TEXT,
+  token_refreshed_at TEXT,
+  ig_user_id TEXT,
+  ig_username TEXT,
+  fb_page_id TEXT,
+  fb_page_name TEXT,
+  sort INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+`);
+if (!db.prepare("SELECT 1 FROM pragma_table_info('mk_campaigns') WHERE name = 'account_id'").get()) {
+  db.exec('ALTER TABLE mk_campaigns ADD COLUMN account_id INTEGER REFERENCES mk_accounts(id) ON DELETE SET NULL');
+}
+if (!db.prepare('SELECT 1 FROM mk_accounts LIMIT 1').get()) {
+  // Startkonten; die bisherigen (globalen) Markenvorgaben und Meta-Variablen gehoeren zu Kreatief
+  const old = Object.fromEntries(db.prepare('SELECT key, value FROM mk_settings').all().map(r => [r.key, r.value || '']));
+  const ins = db.prepare(`INSERT INTO mk_accounts (name, handle, about, brand, logo_path, hashtags, kk_filter, website, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const kreatief = ins.run('Kreatief', '@daskreatief',
+    'Kulturverein „Kreatief – Kultur im Unterland e.V.“ aus Neckarsulm: Konzerte, Musicals, Kabarett und Kleinkunst im Kreatief-Kulturkeller und in der Region.',
+    old.brand || '', old.logo_path || '', old.hashtags || '', old.kk_filter || 'Kreatief', 'www.kreatief-neckarsulm.de', 1).lastInsertRowid;
+  ins.run('Martin Renner', '@singt.martin',
+    'Martin Renner – Sänger, Chorleiter und Musicaldarsteller aus dem Raum Neckarsulm/Heilbronn. Persönlicher Kanal: eigene Auftritte, Konzerte, Chöre, Einblicke in Proben und Musik.',
+    '', '', '', '', 'www.martinrenner.de', 2);
+  ins.run('Voctails', '@voctails',
+    'Voctails – Vokalensemble. Konzerte und Auftritte, Einblicke in Proben und die Menschen im Ensemble.',
+    '', '', '', 'Voctails', 'www.voctails.de', 3);
+  db.prepare('UPDATE mk_campaigns SET account_id = ? WHERE account_id IS NULL').run(kreatief);
+  if (process.env.META_PAGE_TOKEN && (process.env.META_PAGE_ID || process.env.META_IG_USER_ID)) {
+    db.prepare(`UPDATE mk_accounts SET token = ?, token_kind = 'facebook', fb_page_id = ?, ig_user_id = ? WHERE id = ?`)
+      .run(process.env.META_PAGE_TOKEN, process.env.META_PAGE_ID || null, process.env.META_IG_USER_ID || null, kreatief);
+  }
+}
+
 // Flyeralarm-Formate als Startwerte (in der App anpassbar). Datenformat = Endformat + Beschnitt je Seite.
 if (!db.prepare('SELECT 1 FROM mk_presets LIMIT 1').get()) {
   const ins = db.prepare('INSERT INTO mk_presets (name, category, width_mm, height_mm, bleed_mm, safe_mm, notes, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
@@ -171,14 +218,23 @@ function fmtDateDE(iso) {
   return d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
-const SETTING_KEYS = ['brand', 'logo_path', 'hashtags', 'instagram_handle', 'kk_filter', 'default_post_time'];
+const SETTING_KEYS = ['default_post_time'];
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM mk_settings').all();
   const s = Object.fromEntries(SETTING_KEYS.map(k => [k, '']));
   for (const r of rows) if (SETTING_KEYS.includes(r.key)) s[r.key] = r.value || '';
-  if (!s.kk_filter) s.kk_filter = 'Kreatief';
   if (!s.default_post_time) s.default_post_time = '18:00';
   return s;
+}
+
+const ACCOUNT_FIELDS = ['name', 'handle', 'about', 'brand', 'logo_path', 'hashtags', 'kk_filter', 'website'];
+function getAccount(id) {
+  return (id && db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(id)) || db.prepare('SELECT * FROM mk_accounts ORDER BY sort, id LIMIT 1').get() || {};
+}
+// Fuer die Oberflaeche: ohne Token
+function accountRow(a) {
+  const { token, ...rest } = a;
+  return { ...rest, connected: !!token, status: meta.accountStatus(a) };
 }
 
 function saveFile(buf, ext) {
@@ -246,11 +302,11 @@ async function fullImageFor(c, forPrint) {
   return dropbox.thumbnail(c.path, 'w2048h1536');
 }
 
-async function loadLogo(settings) {
-  if (!settings.logo_path || !dropbox.isConfigured()) return null;
+async function loadLogo(account) {
+  if (!account || !account.logo_path || !dropbox.isConfigured()) return null;
   try {
     // PNG direkt (Transparenz bleibt erhalten), alles andere als JPEG-Vorschau von Dropbox
-    return /\.png$/i.test(settings.logo_path) ? await dropbox.download(settings.logo_path) : await dropbox.thumbnail(settings.logo_path, 'w1024h768');
+    return /\.png$/i.test(account.logo_path) ? await dropbox.download(account.logo_path) : await dropbox.thumbnail(account.logo_path, 'w1024h768');
   } catch (e) {
     console.error('[Marketing] Logo konnte nicht geladen werden:', e.message);
     return null;
@@ -282,7 +338,7 @@ const DESIGN_TOOL = {
 
 const fontList = Object.entries(FONTS).map(([f, d]) => `- "${f}": ${d}`).join('\n');
 
-const SYSTEM = `Du bist Art Director und Social-Media-Profi einer renommierten Agentur für Theater-, Musical- und Konzertwerbung. Du gestaltest für den Kulturverein „Kreatief – Kultur im Unterland e.V.“ (Neckarsulm) Werbemittel, die aussehen wie von professionellen Grafikdesignern und ein Ziel haben: Menschen sollen Tickets kaufen und zur Veranstaltung kommen.
+const SYSTEM = `Du bist Art Director und Social-Media-Profi einer renommierten Agentur für Theater-, Musical- und Konzertwerbung. Du gestaltest für Kulturveranstalter, Ensembles und Künstler aus der Region Neckarsulm/Heilbronn Werbemittel, die aussehen wie von professionellen Grafikdesignern und ein Ziel haben: Menschen sollen Tickets kaufen und zur Veranstaltung kommen. Für wen du gerade arbeitest, steht in der Aufgabe (Absender/Konto) – Tonfall, Ansprache und Look passen zu genau diesem Absender.
 
 Gestaltung
 - Starke visuelle Idee statt Vorlagen-Look: klare Hierarchie (ein dominantes Element, eine Headline), großzügiger Weißraum, bewusste Typo-Kontraste, max. 2–3 Schriften, eine prägnante Farbwelt (aus den Fotos oder den Markenvorgaben abgeleitet).
@@ -329,11 +385,13 @@ function eventBlock(c) {
 - Tickets: ${c.ticket_url || '–'}${c.price ? `\n- Eintritt: ${c.price}` : ''}${c.description ? `\n- Beschreibung: ${c.description}` : ''}${c.style_brief ? `\n- Gestaltungswünsche für diese Kampagne: ${c.style_brief}` : ''}${c.notes ? `\n- Weitere Infos/Hinweise: ${c.notes}` : ''}`;
 }
 
-function brandBlock(s) {
-  const parts = [];
-  if (s.brand) parts.push(`Markenvorgaben Kreatief: ${s.brand}`);
-  if (s.instagram_handle) parts.push(`Instagram-Konto: ${s.instagram_handle}`);
-  if (s.hashtags) parts.push(`Feste Hashtags (immer verwenden): ${s.hashtags}`);
+function brandBlock(a) {
+  if (!a || !a.name) return '';
+  const parts = [`Absender/Konto: ${a.name}${a.handle ? ` (${a.handle})` : ''}`];
+  if (a.about) parts.push(`Wer das ist: ${a.about}`);
+  if (a.brand) parts.push(`Markenvorgaben ${a.name}: ${a.brand}`);
+  if (a.website) parts.push(`Website: ${a.website}`);
+  if (a.hashtags) parts.push(`Feste Hashtags (immer verwenden): ${a.hashtags}`);
   return parts.join('\n');
 }
 
@@ -428,10 +486,10 @@ async function generatePost(postId) {
   const post = db.prepare('SELECT * FROM mk_posts WHERE id = ?').get(postId);
   const campaign = db.prepare('SELECT * FROM mk_campaigns WHERE id = ?').get(post.campaign_id);
   try {
-    const settings = getSettings();
+    const account = getAccount(campaign.account_id);
     const candidates = await pickCandidates(campaign);
     const { blocks, loaded } = await candidateBlocks(candidates);
-    const logo = await loadLogo(settings);
+    const logo = await loadLogo(account);
     const history = db.prepare(`SELECT post_date, kind, media_type, angle, headline FROM mk_posts WHERE campaign_id = ? AND id != ? AND status NOT IN ('rejected', 'error', 'generating') ORDER BY post_date DESC LIMIT 14`).all(campaign.id, post.id);
     const daysLeft = daysBetween(post.post_date, campaign.event_date);
     const kindRule = campaign.post_kind === 'auto'
@@ -442,7 +500,7 @@ async function generatePost(postId) {
 
 ${eventBlock(campaign)}
 
-${brandBlock(settings)}
+${brandBlock(account)}
 
 Aufgabe: Gestalte den Post für ${fmtDateDE(post.post_date)} (Veröffentlichung ${post.publish_at.slice(11)} Uhr). ${daysLeft > 0 ? `Noch ${daysLeft} ${daysLeft === 1 ? 'Tag' : 'Tage'} bis zur Veranstaltung.` : daysLeft === 0 ? 'Die Veranstaltung ist HEUTE.' : 'Die Veranstaltung ist schon vorbei – Dank/Rückblick.'}
 ${kindRule}
@@ -525,7 +583,8 @@ async function publishPost(postId) {
   const post = db.prepare('SELECT * FROM mk_posts WHERE id = ?').get(postId);
   const campaign = post.campaign_id ? db.prepare('SELECT * FROM mk_campaigns WHERE id = ?').get(post.campaign_id) : null;
   const platforms = JSON.parse(post.platforms || '[]');
-  const st = meta.status();
+  const account = getAccount(campaign && campaign.account_id);
+  const st = meta.accountStatus(account);
   db.prepare(`UPDATE mk_posts SET status = 'publishing', error = NULL WHERE id = ?`).run(post.id);
   const errors = [];
   let igId = post.ig_media_id;
@@ -535,15 +594,15 @@ async function publishPost(postId) {
       ? await dropbox.temporaryLink(post.video_path)
       : `${publicBaseUrl()}/m/${post.image_file}`;
     if (platforms.includes('instagram') && !igId) {
-      if (!st.instagram) errors.push('Instagram ist nicht verbunden');
+      if (!st.instagram) errors.push(`Instagram ist für ${account.handle || account.name} nicht verbunden`);
       else {
-        try { igId = await meta.publishInstagram({ kind: post.kind, mediaType: post.media_type, url, caption: post.caption }); } catch (e) { errors.push(`Instagram: ${e.message}`); }
+        try { igId = await meta.publishInstagram(account, { kind: post.kind, mediaType: post.media_type, url, caption: post.caption }); } catch (e) { errors.push(`Instagram: ${e.message}`); }
       }
     }
     if (platforms.includes('facebook') && !fbId) {
-      if (!st.facebook) errors.push('Facebook ist nicht verbunden');
+      if (!st.facebook) errors.push(`Facebook ist für ${account.handle || account.name} nicht verbunden`);
       else {
-        try { fbId = await meta.publishFacebook({ kind: post.kind, mediaType: post.media_type, url, caption: facebookCaption(post, campaign) }); } catch (e) { errors.push(`Facebook: ${e.message}`); }
+        try { fbId = await meta.publishFacebook(account, { kind: post.kind, mediaType: post.media_type, url, caption: facebookCaption(post, campaign) }); } catch (e) { errors.push(`Facebook: ${e.message}`); }
       }
     }
   } catch (e) {
@@ -558,13 +617,15 @@ async function publishPost(postId) {
 let publishing = false;
 async function publishDue() {
   if (publishing) return;
-  const st = meta.status();
-  if (!st.instagram && !st.facebook) return;
   publishing = true;
   try {
     const now = berlinNow();
-    const due = db.prepare(`SELECT id FROM mk_posts WHERE status = 'approved' AND publish_at <= ? ORDER BY publish_at`).all(`${now.date} ${now.time}`);
-    for (const p of due) await publishPost(p.id);
+    const due = db.prepare(`SELECT p.id, c.account_id FROM mk_posts p LEFT JOIN mk_campaigns c ON c.id = p.campaign_id
+      WHERE p.status = 'approved' AND p.publish_at <= ? ORDER BY p.publish_at`).all(`${now.date} ${now.time}`);
+    for (const p of due) {
+      const st = meta.accountStatus(getAccount(p.account_id));
+      if (st.instagram || st.facebook) await publishPost(p.id);
+    }
   } finally {
     publishing = false;
   }
@@ -582,6 +643,21 @@ function planDaily() {
 }
 
 cron.schedule('*/5 * * * *', () => { publishDue().catch(e => console.error('[Marketing] Veröffentlichen:', e.message)); }, { timezone: 'Europe/Berlin' });
+// Instagram-Login-Token laufen nach 60 Tagen ab -> alle 3 Wochen verlaengern
+async function refreshTokens() {
+  const due = db.prepare(`SELECT * FROM mk_accounts WHERE token_kind = 'instagram' AND token IS NOT NULL
+    AND (token_refreshed_at IS NULL OR token_refreshed_at <= datetime('now', '-21 days'))`).all();
+  for (const a of due) {
+    try {
+      const r = await meta.refreshInstagramToken(a.token);
+      db.prepare(`UPDATE mk_accounts SET token = ?, token_refreshed_at = datetime('now'), token_expires = datetime('now', ?) WHERE id = ?`)
+        .run(r.token, `+${Math.round((r.expiresIn || 5184000) / 86400)} days`, a.id);
+    } catch (e) {
+      console.error('[Marketing] Instagram-Token konnte nicht verlängert werden:', a.handle, e.message);
+    }
+  }
+}
+cron.schedule('30 4 * * *', () => { refreshTokens().catch(e => console.error('[Marketing] Token:', e.message)); }, { timezone: 'Europe/Berlin' });
 cron.schedule('0 7 * * *', () => { try { planDaily(); } catch (e) { console.error('[Marketing] Tagesplanung:', e.message); } }, { timezone: 'Europe/Berlin' });
 
 // ---------- Druck-Grafiken ----------
@@ -599,15 +675,15 @@ async function generateDesign(designId, feedback, baseVersionId) {
   const d = db.prepare('SELECT * FROM mk_designs WHERE id = ?').get(designId);
   try {
     const format = designFormat(d);
-    const settings = getSettings();
     const campaign = d.campaign_id ? db.prepare('SELECT * FROM mk_campaigns WHERE id = ?').get(d.campaign_id) : null;
+    const account = getAccount(campaign && campaign.account_id);
     const W = Math.round((format.width_mm + 2 * format.bleed_mm) * 10);
     const H = Math.round((format.height_mm + 2 * format.bleed_mm) * 10);
     const media = JSON.parse(d.media || '[]');
     const candidates = media.map((p, i) => ({ id: `img${i + 1}`, source: 'dropbox', path: p, name: p.split('/').pop(), media: 'image' }));
     if (!candidates.length && campaign && campaign.kk_image_url) candidates.push({ id: 'img1', source: 'url', url: campaign.kk_image_url, name: 'Veranstaltungsbild (Kulturkalender)', media: 'image' });
     const { blocks, loaded } = await candidateBlocks(candidates);
-    const logo = await loadLogo(settings);
+    const logo = await loadLogo(account);
     const base = baseVersionId
       ? db.prepare('SELECT * FROM mk_design_versions WHERE id = ? AND design_id = ?').get(baseVersionId, d.id)
       : null;
@@ -618,7 +694,7 @@ Endformat-Bereich: x ${format.bleed_mm * 10} bis ${W - format.bleed_mm * 10}, y 
 
 ${campaign ? eventBlock(campaign) : ''}
 
-${brandBlock(settings)}
+${brandBlock(account)}
 
 Titel des Werbemittels: ${d.title}
 ${d.content ? `Inhalte/Informationen, die auf das Werbemittel sollen:\n${d.content}` : 'Keine zusätzlichen Inhalte angegeben – nutze die Veranstaltungsdaten.'}
@@ -675,7 +751,8 @@ async function kkEvents(filter) {
 function campaignRow(c) {
   if (!c) return c;
   const counts = db.prepare(`SELECT status, COUNT(*) AS n FROM mk_posts WHERE campaign_id = ? GROUP BY status`).all(c.id);
-  return { ...c, platforms: JSON.parse(c.platforms || '[]'), post_counts: Object.fromEntries(counts.map(r => [r.status, r.n])) };
+  const a = c.account_id ? db.prepare('SELECT name, handle FROM mk_accounts WHERE id = ?').get(c.account_id) : null;
+  return { ...c, account_name: a ? a.name : null, account_handle: a ? a.handle : null, platforms: JSON.parse(c.platforms || '[]'), post_counts: Object.fromEntries(counts.map(r => [r.status, r.n])) };
 }
 
 function campaignInput(b, existing) {
@@ -683,6 +760,7 @@ function campaignInput(b, existing) {
   const pick = (k, max) => (b[k] !== undefined ? clean(b[k], max) : e[k] ?? null);
   const out = {
     title: pick('title', 300),
+    account_id: b.account_id !== undefined ? (db.prepare('SELECT id FROM mk_accounts WHERE id = ?').get(Number(b.account_id)) || {}).id || null : e.account_id ?? getAccount(null).id ?? null,
     kk_id: b.kk_id !== undefined ? (Number(b.kk_id) || null) : e.kk_id ?? null,
     event_date: b.event_date !== undefined ? b.event_date : e.event_date,
     event_time: pick('event_time', 20),
@@ -701,6 +779,7 @@ function campaignInput(b, existing) {
     active: b.active !== undefined ? (b.active ? 1 : 0) : (e.active ?? 1),
   };
   if (!out.title) return { error: 'Bitte einen Titel angeben' };
+  if (!out.account_id) return { error: 'Bitte ein Konto wählen' };
   if (!isDate(out.event_date)) return { error: 'Bitte das Datum der Veranstaltung angeben' };
   if (!isDate(out.start_date)) out.start_date = berlinNow().date;
   if (out.start_date > out.event_date) return { error: 'Der Kampagnenstart liegt nach der Veranstaltung' };
@@ -708,7 +787,7 @@ function campaignInput(b, existing) {
   return { value: out };
 }
 
-const CAMPAIGN_COLS = ['title', 'kk_id', 'event_date', 'event_time', 'location', 'ticket_url', 'price', 'description', 'kk_image_url',
+const CAMPAIGN_COLS = ['title', 'account_id', 'kk_id', 'event_date', 'event_time', 'location', 'ticket_url', 'price', 'description', 'kk_image_url',
   'dropbox_folder', 'start_date', 'post_time', 'post_kind', 'platforms', 'style_brief', 'notes', 'active'];
 
 function register(app) {
@@ -731,17 +810,149 @@ function register(app) {
 
   app.get('/api/marketing/status', async (req, res) => {
     const pending = db.prepare(`SELECT COUNT(*) AS n FROM mk_posts WHERE status = 'pending'`).get().n;
+    const accounts = db.prepare('SELECT * FROM mk_accounts ORDER BY sort, id').all().map(accountRow);
     res.json({
       ai: !!process.env.ANTHROPIC_API_KEY,
       dropbox: dropbox.isConfigured(),
       dropbox_root: dropbox.rootPath(),
-      meta: meta.status(),
+      oauth: meta.oauthConfigured(),
+      accounts,
+      meta: { instagram: accounts.some(a => a.status.instagram), facebook: accounts.some(a => a.status.facebook) },
       pending,
     });
   });
 
-  app.get('/api/marketing/meta-check', async (req, res) => {
-    res.json(await meta.checkConnection());
+  // ---------- Konten ----------
+  app.get('/api/marketing/accounts', (req, res) => {
+    res.json(db.prepare('SELECT * FROM mk_accounts ORDER BY sort, id').all().map(accountRow));
+  });
+  app.post('/api/marketing/accounts', (req, res) => {
+    const b = req.body || {};
+    const name = clean(b.name, 200);
+    if (!name) return res.status(400).json({ error: 'Bitte einen Namen angeben' });
+    const sort = (db.prepare('SELECT MAX(sort) AS m FROM mk_accounts').get().m || 0) + 1;
+    const info = db.prepare('INSERT INTO mk_accounts (name, sort) VALUES (?, ?)').run(name, sort);
+    res.status(201).json(accountRow(db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(info.lastInsertRowid)));
+  });
+  app.put('/api/marketing/accounts/:id', (req, res) => {
+    const a = db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(req.params.id);
+    if (!a) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    const b = req.body || {};
+    const v = {};
+    for (const k of ACCOUNT_FIELDS) v[k] = b[k] !== undefined ? clean(b[k], 6000) : a[k];
+    if (!v.name) return res.status(400).json({ error: 'Bitte einen Namen angeben' });
+    if (v.handle && !v.handle.startsWith('@')) v.handle = '@' + v.handle;
+    db.prepare(`UPDATE mk_accounts SET ${ACCOUNT_FIELDS.map(k => `${k} = ?`).join(', ')} WHERE id = ?`).run(...ACCOUNT_FIELDS.map(k => v[k]), a.id);
+    res.json(accountRow(db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(a.id)));
+  });
+  app.delete('/api/marketing/accounts/:id', (req, res) => {
+    const a = db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(req.params.id);
+    if (!a) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    if (db.prepare('SELECT 1 FROM mk_campaigns WHERE account_id = ?').get(a.id)) return res.status(409).json({ error: 'Zu diesem Konto gibt es noch Kampagnen – bitte erst diese löschen oder einem anderen Konto zuordnen.' });
+    db.prepare('DELETE FROM mk_accounts WHERE id = ?').run(a.id);
+    res.status(204).end();
+  });
+  app.get('/api/marketing/accounts/:id/check', async (req, res) => {
+    const a = db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(req.params.id);
+    if (!a) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    res.json(await meta.checkAccount(a));
+  });
+  app.post('/api/marketing/accounts/:id/disconnect', (req, res) => {
+    db.prepare(`UPDATE mk_accounts SET token = NULL, token_kind = NULL, token_expires = NULL, token_refreshed_at = NULL,
+      ig_user_id = NULL, ig_username = NULL, fb_page_id = NULL, fb_page_name = NULL WHERE id = ?`).run(req.params.id);
+    res.json(accountRow(getAccount(req.params.id)));
+  });
+
+  // Gefundene Verbindungen (nach Facebook-Login oder eingefuegtem Token) kurz im Speicher halten,
+  // damit man sie einem Konto zuordnen kann. Tokens gehen nie an den Browser.
+  const linkSets = new Map();
+  const norm = (h) => String(h || '').replace(/^@/, '').trim().toLowerCase();
+  function storeOptions(options, userId) {
+    for (const [k, v] of linkSets) if (Date.now() - v.at > 3600000) linkSets.delete(k);
+    const key = crypto.randomBytes(12).toString('hex');
+    linkSets.set(key, { at: Date.now(), userId, options });
+    return key;
+  }
+  function linkAccount(accountId, o) {
+    db.prepare(`UPDATE mk_accounts SET token = ?, token_kind = ?, ig_user_id = ?, ig_username = ?, fb_page_id = ?, fb_page_name = ?,
+      token_refreshed_at = datetime('now'), token_expires = CASE WHEN ? THEN datetime('now', '+60 days') ELSE NULL END WHERE id = ?`)
+      .run(o.token, o.token_kind, o.ig_user_id, o.ig_username, o.fb_page_id, o.fb_page_name, o.token_kind === 'instagram' ? 1 : 0, accountId);
+  }
+  // Konten automatisch zuordnen, deren @Name zum gefundenen Instagram-Konto passt
+  function autoLink(options) {
+    const linked = [];
+    for (const a of db.prepare('SELECT * FROM mk_accounts').all()) {
+      const o = options.find(x => x.ig_username && norm(x.ig_username) === norm(a.handle));
+      if (o) { linkAccount(a.id, o); linked.push(`${a.name} → @${o.ig_username}${o.fb_page_name ? ` + Facebook „${o.fb_page_name}“` : ''}`); }
+    }
+    return linked;
+  }
+  const publicOptions = (options) => options.map((o, i) => ({
+    index: i, token_kind: o.token_kind, ig_username: o.ig_username, fb_page_name: o.fb_page_name,
+  }));
+
+  app.post('/api/marketing/accounts/:id/token', async (req, res) => {
+    const a = db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(req.params.id);
+    if (!a) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    try {
+      const options = await meta.resolveToken((req.body || {}).token);
+      if (!options.length) return res.status(400).json({ error: 'Mit diesem Token wurden keine Facebook-Seiten oder Instagram-Konten gefunden.' });
+      // Genau ein Treffer -> direkt diesem Konto zuordnen; sonst automatisch nach @Name, Rest zur Auswahl
+      if (options.length === 1) {
+        linkAccount(a.id, options[0]);
+        return res.json({ linked: [`${a.name} → ${options[0].ig_username ? '@' + options[0].ig_username : ''}${options[0].fb_page_name ? ` Facebook „${options[0].fb_page_name}“` : ''}`], key: null, options: [] });
+      }
+      const linked = autoLink(options);
+      res.json({ linked, key: storeOptions(options, req.user.id), options: publicOptions(options) });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/marketing/link-options/:key', (req, res) => {
+    const set = linkSets.get(req.params.key);
+    if (!set || set.userId !== req.user.id) return res.status(404).json({ error: 'Die Auswahl ist abgelaufen – bitte erneut verbinden.' });
+    res.json({ options: publicOptions(set.options) });
+  });
+  app.post('/api/marketing/accounts/:id/link', (req, res) => {
+    const a = db.prepare('SELECT * FROM mk_accounts WHERE id = ?').get(req.params.id);
+    const set = linkSets.get(String((req.body || {}).key || ''));
+    if (!a) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    if (!set || set.userId !== req.user.id) return res.status(410).json({ error: 'Die Auswahl ist abgelaufen – bitte erneut verbinden.' });
+    const o = set.options[Number(req.body.index)];
+    if (!o) return res.status(400).json({ error: 'Bitte eine Seite bzw. ein Instagram-Konto wählen' });
+    const fbOnly = req.body.only === 'facebook';
+    const igOnly = req.body.only === 'instagram';
+    linkAccount(a.id, { ...o, ig_user_id: fbOnly ? null : o.ig_user_id, ig_username: fbOnly ? null : o.ig_username,
+      fb_page_id: igOnly ? null : o.fb_page_id, fb_page_name: igOnly ? null : o.fb_page_name });
+    res.json(accountRow(getAccount(a.id)));
+  });
+
+  // "Mit Facebook verbinden": Login bei Meta, danach werden alle Seiten + Instagram-Konten gefunden
+  const oauthStates = new Map();
+  const redirectUri = () => `${publicBaseUrl()}/api/marketing/meta/callback`;
+  app.get('/api/marketing/meta/connect', (req, res) => {
+    if (!meta.oauthConfigured()) return res.status(503).send('META_APP_ID / META_APP_SECRET fehlen in Railway.');
+    for (const [k, v] of oauthStates) if (Date.now() - v.at > 900000) oauthStates.delete(k);
+    const state = crypto.randomBytes(16).toString('hex');
+    oauthStates.set(state, { at: Date.now(), userId: req.user.id });
+    res.redirect(meta.oauthUrl(redirectUri(), state));
+  });
+  app.get('/api/marketing/meta/callback', async (req, res) => {
+    const st = oauthStates.get(String(req.query.state || ''));
+    oauthStates.delete(String(req.query.state || ''));
+    const back = (params) => res.redirect(`/?${new URLSearchParams({ mk_connect: '1', ...params })}`);
+    if (!st || st.userId !== req.user.id) return back({ mk_error: 'Anmeldung abgelaufen – bitte erneut verbinden.' });
+    if (req.query.error) return back({ mk_error: String(req.query.error_description || req.query.error) });
+    try {
+      const userToken = await meta.exchangeCode(String(req.query.code || ''), redirectUri());
+      const options = (await meta.pagesForUserToken(userToken)).map(p => ({ ...p, token_kind: 'facebook' }));
+      if (!options.length) return back({ mk_error: 'Es wurden keine Facebook-Seiten gefunden. Beim Login alle Seiten (und die verknüpften Instagram-Konten) auswählen.' });
+      const linked = autoLink(options);
+      back({ mk_key: storeOptions(options, req.user.id), mk_linked: linked.join('\n') });
+    } catch (e) {
+      back({ mk_error: e.message });
+    }
   });
 
   app.get('/api/marketing/settings', (req, res) => res.json(getSettings()));
@@ -757,7 +968,7 @@ function register(app) {
   // Kulturkalender-Termine (Kreatief) zur Uebernahme in eine Kampagne
   app.get('/api/marketing/kk-events', async (req, res) => {
     try {
-      res.json(await kkEvents(req.query.all ? '' : getSettings().kk_filter));
+      res.json(await kkEvents(req.query.all ? '' : (getAccount(req.query.account_id).kk_filter || '')));
     } catch (e) {
       res.status(502).json({ error: e.message });
     }
@@ -847,12 +1058,14 @@ function register(app) {
     const params = [];
     if (req.query.campaign_id) { where.push('p.campaign_id = ?'); params.push(req.query.campaign_id); }
     if (req.query.status && POST_STATUSES.includes(req.query.status)) { where.push('p.status = ?'); params.push(req.query.status); }
-    const rows = db.prepare(`SELECT p.*, c.title AS campaign_title, c.event_date AS campaign_event_date FROM mk_posts p LEFT JOIN mk_campaigns c ON c.id = p.campaign_id
+    const rows = db.prepare(`SELECT p.*, c.title AS campaign_title, c.event_date AS campaign_event_date, c.account_id, a.name AS account_name, a.handle AS account_handle
+      FROM mk_posts p LEFT JOIN mk_campaigns c ON c.id = p.campaign_id LEFT JOIN mk_accounts a ON a.id = c.account_id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY p.post_date DESC, p.id DESC LIMIT 200`).all(...params);
     res.json(rows.map(postRow));
   });
   app.get('/api/marketing/posts/:id', (req, res) => {
-    const p = db.prepare('SELECT p.*, c.title AS campaign_title, c.event_date AS campaign_event_date FROM mk_posts p LEFT JOIN mk_campaigns c ON c.id = p.campaign_id WHERE p.id = ?').get(req.params.id);
+    const p = db.prepare(`SELECT p.*, c.title AS campaign_title, c.event_date AS campaign_event_date, c.account_id, a.name AS account_name, a.handle AS account_handle
+      FROM mk_posts p LEFT JOIN mk_campaigns c ON c.id = p.campaign_id LEFT JOIN mk_accounts a ON a.id = c.account_id WHERE p.id = ?`).get(req.params.id);
     if (!p) return res.status(404).json({ error: 'Post nicht gefunden' });
     res.json(postRow(p));
   });
@@ -914,8 +1127,9 @@ function register(app) {
   app.post('/api/marketing/posts/:id/publish-now', async (req, res) => {
     const p = db.prepare('SELECT * FROM mk_posts WHERE id = ?').get(req.params.id);
     if (!p || !['approved', 'failed'].includes(p.status)) return res.status(409).json({ error: 'Nur freigegebene Posts können veröffentlicht werden' });
-    const st = meta.status();
-    if (!st.instagram && !st.facebook) return res.status(503).json({ error: 'Instagram/Facebook sind noch nicht verbunden' });
+    const c = p.campaign_id ? db.prepare('SELECT account_id FROM mk_campaigns WHERE id = ?').get(p.campaign_id) : null;
+    const st = meta.accountStatus(getAccount(c && c.account_id));
+    if (!st.instagram && !st.facebook) return res.status(503).json({ error: 'Instagram/Facebook sind für dieses Konto noch nicht verbunden' });
     await publishPost(p.id);
     res.json(postRow(db.prepare('SELECT * FROM mk_posts WHERE id = ?').get(p.id)));
   });
@@ -1052,7 +1266,7 @@ function register(app) {
       const candidates = media.map((p, i) => ({ id: `img${i + 1}`, source: 'dropbox', path: p, name: p.split('/').pop(), media: 'image' }));
       const campaign = d.campaign_id ? db.prepare('SELECT * FROM mk_campaigns WHERE id = ?').get(d.campaign_id) : null;
       if (!candidates.length && campaign && campaign.kk_image_url) candidates.push({ id: 'img1', source: 'url', url: campaign.kk_image_url, media: 'image' });
-      const images = await loadRenderImages({ svg: v.svg, media_ids: [] }, candidates, await loadLogo(getSettings()), true);
+      const images = await loadRenderImages({ svg: v.svg, media_ids: [] }, candidates, await loadLogo(getAccount(campaign && campaign.account_id)), true);
       const rgb = await renderPdf(v.svg, images, format.width_mm + 2 * format.bleed_mm, format.height_mm + 2 * format.bleed_mm, { title: d.title });
       const { pdf, cmyk } = await toCmyk(rgb);
       res.set('X-Color-Space', cmyk ? 'CMYK' : 'RGB');

@@ -4520,8 +4520,12 @@
       let last = null;
       try { last = localStorage.getItem('office_last_tab'); } catch (e) { /* egal */ }
       const sidebarOrder = [...document.querySelectorAll('.sidebar .tab-btn')].map(b => b.dataset.tab).filter(can);
+      const urlParams = new URLSearchParams(window.location.search);
+      const mkConnect = urlParams.get('mk_connect') && can('marketing');
+      if (mkConnect) { mkMode = 'settings'; last = 'marketing'; }
       const start = last && can(last) ? last : sidebarOrder[0];
       switchTab(start, { restore: true, noScroll: true });
+      if (mkConnect) mkHandleConnectReturn(urlParams);
     }
     refreshNkBadges();
     setInterval(refreshNkBadges, 60000);
@@ -5074,7 +5078,8 @@
     const missing = [];
     if (!s.ai) missing.push('Die KI-Gestaltung ist nicht eingerichtet (ANTHROPIC_API_KEY fehlt).');
     if (!s.dropbox) missing.push('Die Dropbox ist nicht verbunden – Posts entstehen dann nur aus dem Kulturkalender-Bild bzw. rein grafisch.');
-    if (!s.meta.instagram && !s.meta.facebook) missing.push('Instagram/Facebook sind noch nicht verbunden: Freigegebene Posts werden nicht automatisch veröffentlicht – Bild herunterladen, Text kopieren und selbst posten.');
+    const offline = (s.accounts || []).filter(a => !a.status.instagram && !a.status.facebook);
+    if (offline.length) missing.push(`Noch nicht mit Instagram/Facebook verbunden: ${offline.map(a => a.handle || a.name).join(', ')}. Freigegebene Posts dieser Konten werden nicht automatisch veröffentlicht – Bild herunterladen, Text kopieren und selbst posten.`);
     el.classList.toggle('hidden', !missing.length || mkMode === 'settings');
     el.innerHTML = missing.map(m => `<div>ℹ️ ${escapeHtml(m)}</div>`).join('') + '<button type="button" class="ghost" data-mk-goto="settings">Einstellungen</button>';
     const cnt = document.getElementById('mk-pending-count');
@@ -5144,7 +5149,7 @@
           : `<div class="mk-post-media mk-${p.kind} is-empty">Kein Bild</div>`;
     const editable = ['pending', 'failed', 'error', 'approved', 'rejected'].includes(p.status);
     const plat = (k, label) => `<label class="mk-plat"><input type="checkbox" data-mk-plat="${k}" ${p.platforms.includes(k) ? 'checked' : ''} ${editable ? '' : 'disabled'}> ${label}</label>`;
-    const metaOk = mkStatus && (mkStatus.meta.instagram || mkStatus.meta.facebook);
+    const metaOk = mkAccountOnline(p.account_id);
     let actions = '';
     if (p.status === 'pending' || p.status === 'rejected') {
       actions = `<button type="button" data-mk-act="approve">Freigeben</button>
@@ -5162,7 +5167,7 @@
     }
     const downloads = p.status !== 'generating' && (p.image_file || p.caption) ? `
       <div class="mk-post-tools">
-        ${p.image_file ? `<a class="ghost-link" href="${mkFile(p.image_file)}" download="kreatief-${p.post_date}.jpg">Bild laden</a>` : ''}
+        ${p.image_file ? `<a class="ghost-link" href="${mkFile(p.image_file)}" download="${escapeHtml((p.account_handle || 'post').replace(/^@/, ''))}-${p.post_date}.jpg">Bild laden</a>` : ''}
         ${isVideo ? `<a class="ghost-link" href="/api/marketing/posts/${p.id}/video" target="_blank" rel="noopener">Video öffnen</a>` : ''}
         ${p.caption ? '<button type="button" class="ghost" data-mk-act="copy">Text kopieren</button>' : ''}
       </div>` : '';
@@ -5178,6 +5183,7 @@
             <span class="mk-badge mk-badge-${p.status}">${escapeHtml(MK_STATUS_LABELS[p.status] || p.status)}</span>
           </div>
           <div class="mk-post-tags">
+            ${p.account_handle || p.account_name ? `<span class="mk-tag mk-tag-account">${escapeHtml(p.account_handle || p.account_name)}</span>` : ''}
             <span class="mk-tag">${p.kind === 'story' ? 'Story' : isVideo ? 'Reel' : 'Beitrag'}</span>
             ${p.angle ? `<span class="mk-tag mk-tag-soft">${escapeHtml(p.angle)}</span>` : ''}
             ${plat('instagram', 'Instagram')}${plat('facebook', 'Facebook')}
@@ -5255,7 +5261,7 @@
         const caption = card.querySelector('[data-mk-caption]');
         if (caption && caption.value !== (p.caption || '')) await mkPostAction(id, '', { caption: caption.value });
         await mkPostAction(id, '/approve');
-        toast(mkStatus && (mkStatus.meta.instagram || mkStatus.meta.facebook) ? 'Freigegeben – wird zur geplanten Zeit gepostet' : 'Freigegeben');
+        toast(mkAccountOnline(p.account_id) ? 'Freigegeben – wird zur geplanten Zeit gepostet' : 'Freigegeben – dieses Konto ist nicht verbunden, bitte selbst posten');
       } else if (act === 'reject') {
         await mkPostAction(id, '/reject');
       } else if (act === 'unapprove') {
@@ -5337,7 +5343,7 @@
           <span class="mk-badge ${past || !c.active ? '' : 'mk-badge-approved'}">${escapeHtml(state)}</span>
         </div>
         <div class="mk-progress"><span style="width:${total ? Math.round((done / total) * 100) : 0}%"></span></div>
-        <div class="mk-campaign-meta">Posts täglich ${escapeHtml(c.post_time)} Uhr ab ${escapeHtml(mkWeekday(c.start_date))} · ${c.post_kind === 'auto' ? 'Beitrag/Story' : c.post_kind === 'story' ? 'Story' : 'Beitrag'} · ${c.platforms.map(x => (x === 'instagram' ? 'Instagram' : 'Facebook')).join(' + ') || 'keine Plattform'}</div>
+        <div class="mk-campaign-meta">${c.account_handle || c.account_name ? `<strong>${escapeHtml(c.account_handle || c.account_name)}</strong> · ` : ''}Posts täglich ${escapeHtml(c.post_time)} Uhr ab ${escapeHtml(mkWeekday(c.start_date))} · ${c.post_kind === 'auto' ? 'Beitrag/Story' : c.post_kind === 'story' ? 'Story' : 'Beitrag'} · ${c.platforms.map(x => (x === 'instagram' ? 'Instagram' : 'Facebook')).join(' + ') || 'keine Plattform'}</div>
         <div class="mk-campaign-meta">${c.dropbox_folder ? `📁 ${escapeHtml(c.dropbox_folder)}` : '📁 kein Dropbox-Ordner'}${c.ticket_url ? ` · <a href="${escapeHtml(c.ticket_url)}" target="_blank" rel="noopener">Tickets ↗</a>` : ''}</div>
         <div class="mk-strip">${posts.map(p => `<span class="mk-strip-item status-${p.status}" title="${escapeHtml(mkWeekday(p.post_date))}: ${escapeHtml(MK_STATUS_LABELS[p.status])}${p.angle ? ' – ' + escapeHtml(p.angle) : ''}">${p.image_file ? `<img src="${mkFile(p.image_file)}" alt="" loading="lazy">` : p.status === 'generating' ? '…' : p.media_type === 'video' ? '▶' : '·'}</span>`).join('')}</div>
         <div class="mk-campaign-meta">${pc.pending ? `<strong class="mk-warn">${pc.pending} zur Freigabe</strong> · ` : ''}${pc.approved ? `${pc.approved} geplant · ` : ''}${pc.published || 0} veröffentlicht</div>
@@ -5427,21 +5433,30 @@
     f('mk-c-style').value = c ? (c.style_brief || '') : '';
     f('mk-c-notes').value = c ? (c.notes || '') : '';
     f('mk-c-active').checked = c ? !!c.active : true;
+    const accs = (mkStatus && mkStatus.accounts) || [];
+    f('mk-c-account').innerHTML = accs.map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.handle ? ` (${escapeHtml(a.handle)})` : ''}</option>`).join('');
+    f('mk-c-account').value = c && c.account_id ? c.account_id : (mkLastAccount && accs.some(a => a.id === mkLastAccount) ? mkLastAccount : (accs[0] || {}).id || '');
     f('mk-campaign-form').dataset.kkId = c && c.kk_id ? c.kk_id : '';
     f('mk-campaign-form').dataset.kkImage = c && c.kk_image_url ? c.kk_image_url : '';
     mkCampaignStartHint();
     mkFolderCount(f('mk-c-folder').value.trim());
     document.getElementById('mk-campaign-overlay').classList.remove('hidden');
-    if (!c) {
-      const sel = f('mk-kk-select');
-      if (!mkKkEvents) {
-        sel.innerHTML = '<option value="">– wird geladen –</option>';
-        try { mkKkEvents = await api('/api/marketing/kk-events'); } catch (err) { mkKkEvents = []; sel.innerHTML = `<option value="">${escapeHtml(err.message)}</option>`; return; }
-      }
-      sel.innerHTML = `<option value="">${mkKkEvents.length ? '– Event wählen oder unten selbst eintragen –' : 'Keine kommenden Events gefunden – bitte unten eintragen'}</option>` +
-        mkKkEvents.map((ev, i) => `<option value="${i}">${escapeHtml(fmtDateDE(ev.event_date))} · ${escapeHtml(ev.title)}</option>`).join('');
-    }
+    if (!c) await mkLoadKkEvents();
   }
+
+  // Kulturkalender-Termine passend zum gewählten Konto (Filter „Veranstalter“)
+  async function mkLoadKkEvents() {
+    const sel = document.getElementById('mk-kk-select');
+    const accountId = document.getElementById('mk-c-account').value;
+    const acc = ((mkStatus && mkStatus.accounts) || []).find(a => String(a.id) === String(accountId));
+    if (!acc || !acc.kk_filter) { mkKkEvents = []; sel.innerHTML = '<option value="">Kein Veranstalter-Filter für dieses Konto – bitte unten eintragen</option>'; return; }
+    sel.innerHTML = '<option value="">– wird geladen –</option>';
+    try { mkKkEvents = await api(`/api/marketing/kk-events?account_id=${encodeURIComponent(accountId)}`); } catch (err) { mkKkEvents = []; sel.innerHTML = `<option value="">${escapeHtml(err.message)}</option>`; return; }
+    if (document.getElementById('mk-c-account').value !== accountId) return;
+    sel.innerHTML = `<option value="">${mkKkEvents.length ? '– Event wählen oder unten selbst eintragen –' : 'Keine kommenden Events gefunden – bitte unten eintragen'}</option>` +
+      mkKkEvents.map((ev, i) => `<option value="${i}">${escapeHtml(fmtDateDE(ev.event_date))} · ${escapeHtml(ev.title)}</option>`).join('');
+  }
+  document.getElementById('mk-c-account').addEventListener('change', () => { if (!mkEditingCampaign) mkLoadKkEvents(); });
 
   document.getElementById('mk-kk-select').addEventListener('change', (e) => {
     const ev = mkKkEvents && mkKkEvents[+e.target.value];
@@ -5468,6 +5483,7 @@
     if (!mkEditingCampaign && start < mkTodayIso()) start = mkTodayIso();
     if (mkEditingCampaign && start < mkEditingCampaign.start_date && mkEditingCampaign.start_date <= mkTodayIso()) start = start < mkTodayIso() ? mkEditingCampaign.start_date : start;
     const payload = {
+      account_id: +f('mk-c-account').value || null,
       title: f('mk-c-title').value, event_date: date, event_time: f('mk-c-time').value, location: f('mk-c-location').value,
       ticket_url: f('mk-c-ticket').value, price: f('mk-c-price').value, description: f('mk-c-desc').value,
       dropbox_folder: f('mk-c-folder').value, start_date: start, post_time: f('mk-c-posttime').value, post_kind: f('mk-c-kind').value,
@@ -5481,6 +5497,7 @@
     try {
       if (mkEditingCampaign) await api(`/api/marketing/campaigns/${mkEditingCampaign.id}`, { method: 'PUT', body: JSON.stringify(payload) });
       else {
+        mkLastAccount = payload.account_id;
         await api('/api/marketing/campaigns', { method: 'POST', body: JSON.stringify(payload) });
         toast('Kampagne gestartet – der erste Entwurf wird gerade gestaltet');
       }
@@ -5778,29 +5795,211 @@
     const [settings, presets] = await Promise.all([api('/api/marketing/settings'), api('/api/marketing/presets')]);
     mkSettingsCache = settings;
     mkPresets = presets;
-    const f = (id) => document.getElementById(id);
-    f('mk-set-brand').value = settings.brand || '';
-    f('mk-set-logo').value = settings.logo_path || '';
-    f('mk-set-ig').value = settings.instagram_handle || '';
-    f('mk-set-hashtags').value = settings.hashtags || '';
-    f('mk-set-kk').value = settings.kk_filter || '';
-    f('mk-set-time').value = settings.default_post_time || '18:00';
+    document.getElementById('mk-set-time').value = settings.default_post_time || '18:00';
     renderMkPresets();
-    renderMkConnections(null);
-    try { renderMkConnections(await api('/api/marketing/meta-check')); } catch (e) { /* egal */ }
+    renderMkConnections();
+    renderMkAccounts();
   }
 
-  function renderMkConnections(check) {
-    const s = mkStatus || { ai: false, dropbox: false, meta: {} };
+  function renderMkConnections() {
+    const s = mkStatus || { ai: false, dropbox: false };
     const row = (ok, label, detail) => `<div class="mk-conn ${ok ? 'ok' : 'off'}"><span class="mk-conn-dot"></span><div><strong>${escapeHtml(label)}</strong><span>${detail}</span></div></div>`;
-    const igDetail = check && check.instagram ? `verbunden als ${escapeHtml(check.instagram)}` : check && check.instagramError ? escapeHtml(check.instagramError) : s.meta.instagram ? 'eingerichtet' : 'nicht verbunden – Variablen META_IG_USER_ID und META_PAGE_TOKEN';
-    const fbDetail = check && check.facebook ? `Seite „${escapeHtml(check.facebook)}“` : check && check.facebookError ? escapeHtml(check.facebookError) : s.meta.facebook ? 'eingerichtet' : 'nicht verbunden – Variablen META_PAGE_ID und META_PAGE_TOKEN';
     document.getElementById('mk-connections').innerHTML =
       row(s.ai, 'KI-Gestaltung (Claude)', s.ai ? 'bereit' : 'ANTHROPIC_API_KEY fehlt') +
       row(s.dropbox, 'Dropbox', s.dropbox ? `verbunden${s.dropbox_root ? ` · Startordner ${escapeHtml(s.dropbox_root)}` : ''}` : 'DROPBOX_APP_KEY / _SECRET / _REFRESH_TOKEN fehlen') +
-      row(s.meta.instagram && !(check && check.instagramError), 'Instagram', igDetail) +
-      row(s.meta.facebook && !(check && check.facebookError), 'Facebook', fbDetail) +
-      '<p class="hint">Solange Instagram/Facebook nicht verbunden sind, funktioniert alles außer dem automatischen Posten: Freigegebene Bilder herunterladen, Text kopieren und selbst posten.</p>';
+      row(s.oauth, 'Meta-App (für „Mit Facebook verbinden“)', s.oauth ? 'eingerichtet' : 'META_APP_ID / META_APP_SECRET fehlen – Konten können trotzdem per Token verbunden werden');
+  }
+
+  // ---------- Konten ----------
+  let mkLastAccount = null;
+  let mkEditingAccount = null;
+  let mkTokenAccount = null;
+  let mkLinkKey = null;
+  let mkLinkOptions = [];
+  const mkAccounts = () => (mkStatus && mkStatus.accounts) || [];
+  function mkAccountOnline(id) {
+    const accs = mkAccounts();
+    const a = accs.find(x => x.id === id) || (id ? null : accs[0]);
+    return !!(a && (a.status.instagram || a.status.facebook));
+  }
+
+  function renderMkAccounts(checks) {
+    const s = mkStatus || {};
+    document.getElementById('mk-fb-connect').classList.toggle('hidden', !s.oauth);
+    const el = document.getElementById('mk-accounts');
+    const accs = mkAccounts();
+    if (!accs.length) { el.innerHTML = '<p class="hint">Noch keine Konten.</p>'; return; }
+    el.innerHTML = accs.map(a => {
+      const chk = (checks || {})[a.id] || {};
+      const row = (ok, label, detail) => `<div class="mk-conn ${ok ? 'ok' : 'off'}"><span class="mk-conn-dot"></span><div><strong>${escapeHtml(label)}</strong><span>${detail}</span></div></div>`;
+      const ig = a.status.instagram
+        ? row(!chk.instagramError, 'Instagram', chk.instagramError ? escapeHtml(chk.instagramError) : `verbunden als ${escapeHtml(chk.instagram || (a.ig_username ? '@' + a.ig_username : 'Instagram-Konto'))}${a.token_kind === 'instagram' && a.token_expires ? ` · Token bis ${escapeHtml(finderDate(a.token_expires))}, wird automatisch verlängert` : ''}`)
+        : row(false, 'Instagram', 'nicht verbunden');
+      const fb = a.status.facebook
+        ? row(!chk.facebookError, 'Facebook', chk.facebookError ? escapeHtml(chk.facebookError) : `Seite „${escapeHtml(chk.facebook || a.fb_page_name || '')}“`)
+        : row(false, 'Facebook', a.token_kind === 'instagram' ? 'nicht verbunden (Instagram-Login ohne Facebook-Seite)' : 'nicht verbunden');
+      return `<div class="mk-account" data-mk-account="${a.id}">
+        <div class="mk-account-main">
+          <strong>${escapeHtml(a.name)}${a.handle ? ` <span class="mk-tag mk-tag-soft">${escapeHtml(a.handle)}</span>` : ''}</strong>
+          ${a.about ? `<p class="hint">${escapeHtml(a.about)}</p>` : ''}
+          ${!a.brand || !a.logo_path ? `<p class="hint">⚠️ ${[!a.brand && 'Markenvorgaben', !a.logo_path && 'Logo'].filter(Boolean).join(' und ')} noch nicht eingetragen</p>` : ''}
+          ${ig}${fb}
+        </div>
+        <div class="mk-account-actions">
+          <button type="button" class="secondary" data-mk-aact="edit">Bearbeiten</button>
+          <button type="button" class="ghost" data-mk-aact="token">${a.connected ? 'Neu verbinden' : 'Token einfügen'}</button>
+          ${a.connected ? '<button type="button" class="ghost" data-mk-aact="check">Prüfen</button><button type="button" class="ghost" data-mk-aact="disconnect">Trennen</button>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  async function mkRefreshStatus() {
+    try { mkStatus = await api('/api/marketing/status'); } catch (e) { /* egal */ }
+    renderMkStatus();
+  }
+
+  document.getElementById('mk-accounts').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-mk-aact]');
+    if (!btn) return;
+    const a = mkAccounts().find(x => x.id === +btn.closest('[data-mk-account]').dataset.mkAccount);
+    if (!a) return;
+    const act = btn.dataset.mkAact;
+    if (act === 'edit') openMkAccount(a);
+    if (act === 'token') openMkToken(a);
+    if (act === 'check') {
+      btn.disabled = true;
+      try { renderMkAccounts({ [a.id]: await api(`/api/marketing/accounts/${a.id}/check`) }); toast('Verbindung geprüft'); } catch (err) { alert(err.message); } finally { btn.disabled = false; }
+    }
+    if (act === 'disconnect') {
+      if (!confirm(`Verbindung von ${a.handle || a.name} zu Instagram/Facebook trennen?`)) return;
+      await api(`/api/marketing/accounts/${a.id}/disconnect`, { method: 'POST' });
+      await mkRefreshStatus();
+      renderMkAccounts();
+    }
+  });
+
+  function openMkAccount(a) {
+    mkEditingAccount = a || null;
+    const f = (id) => document.getElementById(id);
+    f('mk-account-title').textContent = a ? `Konto ${a.name}` : 'Neues Konto';
+    f('mk-a-name').value = a ? a.name : '';
+    f('mk-a-handle').value = a ? (a.handle || '') : '';
+    f('mk-a-about').value = a ? (a.about || '') : '';
+    f('mk-a-brand').value = a ? (a.brand || '') : '';
+    f('mk-a-logo').value = a ? (a.logo_path || '') : '';
+    f('mk-a-hashtags').value = a ? (a.hashtags || '') : '';
+    f('mk-a-website').value = a ? (a.website || '') : '';
+    f('mk-a-kk').value = a ? (a.kk_filter || '') : '';
+    f('mk-a-delete').classList.toggle('hidden', !a);
+    f('mk-account-error').classList.add('hidden');
+    document.getElementById('mk-account-overlay').classList.remove('hidden');
+  }
+  document.getElementById('mk-new-account').addEventListener('click', () => openMkAccount(null));
+  document.getElementById('mk-account-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = (id) => document.getElementById(id);
+    const payload = {
+      name: f('mk-a-name').value, handle: f('mk-a-handle').value, about: f('mk-a-about').value, brand: f('mk-a-brand').value,
+      logo_path: f('mk-a-logo').value, hashtags: f('mk-a-hashtags').value, website: f('mk-a-website').value, kk_filter: f('mk-a-kk').value,
+    };
+    try {
+      let id = mkEditingAccount && mkEditingAccount.id;
+      if (!id) id = (await api('/api/marketing/accounts', { method: 'POST', body: JSON.stringify({ name: payload.name }) })).id;
+      await api(`/api/marketing/accounts/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      document.getElementById('mk-account-overlay').classList.add('hidden');
+      mkKkEvents = null;
+      await mkRefreshStatus();
+      renderMkAccounts();
+      toast('Konto gespeichert');
+    } catch (err) {
+      f('mk-account-error').textContent = err.message;
+      f('mk-account-error').classList.remove('hidden');
+    }
+  });
+  document.getElementById('mk-a-delete').addEventListener('click', async () => {
+    const a = mkEditingAccount;
+    if (!a || !confirm(`Konto „${a.name}“ löschen?`)) return;
+    try {
+      await api(`/api/marketing/accounts/${a.id}`, { method: 'DELETE' });
+      document.getElementById('mk-account-overlay').classList.add('hidden');
+      await mkRefreshStatus();
+      renderMkAccounts();
+    } catch (err) { alert(err.message); }
+  });
+
+  function openMkToken(a) {
+    mkTokenAccount = a;
+    document.getElementById('mk-token-title').textContent = `${a.handle || a.name} verbinden`;
+    document.getElementById('mk-token-value').value = '';
+    document.getElementById('mk-token-error').classList.add('hidden');
+    document.getElementById('mk-token-overlay').classList.remove('hidden');
+  }
+  document.getElementById('mk-token-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('mk-token-save');
+    btn.disabled = true;
+    try {
+      const r = await api(`/api/marketing/accounts/${mkTokenAccount.id}/token`, { method: 'POST', body: JSON.stringify({ token: document.getElementById('mk-token-value').value }) });
+      document.getElementById('mk-token-overlay').classList.add('hidden');
+      await mkRefreshStatus();
+      renderMkAccounts();
+      if (r.key) openMkLink(r.key, r.linked, r.options);
+      else toast(r.linked.length ? `Verbunden: ${r.linked.join(', ')}` : 'Verbunden');
+    } catch (err) {
+      document.getElementById('mk-token-error').textContent = err.message;
+      document.getElementById('mk-token-error').classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('mk-fb-connect').addEventListener('click', () => { window.location.href = '/api/marketing/meta/connect'; });
+
+  // Auswahl nach „Mit Facebook verbinden“ bzw. einem Benutzer-Token mit mehreren Seiten
+  function openMkLink(key, linked, options) {
+    mkLinkKey = key;
+    mkLinkOptions = options || [];
+    document.getElementById('mk-link-linked').innerHTML = linked && linked.length
+      ? `<div class="mk-linked">✅ Automatisch verbunden:\n${escapeHtml(linked.join('\n'))}</div>`
+      : '<p class="hint">Kein Konto passte automatisch (der @Name im Konto muss zum Instagram-Konto passen).</p>';
+    const accs = mkAccounts();
+    document.getElementById('mk-link-list').innerHTML = mkLinkOptions.length ? mkLinkOptions.map(o => `
+      <div class="mk-link-row" data-mk-link="${o.index}">
+        <div><strong>${o.ig_username ? '@' + escapeHtml(o.ig_username) : 'kein Instagram-Konto verknüpft'}</strong><span class="hint">${o.fb_page_name ? `Facebook-Seite „${escapeHtml(o.fb_page_name)}“` : 'ohne Facebook-Seite'}</span></div>
+        <div class="mk-inline">
+          <select data-mk-link-account><option value="">– Konto wählen –</option>${accs.map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.handle ? ` (${escapeHtml(a.handle)})` : ''}</option>`).join('')}</select>
+          <button type="button" class="secondary" data-mk-link-go>Zuordnen</button>
+        </div>
+      </div>`).join('') : '<p class="hint">Keine weiteren Seiten gefunden.</p>';
+    document.getElementById('mk-link-overlay').classList.remove('hidden');
+  }
+  document.getElementById('mk-link-list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-mk-link-go]');
+    if (!btn) return;
+    const row = btn.closest('[data-mk-link]');
+    const accountId = row.querySelector('[data-mk-link-account]').value;
+    if (!accountId) { alert('Bitte ein Konto wählen'); return; }
+    try {
+      const a = await api(`/api/marketing/accounts/${accountId}/link`, { method: 'POST', body: JSON.stringify({ key: mkLinkKey, index: +row.dataset.mkLink }) });
+      toast(`${a.name} verbunden`);
+      btn.textContent = '✓ Zugeordnet';
+      await mkRefreshStatus();
+      renderMkAccounts();
+    } catch (err) { alert(err.message); }
+  });
+
+  // Rückkehr vom Facebook-Login (?mk_connect=1)
+  async function mkHandleConnectReturn(params) {
+    window.history.replaceState(null, '', window.location.pathname);
+    if (params.get('mk_error')) { alert(`Verbindung mit Facebook fehlgeschlagen: ${params.get('mk_error')}`); return; }
+    const key = params.get('mk_key');
+    const linked = (params.get('mk_linked') || '').split('\n').filter(Boolean);
+    if (!key) return;
+    try {
+      const r = await api(`/api/marketing/link-options/${key}`);
+      openMkLink(key, linked, r.options);
+    } catch (err) { alert(err.message); }
   }
 
   function renderMkPresets() {
@@ -5858,11 +6057,7 @@
     e.preventDefault();
     const f = (id) => document.getElementById(id);
     try {
-      mkSettingsCache = await api('/api/marketing/settings', { method: 'PUT', body: JSON.stringify({
-        brand: f('mk-set-brand').value, logo_path: f('mk-set-logo').value, instagram_handle: f('mk-set-ig').value,
-        hashtags: f('mk-set-hashtags').value, kk_filter: f('mk-set-kk').value, default_post_time: f('mk-set-time').value,
-      }) });
-      mkKkEvents = null;
+      mkSettingsCache = await api('/api/marketing/settings', { method: 'PUT', body: JSON.stringify({ default_post_time: f('mk-set-time').value }) });
       toast('Einstellungen gespeichert');
     } catch (err) { alert(err.message); }
   });

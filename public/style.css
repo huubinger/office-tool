@@ -2008,6 +2008,17 @@ button.ens-chart-row:hover { background: var(--panel-alt); filter: none; }
 .mk-conn span:not(.mk-conn-dot) { font-size: 12.5px; color: var(--ink-soft); }
 .mk-conn-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: var(--ink-faint); }
 .mk-conn.ok .mk-conn-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.mk-account-head-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mk-accounts { display: flex; flex-direction: column; gap: 10px; }
+.mk-account { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; background: var(--panel-alt); border-radius: var(--radius); }
+.mk-account-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 260px; }
+.mk-account-main .hint { margin: 0; }
+.mk-account-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.mk-account .mk-conn span:not(.mk-conn-dot) { overflow-wrap: anywhere; }
+.mk-link-list { display: flex; flex-direction: column; gap: 8px; }
+.mk-link-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; background: var(--panel-alt); border-radius: var(--radius); }
+.mk-link-row select { max-width: 220px; }
+.mk-linked { padding: 10px 12px; margin-bottom: 10px; border-radius: var(--radius); background: var(--ok-soft); white-space: pre-line; font-size: 13px; }
 .mk-preset-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mk-preset-table th { text-align: left; font-size: 11.5px; color: var(--ink-faint); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .mk-preset-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }

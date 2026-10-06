@@ -781,24 +781,22 @@
         <div id="mk-connections" class="mk-connections"></div>
       </div>
       <div class="card settings-card">
-        <h3>Marke &amp; Texte</h3>
+        <div class="section-card-head">
+          <div>
+            <h3>Konten</h3>
+            <p class="section-intro">Jedes Konto hat eigene Markenvorgaben und eine eigene Verbindung zu Instagram/Facebook. Jede Kampagne gehört zu einem Konto.</p>
+          </div>
+          <div class="mk-account-head-actions">
+            <button type="button" class="hidden" id="mk-fb-connect">Mit Facebook verbinden</button>
+            <button type="button" class="ghost" id="mk-new-account">+ Konto</button>
+          </div>
+        </div>
+        <div id="mk-accounts" class="mk-accounts"></div>
+      </div>
+      <div class="card settings-card">
+        <h3>Allgemein</h3>
         <form id="mk-settings-form" class="mk-form">
-          <label>Markenvorgaben für die Gestaltung
-            <textarea id="mk-set-brand" rows="4" placeholder="z.B. Farben Kreatief: Violett #6b2fa0, Gelb #ffd23f; Ansprache mit „ihr“; Tonfall herzlich, frech; Logo immer unten rechts"></textarea>
-          </label>
           <div class="mk-form-grid">
-            <label>Logo (Dropbox-Datei, am besten PNG mit transparentem Hintergrund)
-              <div class="mk-path-field"><input type="text" id="mk-set-logo" placeholder="/Kreatief/Logo/logo.png"><button type="button" class="ghost" data-mk-pick-input="mk-set-logo">Wählen</button></div>
-            </label>
-            <label>Instagram-Konto
-              <input type="text" id="mk-set-ig" placeholder="@kreatief_neckarsulm">
-            </label>
-            <label>Feste Hashtags
-              <input type="text" id="mk-set-hashtags" placeholder="#kreatief #neckarsulm #kulturimunterland">
-            </label>
-            <label>Veranstalter im Kulturkalender (Filter)
-              <input type="text" id="mk-set-kk" placeholder="Kreatief">
-            </label>
             <label>Standard-Uhrzeit für Posts
               <input type="time" id="mk-set-time" value="18:00">
             </label>
@@ -1110,6 +1108,7 @@
       <button type="button" class="secondary" data-mk-close>Schließen</button>
     </div>
     <form id="mk-campaign-form">
+      <label>Konto<select id="mk-c-account" required></select></label>
       <label id="mk-kk-wrap">Event aus dem Kulturkalender übernehmen
         <select id="mk-kk-select"><option value="">– wird geladen –</option></select>
       </label>
@@ -1187,6 +1186,64 @@
 </div>
 
 <!-- Marketing: Dropbox-Auswahl -->
+<div id="mk-account-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="mk-account-title">Konto</h3>
+      <button type="button" class="secondary" data-mk-close>Schließen</button>
+    </div>
+    <form id="mk-account-form">
+      <div class="mk-form-grid">
+        <label>Name<input type="text" id="mk-a-name" required placeholder="z.B. Kreatief"></label>
+        <label>Instagram-Konto<input type="text" id="mk-a-handle" placeholder="@daskreatief"></label>
+      </div>
+      <label>Wer ist das? <span class="finder-optional">(für Tonfall und Inhalte der Posts)</span>
+        <textarea id="mk-a-about" rows="3" placeholder="z.B. Kulturverein aus Neckarsulm, veranstaltet Konzerte, Musicals und Kabarett"></textarea>
+      </label>
+      <label>Markenvorgaben für die Gestaltung
+        <textarea id="mk-a-brand" rows="4" placeholder="z.B. Farben Violett #6b2fa0, Gelb #ffd23f; Ansprache mit „ihr“; Tonfall herzlich, frech; Logo immer unten rechts"></textarea>
+      </label>
+      <div class="mk-form-grid">
+        <label>Logo (Dropbox-Datei, am besten PNG mit transparentem Hintergrund)
+          <div class="mk-path-field"><input type="text" id="mk-a-logo" placeholder="/Kreatief/Logo/logo.png"><button type="button" class="ghost" data-mk-pick-input="mk-a-logo">Wählen</button></div>
+        </label>
+        <label>Feste Hashtags<input type="text" id="mk-a-hashtags" placeholder="#kreatief #neckarsulm"></label>
+        <label>Website<input type="text" id="mk-a-website" placeholder="www.kreatief-neckarsulm.de"></label>
+        <label>Veranstalter im Kulturkalender (Filter)<input type="text" id="mk-a-kk" placeholder="Kreatief"></label>
+      </div>
+      <div id="mk-account-error" class="login-error hidden"></div>
+      <div class="form-actions"><button type="submit">Speichern</button><button type="button" class="danger" id="mk-a-delete">Löschen</button></div>
+    </form>
+  </div>
+</div>
+
+<div id="mk-token-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="mk-token-title">Token einfügen</h3>
+      <button type="button" class="secondary" data-mk-close>Schließen</button>
+    </div>
+    <form id="mk-token-form">
+      <p class="section-intro">Zugangsschlüssel (Access Token) aus dem Meta-Entwicklerbereich einfügen. Möglich sind ein <strong>Instagram-Token</strong> (Instagram-API mit Instagram-Login, ohne Facebook-Seite) oder ein <strong>Facebook-Token</strong> (Benutzer- oder Seiten-Token mit verknüpftem Instagram-Konto). Das Office-Tool erkennt die Art selbst und verlängert Instagram-Tokens automatisch.</p>
+      <label>Token<textarea id="mk-token-value" rows="4" required placeholder="IGAA… oder EAA…"></textarea></label>
+      <div id="mk-token-error" class="login-error hidden"></div>
+      <div class="form-actions"><button type="submit" id="mk-token-save">Verbinden</button></div>
+    </form>
+  </div>
+</div>
+
+<div id="mk-link-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Gefundene Seiten &amp; Instagram-Konten</h3>
+      <button type="button" class="secondary" data-mk-close>Fertig</button>
+    </div>
+    <div id="mk-link-linked"></div>
+    <p class="section-intro">Weitere gefundene Auftritte kannst du hier einem Konto zuordnen.</p>
+    <div id="mk-link-list" class="mk-link-list"></div>
+  </div>
+</div>
+
 <div id="mk-picker-overlay" class="modal-overlay hidden">
   <div class="modal modal-xwide">
     <div class="modal-head">

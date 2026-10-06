@@ -593,13 +593,16 @@ async function publishPost(postId) {
     const url = post.media_type === 'video'
       ? await dropbox.temporaryLink(post.video_path)
       : `${publicBaseUrl()}/m/${post.image_file}`;
-    if (platforms.includes('instagram') && !igId) {
+    // Nicht verbundene Plattformen ueberspringen, solange wenigstens eine verbunden ist
+    // (z.B. Konto nur mit Instagram-Login, Kampagne aber mit Instagram + Facebook)
+    const skipOffline = platforms.some(p => st[p]);
+    if (platforms.includes('instagram') && !igId && !(skipOffline && !st.instagram)) {
       if (!st.instagram) errors.push(`Instagram ist für ${account.handle || account.name} nicht verbunden`);
       else {
         try { igId = await meta.publishInstagram(account, { kind: post.kind, mediaType: post.media_type, url, caption: post.caption }); } catch (e) { errors.push(`Instagram: ${e.message}`); }
       }
     }
-    if (platforms.includes('facebook') && !fbId) {
+    if (platforms.includes('facebook') && !fbId && !(skipOffline && !st.facebook)) {
       if (!st.facebook) errors.push(`Facebook ist für ${account.handle || account.name} nicht verbunden`);
       else {
         try { fbId = await meta.publishFacebook(account, { kind: post.kind, mediaType: post.media_type, url, caption: facebookCaption(post, campaign) }); } catch (e) { errors.push(`Facebook: ${e.message}`); }

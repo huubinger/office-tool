@@ -5436,6 +5436,7 @@
     const accs = (mkStatus && mkStatus.accounts) || [];
     f('mk-c-account').innerHTML = accs.map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.handle ? ` (${escapeHtml(a.handle)})` : ''}</option>`).join('');
     f('mk-c-account').value = c && c.account_id ? c.account_id : (mkLastAccount && accs.some(a => a.id === mkLastAccount) ? mkLastAccount : (accs[0] || {}).id || '');
+    if (!c) mkDefaultPlatforms();
     f('mk-campaign-form').dataset.kkId = c && c.kk_id ? c.kk_id : '';
     f('mk-campaign-form').dataset.kkImage = c && c.kk_image_url ? c.kk_image_url : '';
     mkCampaignStartHint();
@@ -5456,7 +5457,14 @@
     sel.innerHTML = `<option value="">${mkKkEvents.length ? '– Event wählen oder unten selbst eintragen –' : 'Keine kommenden Events gefunden – bitte unten eintragen'}</option>` +
       mkKkEvents.map((ev, i) => `<option value="${i}">${escapeHtml(fmtDateDE(ev.event_date))} · ${escapeHtml(ev.title)}</option>`).join('');
   }
-  document.getElementById('mk-c-account').addEventListener('change', () => { if (!mkEditingCampaign) mkLoadKkEvents(); });
+  // Neue Kampagne: nur die Plattformen vorbelegen, die beim Konto verbunden sind
+  function mkDefaultPlatforms() {
+    const acc = mkAccounts().find(a => String(a.id) === document.getElementById('mk-c-account').value);
+    if (!acc || (!acc.status.instagram && !acc.status.facebook)) return;
+    document.getElementById('mk-c-ig').checked = acc.status.instagram;
+    document.getElementById('mk-c-fb').checked = acc.status.facebook;
+  }
+  document.getElementById('mk-c-account').addEventListener('change', () => { if (!mkEditingCampaign) { mkLoadKkEvents(); mkDefaultPlatforms(); } });
 
   document.getElementById('mk-kk-select').addEventListener('change', (e) => {
     const ev = mkKkEvents && mkKkEvents[+e.target.value];

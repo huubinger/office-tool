@@ -126,8 +126,8 @@
     <div class="quickadd-bar card">
       <form id="task-quickadd-form">
         <button type="submit" class="quickadd-plus" title="Anlegen">+</button>
-        <div class="searchable-select-wrap"><input type="text" id="qa-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="qa-project"></div>
         <input type="text" id="qa-title" placeholder="Aufgabe eingeben …" required>
+        <div class="searchable-select-wrap"><input type="text" id="qa-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="qa-project"></div>
         <select id="qa-person"><option value="">Zuständig</option></select>
         <select id="qa-priority">
           <option value="niedrig">Niedrig</option>
@@ -137,7 +137,7 @@
         <input type="date" id="qa-due-date" title="Datum, an dem die Aufgabe erledigt werden soll">
         <input type="number" id="qa-duration" min="5" step="5" placeholder="Dauer (Min)" title="Geschätzte Dauer in Minuten">
         <select id="qa-recurrence" title="Wiederholung">
-          <option value="keine">Keine Wiederholung</option>
+          <option value="keine">Einmalig</option>
           <option value="weekly">Wöchentlich</option>
           <option value="monthly">Monatlich</option>
           <option value="yearly">Jährlich</option>
@@ -588,7 +588,7 @@
         <input type="time" id="yc-event-end-time" title="Bis (optional)">
         <div class="searchable-select-wrap"><input type="text" id="yc-event-project-search" placeholder="Projekt suchen..." autocomplete="off"><input type="hidden" id="yc-event-project"></div>
         <select id="yc-event-recurrence">
-          <option value="keine">Keine Wiederholung</option>
+          <option value="keine">Einmalig</option>
           <option value="weekly">Wöchentlich</option>
           <option value="monthly">Monatlich</option>
           <option value="yearly">Jährlich</option>

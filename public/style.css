@@ -448,9 +448,12 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 #task-quickadd-form select, #task-quickadd-form input {
   height: 38px; margin-top: 0; padding: 0 10px; font-size: 13px;
   border: 1px solid var(--field-border); border-radius: var(--radius-sm);
-  background: var(--field-bg); color: var(--ink); flex: 1 1 130px; min-width: 110px;
+  background: var(--field-bg); color: var(--ink); flex: 1 1 105px; min-width: 95px;
 }
-#qa-title { flex: 2 1 200px; }
+#task-quickadd-form #qa-title { flex: 3 1 240px; }
+/* Projekt-Suche steckt in einem Wrapper: gleiche Hoehe/Breite wie die anderen Felder, kein Versatz nach unten */
+#task-quickadd-form .searchable-select-wrap { margin-top: 0; flex: 1 1 150px; min-width: 130px; }
+#task-quickadd-form .searchable-select-wrap input { width: 100%; }
 .quickadd-plus {
   width: 38px; height: 38px; padding: 0; border-radius: 999px; font-size: 20px;
   line-height: 1; flex-shrink: 0; background: var(--ok); border-color: var(--ok);
@@ -469,6 +472,10 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
 }
 .filter-row-tasks label { display: flex; flex-direction: column; }
 .filter-row-tasks label input, .filter-row-tasks label select { margin-top: auto; }
+/* Alle Filterfelder exakt gleich hoch und auf einer Linie (Textfelder waren 2px niedriger, die Projekt-Suche 5px tiefer) */
+.filter-row-tasks label { gap: 6px; }
+.filter-row-tasks label > input, .filter-row-tasks label > select, .filter-row-tasks label > .searchable-select-wrap { margin-top: auto; }
+.filter-row-tasks input[type="text"], .filter-row-tasks select { height: 36px; }
 
 .task-groups-card { padding: 0; overflow-x: auto; }
 .task-groups-card .task-table { min-width: 760px; }

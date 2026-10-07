@@ -239,6 +239,11 @@ button.ghost-topbar {
   font-size: 13px;
 }
 button.ghost-topbar:hover { background: var(--panel-alt); filter: none; }
+button.theme-toggle-btn { width: 36px; height: 36px; padding: 0; display: inline-grid; place-items: center; color: var(--ink-soft); }
+button.theme-toggle-btn:hover { color: var(--ink); }
+.theme-toggle-btn svg { width: 18px; height: 18px; }
+.theme-toggle-btn .icon-sun, .is-dark .theme-toggle-btn .icon-moon { display: none; }
+.is-dark .theme-toggle-btn .icon-sun { display: block; }
 .account-dropdown {
   position: absolute;
   top: calc(100% + 6px);

@@ -3309,7 +3309,13 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = dark ? '#0d1015' : '#ece5d8';
     document.querySelectorAll('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === choice));
+    document.documentElement.classList.toggle('is-dark', dark);
+    document.getElementById('theme-toggle-btn').title = dark ? 'Hell anzeigen' : 'Dunkel anzeigen';
   }
+  // Mond/Sonne oben rechts: wechselt direkt zwischen hell und dunkel (auch aus "System" heraus)
+  document.getElementById('theme-toggle-btn').addEventListener('click', () => {
+    applyTheme(document.documentElement.classList.contains('is-dark') ? 'light' : 'dark');
+  });
   document.querySelectorAll('[data-theme-choice]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
   applyTheme(document.documentElement.dataset.theme || 'light');
 

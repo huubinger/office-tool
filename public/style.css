@@ -2033,3 +2033,20 @@ button.ens-chart-row:hover { background: var(--panel-alt); filter: none; }
   .mk-modes .finder-mode { flex: 1 1 45%; }
   .mk-preset-table th:nth-child(4), .mk-preset-table td:nth-child(4), .mk-preset-table th:nth-child(3), .mk-preset-table td:nth-child(3) { display: none; }
 }
+
+/* ---------- Meine Aufgaben (gross) ---------- */
+.mytasks-list { display: flex; flex-direction: column; gap: 12px; max-width: 900px; }
+.mytask-card { display: flex; align-items: flex-start; gap: 18px; padding: 20px 22px; margin: 0; cursor: pointer; }
+.mytask-card:hover { border-color: var(--accent); }
+.mytask-check { width: 28px; height: 28px; margin-top: 6px; flex-shrink: 0; cursor: pointer; }
+.mytask-text { min-width: 0; }
+.mytask-title { font-size: 28px; font-weight: 600; line-height: 1.25; color: var(--ink); overflow-wrap: anywhere; }
+.mytask-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: 13px; color: var(--ink-soft); }
+.mytask-project { display: inline-flex; align-items: center; gap: 6px; }
+.mytask-noproject { color: var(--ink-faint); }
+.mytask-date.overdue, .mytask-prio { color: var(--danger); }
+@media (max-width: 700px) {
+  .mytask-card { padding: 16px; gap: 14px; }
+  .mytask-title { font-size: 22px; }
+  .mytask-check { width: 24px; height: 24px; margin-top: 3px; }
+}

@@ -27,6 +27,10 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Aufgaben
       </button>
+      <button class="tab-btn" data-tab="mytasks" data-title="Meine Aufgaben">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6.5" r="2.8" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 16.5c0-2.8 2.4-4.6 5.5-4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 15l1.6 1.5 3-3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Meine Aufgaben
+      </button>
       <button class="tab-btn" data-tab="calendar" data-title="Wochenplanung">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         Wochenplanung
@@ -212,6 +216,11 @@
         </table>
       </div>
     </div>
+  </section>
+
+  <!-- ===================== MEINE AUFGABEN ===================== -->
+  <section id="tab-mytasks" class="tab-panel">
+    <div id="mytasks-list" class="mytasks-list"></div>
   </section>
 
   <!-- Aufgabe bearbeiten (Detail-Modal) -->

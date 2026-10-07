@@ -87,14 +87,16 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'nk_ensemble'];
+  const MOBILE_TAB_ORDER = ['tasks', 'mytasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'nk_ensemble'];
   const MOBILE_LABELS = {
-    tasks: 'Aufgaben', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
+    tasks: 'Aufgaben', mytasks: 'Meine', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
     yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
 
   function can(tab) {
+    // "Meine Aufgaben" ist nur eine andere Ansicht der Aufgaben und haengt an deren Freigabe
+    if (tab === 'mytasks') return can('tasks');
     // Ensemble ist privat und nur für Admins, unabhängig von den Reiter-Freigaben
     if (tab === 'nk_ensemble') return !!currentUser.is_admin;
     // Finder: Admins immer, alle anderen nur mit ausdrücklicher Freigabe
@@ -121,6 +123,7 @@
     try { localStorage.setItem('office_last_tab', tab); } catch (e) { /* egal */ }
     if (!opts.noScroll) window.scrollTo({ top: 0 });
     if (tab === 'calendar') renderCalendar();
+    if (tab === 'mytasks') renderMyTasks();
     if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
     if (tab === 'yearcalendar') { renderYearCalendar(); if (!opts.restore) maybeAutoOpenSecondHalf(); }
     if (tab === 'contracts') { loadContractEvents(); }
@@ -637,6 +640,7 @@
     renderTaskList();
     renderDoneSection();
     renderUrgentSection();
+    renderMyTasks();
     fillTaskSelect();
     if (document.getElementById('tab-calendar').classList.contains('active')) renderCalendar();
   }
@@ -1189,8 +1193,8 @@
   function sortByUrgency(list) {
     const todayIso = isoDate(new Date());
     return [...list].sort((a, b) => {
-      const aOverdue = a.due_date && a.due_date < todayIso;
-      const bOverdue = b.due_date && b.due_date < todayIso;
+      const aOverdue = !!a.due_date && a.due_date < todayIso;
+      const bOverdue = !!b.due_date && b.due_date < todayIso;
       if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
       if (a.due_date && b.due_date && a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1;
       if (a.due_date && !b.due_date) return -1;
@@ -2580,6 +2584,38 @@
     if (!urgent.length) return;
     document.getElementById('urgent-list').innerHTML = urgent.map(compactTaskRowHtml).join('');
     wireTaskRowClicks(document.getElementById('urgent-list'));
+  }
+
+  // Eigene Seite mit allen offenen Aufgaben der eingeloggten Person: Aufgabe gross, Projekt klein.
+  function renderMyTasks() {
+    const container = document.getElementById('mytasks-list');
+    if (!currentUser.person_id) {
+      container.innerHTML = '<div class="card empty-state">Dein Konto ist noch mit keiner Person verknüpft – unter <strong>Konto → Benutzer &amp; Freigaben</strong> zuordnen, dann erscheinen hier deine Aufgaben.</div>';
+      return;
+    }
+    const mine = sortByUrgency(tasks.filter(t => t.status !== 'erledigt' && t.people.some(p => p.id === currentUser.person_id)));
+    if (!mine.length) {
+      container.innerHTML = '<div class="card empty-state">Keine offenen Aufgaben – alles erledigt.</div>';
+      return;
+    }
+    const todayIso = isoDate(new Date());
+    container.innerHTML = mine.map(t => {
+      const overdue = t.due_date && t.due_date < todayIso;
+      const meta = [
+        t.project ? `<span class="mytask-project"><span class="color-dot" style="background:${t.project.color}"></span>${escapeHtml(t.project.name)}</span>` : '<span class="mytask-project mytask-noproject">Ohne Projekt</span>',
+        t.due_date ? `<span class="mytask-date ${overdue ? 'overdue' : ''}">${t.due_date === todayIso ? 'Heute' : fmtDateDE(t.due_date)}</span>` : '',
+        t.priority === 'hoch' ? '<span class="mytask-prio">Hohe Priorität</span>' : '',
+      ].join('');
+      return `
+        <div class="mytask-card card" data-task-row="${t.id}">
+          <input type="checkbox" class="task-done-checkbox mytask-check" data-done-toggle="${t.id}" title="Als erledigt markieren">
+          <div class="mytask-text">
+            <div class="mytask-title">${escapeHtml(t.title)}</div>
+            <div class="mytask-meta">${meta}</div>
+          </div>
+        </div>`;
+    }).join('');
+    wireTaskRowClicks(container);
   }
 
   // ================= JAHRESKALENDER =================

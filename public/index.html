@@ -11,6 +11,20 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Office-Tool">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap">
+<script>
+  // Farbschema vor dem ersten Zeichnen setzen (kein Aufblitzen): hell, dunkel oder System
+  (function () {
+    var t = 'light';
+    try { t = localStorage.getItem('office_theme') || 'light'; } catch (e) {}
+    document.documentElement.dataset.theme = t;
+    var dark = t === 'dark' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.content = dark ? '#0d1015' : '#ece5d8';
+  })();
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,13 +37,17 @@
     </div>
     <div class="sidebar-section-label">Hauptmenü</div>
     <nav class="tabs">
-      <button class="tab-btn active" data-tab="tasks" data-title="Aufgaben">
+      <button class="tab-btn active" data-tab="mytasks" data-title="Meine Aufgaben">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6.5" r="2.8" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 16.5c0-2.8 2.4-4.6 5.5-4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 15l1.6 1.5 3-3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Meine Aufgaben
+      </button>
+      <button class="tab-btn" data-tab="tasks" data-title="Aufgaben">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 6h8M4 10h8M4 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 5.5l1 1 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Aufgaben
       </button>
-      <button class="tab-btn" data-tab="mytasks" data-title="Meine Aufgaben">
-        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6.5" r="2.8" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 16.5c0-2.8 2.4-4.6 5.5-4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 15l1.6 1.5 3-3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Meine Aufgaben
+      <button class="tab-btn" data-tab="timeline" data-title="Zeitleiste">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M3 5.5h7M6 10h9M9 14.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 3v14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".5"/></svg>
+        Zeitleiste
       </button>
       <button class="tab-btn" data-tab="calendar" data-title="Wochenplanung">
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="4.5" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 8.5h13M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -109,6 +127,14 @@
             <button type="button" id="account-btn" class="ghost-topbar account-btn" title="Konto"><span id="account-avatar" class="user-avatar">…</span><span id="account-username" class="account-name">…</span><span class="account-caret">▾</span></button>
             <div id="account-dropdown" class="account-dropdown hidden">
               <div class="account-dropdown-head" id="account-dropdown-head"></div>
+              <div class="theme-switch" role="group" aria-label="Darstellung">
+                <span class="theme-switch-label">Darstellung</span>
+                <div class="theme-switch-btns">
+                  <button type="button" data-theme-choice="light">Hell</button>
+                  <button type="button" data-theme-choice="dark">Dunkel</button>
+                  <button type="button" data-theme-choice="system">System</button>
+                </div>
+              </div>
               <button type="button" id="change-password-btn">Passwort ändern</button>
               <button type="button" id="manage-users-btn">Benutzer verwalten</button>
               <button type="button" id="backup-now-btn">Backup jetzt erstellen</button>
@@ -122,7 +148,7 @@
     <main>
 
   <!-- ===================== AUFGABEN ===================== -->
-  <section id="tab-tasks" class="tab-panel active">
+  <section id="tab-tasks" class="tab-panel">
     <div class="quickadd-bar card">
       <form id="task-quickadd-form">
         <button type="submit" class="quickadd-plus" title="Anlegen">+</button>
@@ -146,24 +172,18 @@
       </form>
     </div>
 
-    <div class="card urgent-card hidden" id="urgent-card">
-      <h2>⚠ Dringend</h2>
-      <p class="hint">Hohe Priorität oder Termin in den nächsten 7 Tagen — projektübergreifend.</p>
-      <div id="urgent-list" class="task-list"></div>
-    </div>
-
     <div class="card filter-bar-card">
       <div class="filter-row filter-row-tasks">
         <label>Suche
           <input type="text" id="task-filter-search" placeholder="Aufgabe, Projekt oder Person …" autocomplete="off">
         </label>
-        <label>Projekt
+        <label class="adv-filter">Projekt
           <div class="searchable-select-wrap"><input type="text" id="task-filter-project-search" placeholder="Alle Projekte" autocomplete="off"><input type="hidden" id="task-filter-project"></div>
         </label>
-        <label>Person
+        <label class="adv-filter">Person
           <select id="task-filter-person"><option value="">Alle Personen</option></select>
         </label>
-        <label>Priorität
+        <label class="adv-filter">Priorität
           <select id="task-filter-priority">
             <option value="">Alle Prioritäten</option>
             <option value="niedrig">Niedrig</option>
@@ -171,7 +191,7 @@
             <option value="hoch">Hoch</option>
           </select>
         </label>
-        <label>Status
+        <label class="adv-filter">Status
           <select id="task-filter-status">
             <option value="">Alle Status</option>
             <option value="offen">Offen</option>
@@ -179,7 +199,8 @@
             <option value="erledigt">Erledigt</option>
           </select>
         </label>
-        <label>Sortieren nach
+        <button type="button" id="task-filter-toggle" class="filter-toggle-btn" aria-expanded="false">Filter <span id="task-filter-count" class="filter-count hidden"></span></button>
+        <label class="adv-filter">Sortieren nach
           <select id="task-sort">
             <option value="deadline">Datum</option>
             <option value="priority">Priorität</option>
@@ -219,8 +240,38 @@
   </section>
 
   <!-- ===================== MEINE AUFGABEN ===================== -->
-  <section id="tab-mytasks" class="tab-panel">
-    <div id="mytasks-list" class="mytasks-list"></div>
+  <section id="tab-mytasks" class="tab-panel active">
+    <div class="focus-layout">
+      <div class="focus-main">
+        <div class="focus-date" id="focus-date"></div>
+        <h2 class="focus-greeting" id="focus-greeting"></h2>
+        <p class="focus-summary" id="focus-summary"></p>
+        <div id="mytasks-list" class="mytasks-list"></div>
+      </div>
+      <aside class="focus-day" id="focus-day" aria-label="Tagesplan"></aside>
+    </div>
+  </section>
+
+  <!-- ===================== ZEITLEISTE ===================== -->
+  <section id="tab-timeline" class="tab-panel">
+    <div class="tl-toolbar">
+      <div class="seg" role="group" aria-label="Zeitraum">
+        <button type="button" data-tl-range="28">4 Wochen</button>
+        <button type="button" data-tl-range="91">3 Monate</button>
+        <button type="button" data-tl-range="182">6 Monate</button>
+      </div>
+      <div class="seg" role="group" aria-label="Blättern">
+        <button type="button" id="tl-prev" title="Zurück">◀</button>
+        <button type="button" id="tl-today">Heute</button>
+        <button type="button" id="tl-next" title="Weiter">▶</button>
+      </div>
+      <select id="tl-person" title="Person"><option value="">Alle Personen</option></select>
+      <label class="tl-check"><input type="checkbox" id="tl-show-done"> Erledigte zeigen</label>
+    </div>
+    <div class="card tl-card">
+      <div class="tl-scroll"><div id="timeline" class="tl"></div></div>
+    </div>
+    <p class="hint" id="tl-hint"></p>
   </section>
 
   <!-- Aufgabe bearbeiten (Detail-Modal) -->
@@ -248,9 +299,14 @@
           </label>
         </div>
         <div id="task-estimate-hint" class="estimate-hint hidden"></div>
-        <label>Datum (wann die Aufgabe erledigt werden soll)
-          <input type="date" id="task-due-date">
-        </label>
+        <div class="time-row">
+          <label>Beginn (optional)
+            <input type="date" id="task-start-date" title="Ab wann an der Aufgabe gearbeitet wird – bestimmt den Balken in der Zeitleiste">
+          </label>
+          <label>Fällig am
+            <input type="date" id="task-due-date">
+          </label>
+        </div>
         <label>Uhrzeit (optional)
           <input type="time" id="task-due-time">
         </label>

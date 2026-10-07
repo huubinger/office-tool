@@ -87,16 +87,16 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['tasks', 'mytasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'nk_ensemble'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'timeline', 'nk_ensemble'];
   const MOBILE_LABELS = {
-    tasks: 'Aufgaben', mytasks: 'Meine', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
+    tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
     yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
 
   function can(tab) {
     // "Meine Aufgaben" ist nur eine andere Ansicht der Aufgaben und haengt an deren Freigabe
-    if (tab === 'mytasks') return can('tasks');
+    if (tab === 'mytasks' || tab === 'timeline') return can('tasks');
     // Ensemble ist privat und nur für Admins, unabhängig von den Reiter-Freigaben
     if (tab === 'nk_ensemble') return !!currentUser.is_admin;
     // Finder: Admins immer, alle anderen nur mit ausdrücklicher Freigabe
@@ -120,10 +120,11 @@
     const kicker = document.getElementById('page-kicker');
     kicker.textContent = (src && src.dataset.group) || '';
     kicker.classList.toggle('hidden', !(src && src.dataset.group));
-    try { localStorage.setItem('office_last_tab', tab); } catch (e) { /* egal */ }
+    try { sessionStorage.setItem('office_last_tab', tab); } catch (e) { /* egal */ }
     if (!opts.noScroll) window.scrollTo({ top: 0 });
     if (tab === 'calendar') renderCalendar();
     if (tab === 'mytasks') renderMyTasks();
+    if (tab === 'timeline') renderTimeline();
     if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
     if (tab === 'yearcalendar') { renderYearCalendar(); if (!opts.restore) maybeAutoOpenSecondHalf(); }
     if (tab === 'contracts') { loadContractEvents(); }
@@ -641,6 +642,7 @@
     renderDoneSection();
     renderUrgentSection();
     renderMyTasks();
+    if (document.getElementById('tab-timeline').classList.contains('active')) renderTimeline();
     fillTaskSelect();
     if (document.getElementById('tab-calendar').classList.contains('active')) renderCalendar();
   }
@@ -752,7 +754,11 @@
   function sortTasks(list) {
     const sorted = [...list];
     sorted.sort((a, b) => {
-      if (taskSort === 'deadline') return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : (a.due_date || '9999') > (b.due_date || '9999') ? 1 : 0;
+      if (taskSort === 'deadline') {
+        const da = a.due_date || '9999', db = b.due_date || '9999';
+        if (da !== db) return da < db ? -1 : 1;
+        return (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]) || a.title.localeCompare(b.title, 'de');
+      }
       if (taskSort === 'priority') return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
       return a.title.localeCompare(b.title, 'de');
     });
@@ -913,6 +919,21 @@
     el.addEventListener('input', handler);
     el.addEventListener('change', handler);
   });
+  // Erweiterte Filter stecken hinter dem "Filter"-Knopf; die Zahl zeigt, wie viele aktiv sind.
+  const filterCard = document.querySelector('.filter-bar-card');
+  function updateFilterCount() {
+    const n = ['person', 'project', 'status', 'priority'].filter(k => taskFilters[k]).length + (taskSort !== 'deadline' ? 1 : 0);
+    const el = document.getElementById('task-filter-count');
+    el.textContent = n;
+    el.classList.toggle('hidden', !n);
+  }
+  document.getElementById('task-filter-toggle').addEventListener('click', (e) => {
+    const open = filterCard.classList.toggle('filters-open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+  ['task-filter-person', 'task-filter-project', 'task-filter-status', 'task-filter-priority', 'task-sort'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => setTimeout(updateFilterCount));
+  });
   document.getElementById('task-sort').addEventListener('change', (e) => {
     taskSort = e.target.value;
     renderTaskList();
@@ -963,6 +984,7 @@
     taskPriorityInput.value = t.priority || 'mittel';
     taskDueDateInput.value = t.due_date || '';
     taskDueTimeInput.value = t.due_time || '';
+    document.getElementById('task-start-date').value = t.start_date || '';
     setSearchableProjectValue('task-project', t.project ? t.project.id : '');
     document.querySelectorAll('#task-people-checkboxes input').forEach(cb => {
       cb.checked = t.people.some(p => p.id === +cb.value);
@@ -1051,6 +1073,8 @@
       due_date: dueDate,
       due_time: dueDate ? dueTime : null,
       clear_due_date: !dueDate,
+      start_date: document.getElementById('task-start-date').value || null,
+      clear_start_date: !document.getElementById('task-start-date').value,
       project_id: projectVal ? +projectVal : null,
       clear_project: !projectVal,
       person_ids,
@@ -2580,43 +2604,307 @@
     const urgent = sortByUrgency(urgentUnsorted);
 
     const card = document.getElementById('urgent-card');
+    if (!card) return;
     card.classList.toggle('hidden', urgent.length === 0);
     if (!urgent.length) return;
     document.getElementById('urgent-list').innerHTML = urgent.map(compactTaskRowHtml).join('');
     wireTaskRowClicks(document.getElementById('urgent-list'));
   }
 
-  // Eigene Seite mit allen offenen Aufgaben der eingeloggten Person: Aufgabe gross, Projekt klein.
-  function renderMyTasks() {
-    const container = document.getElementById('mytasks-list');
-    if (!currentUser.person_id) {
-      container.innerHTML = '<div class="card empty-state">Dein Konto ist noch mit keiner Person verknüpft – unter <strong>Konto → Benutzer &amp; Freigaben</strong> zuordnen, dann erscheinen hier deine Aufgaben.</div>';
-      return;
-    }
-    const mine = sortByUrgency(tasks.filter(t => t.status !== 'erledigt' && t.people.some(p => p.id === currentUser.person_id)));
-    if (!mine.length) {
-      container.innerHTML = '<div class="card empty-state">Keine offenen Aufgaben – alles erledigt.</div>';
-      return;
-    }
-    const todayIso = isoDate(new Date());
-    container.innerHTML = mine.map(t => {
-      const overdue = t.due_date && t.due_date < todayIso;
-      const meta = [
-        t.project ? `<span class="mytask-project"><span class="color-dot" style="background:${t.project.color}"></span>${escapeHtml(t.project.name)}</span>` : '<span class="mytask-project mytask-noproject">Ohne Projekt</span>',
-        t.due_date ? `<span class="mytask-date ${overdue ? 'overdue' : ''}">${t.due_date === todayIso ? 'Heute' : fmtDateDE(t.due_date)}</span>` : '',
-        t.priority === 'hoch' ? '<span class="mytask-prio">Hohe Priorität</span>' : '',
-      ].join('');
-      return `
-        <div class="mytask-card card" data-task-row="${t.id}">
-          <input type="checkbox" class="task-done-checkbox mytask-check" data-done-toggle="${t.id}" title="Als erledigt markieren">
-          <div class="mytask-text">
-            <div class="mytask-title">${escapeHtml(t.title)}</div>
-            <div class="mytask-meta">${meta}</div>
-          </div>
-        </div>`;
-    }).join('');
-    wireTaskRowClicks(container);
+  // "Meine Aufgaben" als Fokus-Tag: oben nur, was heute dran ist (ueberfaellig + heute), gross.
+  // Demnaechst und Ohne Datum sind eingeklappt, damit nicht zu viel auf einmal zu sehen ist.
+  // Rechts der Tagesplan aus der Wochenplanung.
+  const focusOpen = { soon: false, later: false, nodate: false };
+  let focusScheduledIds = new Set(); // heute in der Wochenplanung eingeplante Aufgaben -> gehoeren zu "Heute"
+  let focusScheduledKey = '';
+  const WEEKDAYS_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  const MONTHS_LONG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
+  function focusCardHtml(t, todayIso, big) {
+    const overdue = t.due_date && t.due_date < todayIso;
+    const others = t.people.filter(p => p.id !== currentUser.person_id);
+    const bits = [
+      t.project ? `<span class="fc-proj"><span class="color-dot" style="background:${t.project.color}"></span>${escapeHtml(t.project.name)}</span>` : '',
+      overdue ? `<span class="fc-late">seit ${fmtDateDE(t.due_date).slice(0, 6)} fällig</span>`
+        : (t.due_date && t.due_date !== todayIso ? `<span>${relativeDayLabel(t.due_date, todayIso)}</span>` : ''),
+      t.due_time ? `<span>${t.due_time.slice(0, 5)} Uhr</span>` : '',
+      t.status === 'in Arbeit' ? '<span class="fc-busy">in Arbeit</span>' : '',
+      others.length ? `<span>mit ${others.map(p => escapeHtml(p.name.split(' ')[0])).join(', ')}</span>` : '',
+    ].filter(Boolean).join('<span class="fc-sep">·</span>');
+    return `
+      <div class="focus-card ${big ? 'big' : ''} ${t.priority === 'hoch' ? 'prio-hoch' : ''}" data-task-row="${t.id}">
+        <input type="checkbox" class="task-done-checkbox focus-check" data-done-toggle="${t.id}" title="Als erledigt markieren">
+        <div class="focus-text">
+          <div class="focus-title">${escapeHtml(t.title)}</div>
+          ${bits ? `<div class="focus-meta">${bits}</div>` : ''}
+        </div>
+        ${t.estimated_minutes ? `<span class="focus-dur">${fmtDuration(t.estimated_minutes)}</span>` : ''}
+      </div>`;
   }
+
+  function relativeDayLabel(iso, todayIso) {
+    const diff = Math.round((new Date(iso) - new Date(todayIso)) / 86400000);
+    if (diff === 1) return 'morgen';
+    if (diff > 1 && diff < 7) return WEEKDAYS_LONG[new Date(iso).getDay()];
+    return fmtDateDE(iso).slice(0, 6);
+  }
+
+  function renderMyTasks() {
+    renderFocusList();
+    renderFocusDay(isoDate(new Date()));
+  }
+
+  function renderFocusList() {
+    const container = document.getElementById('mytasks-list');
+    const now = new Date();
+    const todayIso = isoDate(now);
+    document.getElementById('focus-date').textContent = `${WEEKDAYS_LONG[now.getDay()]} · ${now.getDate()}. ${MONTHS_LONG[now.getMonth()]}`;
+    const h = now.getHours();
+    const firstName = (currentUser.person_name || currentUser.display_name || '').split(' ')[0];
+    const hello = h < 11 ? 'Guten Morgen' : h < 18 ? 'Hallo' : 'Guten Abend';
+    document.getElementById('focus-greeting').textContent = firstName ? `${hello}, ${firstName}.` : `${hello}.`;
+    const summary = document.getElementById('focus-summary');
+
+    if (!currentUser.person_id) {
+      summary.textContent = '';
+      container.innerHTML = '<div class="focus-empty">Dein Konto ist noch mit keiner Person verknüpft – unter <strong>Konto → Benutzer verwalten</strong> zuordnen, dann erscheinen hier deine Aufgaben.</div>';
+      return;
+    }
+    const mine = tasks.filter(t => t.status !== 'erledigt' && t.people.some(p => p.id === currentUser.person_id));
+    const weekIso = isoDate(addDays(now, 7));
+    const byPrio = (a, b) => (PRIORITY_RANK_URGENCY[a.priority] - PRIORITY_RANK_URGENCY[b.priority])
+      || (a.due_time || '99') .localeCompare(b.due_time || '99') || a.title.localeCompare(b.title, 'de');
+    const overdue = mine.filter(t => t.due_date && t.due_date < todayIso).sort((a, b) => a.due_date.localeCompare(b.due_date) || byPrio(a, b));
+    const today = mine.filter(t => t.due_date === todayIso
+      || ((t.status === 'in Arbeit' || focusScheduledIds.has(t.id)) && (!t.due_date || t.due_date > todayIso))).sort(byPrio);
+    const todayIds = new Set([...overdue, ...today].map(t => t.id));
+    const soon = mine.filter(t => !todayIds.has(t.id) && t.due_date && t.due_date <= weekIso).sort((a, b) => a.due_date.localeCompare(b.due_date) || byPrio(a, b));
+    const later = mine.filter(t => !todayIds.has(t.id) && t.due_date && t.due_date > weekIso).sort((a, b) => a.due_date.localeCompare(b.due_date) || byPrio(a, b));
+    const nodate = mine.filter(t => !todayIds.has(t.id) && !t.due_date).sort(byPrio);
+
+    const nToday = overdue.length + today.length;
+    summary.textContent = !mine.length ? ''
+      : nToday === 0 ? 'Für heute ist nichts fällig.'
+      : `${nToday === 1 ? 'Eine Aufgabe' : nToday + ' Aufgaben'} für heute${overdue.length ? `, davon ${overdue.length} überfällig` : ''}.`;
+
+    if (!mine.length) {
+      container.innerHTML = '<div class="focus-empty">Keine offenen Aufgaben – alles erledigt. 🎉</div>';
+    } else {
+      const section = (key, label, list, big) => {
+        if (!list.length) return '';
+        const collapsible = key !== 'today';
+        const open = !collapsible || focusOpen[key];
+        return `
+          <div class="focus-section">
+            ${collapsible
+              ? `<button type="button" class="focus-section-head" data-focus-toggle="${key}" aria-expanded="${open}"><span>${label}</span><span class="focus-count">${list.length}</span><span class="focus-chevron ${open ? 'open' : ''}">▾</span></button>`
+              : ''}
+            ${open ? `<div class="focus-cards">${list.map(t => focusCardHtml(t, todayIso, big)).join('')}</div>` : ''}
+          </div>`;
+      };
+      container.innerHTML =
+        ([...overdue, ...today].length ? section('today', 'Heute', [...overdue, ...today], true)
+          : '<div class="focus-empty small">Heute ist nichts fällig. Wenn du magst, nimm dir etwas aus „Demnächst“ vor.</div>')
+        + section('soon', 'Demnächst', soon, false)
+        + section('later', 'Später', later, false)
+        + section('nodate', 'Ohne Datum', nodate, false);
+      container.querySelectorAll('[data-focus-toggle]').forEach(b => b.addEventListener('click', () => {
+        focusOpen[b.dataset.focusToggle] = !focusOpen[b.dataset.focusToggle];
+        renderFocusList();
+      }));
+      wireTaskRowClicks(container);
+    }
+  }
+
+  // Tagesplan rechts: heutige Termine der eingeloggten Person aus der Wochenplanung
+  async function renderFocusDay(todayIso) {
+    const box = document.getElementById('focus-day');
+    if (!currentUser.person_id) { box.innerHTML = ''; return; }
+    let entries = [];
+    try { entries = await api(`/api/calendar?from=${todayIso}&to=${todayIso}`); } catch (e) { /* egal */ }
+    entries = entries.filter(e => e.person_id === currentUser.person_id).sort((a, b) => a.start_time.localeCompare(b.start_time));
+    focusScheduledIds = new Set(entries.map(e => e.task_id));
+    const key = [...focusScheduledIds].sort().join(',');
+    if (key !== focusScheduledKey) { focusScheduledKey = key; renderFocusList(); }
+    const rows = entries.map(e => `
+      <div class="fd-entry ${e.task_status === 'erledigt' ? 'done' : ''}" data-task-row="${e.task_id}" style="--c:${e.project_color || 'var(--accent)'}">
+        <span class="fd-time">${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}</span>
+        <span class="fd-title">${escapeHtml(e.task_title)}</span>
+      </div>`).join('');
+    box.innerHTML = `
+      <h3 class="fd-head">Tagesplan</h3>
+      ${rows || '<p class="fd-empty">Heute ist noch nichts eingeplant. In der <button type="button" class="link-btn" id="fd-to-calendar">Wochenplanung</button> kannst du Aufgaben feste Zeiten geben.</p>'}`;
+    box.querySelectorAll('[data-task-row]').forEach(el => el.addEventListener('click', () => startEditTask(+el.dataset.taskRow)));
+    const link = document.getElementById('fd-to-calendar');
+    if (link) link.addEventListener('click', () => switchTab('calendar'));
+  }
+
+  // ================= ZEITLEISTE =================
+  // Projekte untereinander, Aufgaben als Balken von Beginn bis Faelligkeit. Balken lassen sich
+  // verschieben (ganzer Balken) oder am rechten/linken Ende verlaengern; Konzerte erscheinen als Meilensteine.
+  let tlDays = 91;
+  let tlStart = addDays(getMonday(new Date()), -7);
+  const DAY_MS = 86400000;
+  function tlDayIndex(iso) { return Math.round((new Date(iso + 'T00:00:00') - tlStart) / DAY_MS); }
+
+  async function renderTimeline() {
+    const box = document.getElementById('timeline');
+    document.querySelectorAll('[data-tl-range]').forEach(b => b.classList.toggle('active', +b.dataset.tlRange === tlDays));
+    const personSel = document.getElementById('tl-person');
+    if (personSel.options.length <= 1) {
+      personSel.innerHTML = '<option value="">Alle Personen</option>' + people.filter(p => p.active).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    }
+    const personId = +personSel.value || null;
+    const showDone = document.getElementById('tl-show-done').checked;
+    const todayIso = isoDate(new Date());
+    const endIso = isoDate(addDays(tlStart, tlDays - 1));
+    const startIso = isoDate(tlStart);
+
+    const dated = tasks.filter(t => (t.due_date || t.start_date)
+      && (showDone || t.status !== 'erledigt')
+      && (!personId || t.people.some(p => p.id === personId)));
+    const undatedCount = tasks.filter(t => !t.due_date && !t.start_date && t.status !== 'erledigt').length;
+    const span = t => {
+      const s0 = t.start_date && (!t.due_date || t.start_date <= t.due_date) ? t.start_date : (t.due_date || t.start_date);
+      return [s0, t.due_date || t.start_date];
+    };
+    const visible = dated.filter(t => { const [a, b] = span(t); return b >= startIso && a <= endIso; });
+
+    const groups = new Map();
+    visible.forEach(t => {
+      const key = t.project ? t.project.id : 0;
+      if (!groups.has(key)) groups.set(key, { project: t.project, tasks: [] });
+      groups.get(key).tasks.push(t);
+    });
+    const ordered = [...groups.values()].sort((a, b) => (a.project ? 0 : 1) - (b.project ? 0 : 1) || (a.project ? a.project.name.localeCompare(b.project.name, 'de') : 0));
+    ordered.forEach(g => g.tasks.sort((a, b) => span(a)[0].localeCompare(span(b)[0]) || span(a)[1].localeCompare(span(b)[1])));
+
+    let concerts = [];
+    if (can('nk_projects')) {
+      try { concerts = (await api('/api/nk/concerts')).filter(c => c.date && c.date >= startIso && c.date <= endIso && c.status !== 'Abgesagt'); } catch (e) { /* egal */ }
+    }
+
+    const pct = i => (i / tlDays * 100).toFixed(3) + '%';
+    // Kopfzeile: bei 6 Monaten Monate, sonst Kalenderwochen
+    let head = '';
+    if (tlDays > 120) {
+      let d = new Date(tlStart.getFullYear(), tlStart.getMonth(), 1);
+      while (d <= addDays(tlStart, tlDays)) {
+        const from = Math.max(0, tlDayIndex(isoDate(d)));
+        const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        const to = Math.min(tlDays, tlDayIndex(isoDate(next)));
+        if (to > from) head += `<span style="left:${pct(from)};width:${pct(to - from)}"><b>${MONTHS_LONG[d.getMonth()]}</b>${d.getFullYear()}</span>`;
+        d = next;
+      }
+    } else {
+      for (let i = 0; i < tlDays; i += 7) {
+        const d = addDays(tlStart, i);
+        head += `<span style="left:${pct(i)};width:${pct(7)}"><b>KW ${isoWeek(d)}</b>${d.getDate()}.${d.getMonth() + 1}.</span>`;
+      }
+    }
+    const todayIdx = tlDayIndex(todayIso);
+    const todayLine = todayIdx >= 0 && todayIdx < tlDays ? `<div class="tl-today" style="left:${pct(todayIdx + 0.5)}"></div>` : '';
+    const weekends = [];
+    if (tlDays <= 91) for (let i = 0; i < tlDays; i++) { const wd = addDays(tlStart, i).getDay(); if (wd === 6) weekends.push(`<div class="tl-weekend" style="left:${pct(i)};width:${pct(2)}"></div>`); }
+
+    let names = '', lanes = '';
+    ordered.forEach(g => {
+      const color = g.project ? g.project.color : 'var(--ink-faint)';
+      const spans = g.tasks.map(span);
+      const gFrom = Math.max(0, tlDayIndex(spans.reduce((m, s) => s[0] < m ? s[0] : m, spans[0][0])));
+      const gTo = Math.min(tlDays, tlDayIndex(spans.reduce((m, s) => s[1] > m ? s[1] : m, spans[0][1])) + 1);
+      const done = g.tasks.filter(t => t.status === 'erledigt').length;
+      names += `<div class="tl-name sec"><span class="color-dot" style="background:${color}"></span><span class="trunc">${escapeHtml(g.project ? g.project.name : 'Ohne Projekt')}</span><span class="tl-n">${g.tasks.length}</span></div>`;
+      lanes += `<div class="tl-lane sec"><div class="tl-sum" style="left:${pct(gFrom)};width:${pct(Math.max(gTo - gFrom, 0.5))};background:${color}"></div></div>`;
+      g.tasks.forEach(t => {
+        const [a, b] = span(t);
+        const from = tlDayIndex(a), to = tlDayIndex(b) + 1;
+        const cf = Math.max(0, from), ct = Math.min(tlDays, to);
+        const late = t.status !== 'erledigt' && t.due_date && t.due_date < todayIso;
+        const initialsTxt = t.people.map(p => personShort(p)).join(' ');
+        names += `<div class="tl-name" data-task-row="${t.id}"><span class="trunc">${escapeHtml(t.title)}</span></div>`;
+        lanes += `<div class="tl-lane"><div class="tl-b ${late ? 'late' : ''} ${t.status === 'erledigt' ? 'done' : ''} ${from < 0 ? 'cut-l' : ''} ${to > tlDays ? 'cut-r' : ''}"
+          data-tl-task="${t.id}" data-from="${a}" data-to="${b}" style="left:${pct(cf)};width:${pct(ct - cf)};--c:${color}" title="${escapeHtml(t.title)} · ${fmtDateDE(a)}${a !== b ? ' – ' + fmtDateDE(b) : ''}">
+          <span class="tl-h l"></span><span class="tl-bt">${escapeHtml(t.title)}</span>${initialsTxt ? `<span class="tl-who">${escapeHtml(initialsTxt)}</span>` : ''}<span class="tl-h r"></span></div></div>`;
+      });
+    });
+    if (concerts.length) {
+      names += `<div class="tl-name sec"><span class="color-dot" style="background:var(--violet)"></span><span class="trunc">Konzerte</span><span class="tl-n">${concerts.length}</span></div>`;
+      lanes += `<div class="tl-lane sec">${concerts.map(c => `<div class="tl-ms" style="left:${pct(tlDayIndex(c.date) + 0.5)}" title="${escapeHtml(c.title)} · ${fmtDateDE(c.date)}"></div><span class="tl-ms-l" style="left:calc(${pct(tlDayIndex(c.date) + 0.5)} + 10px)">${escapeHtml(c.title)}</span>`).join('')}</div>`;
+    }
+    if (!ordered.length && !concerts.length) {
+      names = '';
+      lanes = '<div class="tl-empty">In diesem Zeitraum gibt es keine Aufgaben mit Datum.</div>';
+    }
+    box.innerHTML = `
+      <div class="tl-names"><div class="tl-head tl-head-label">Projekt / Aufgabe</div>${names}</div>
+      <div class="tl-lanes"><div class="tl-head">${head}</div><div class="tl-body">${weekends.join('')}${lanes}${todayLine}</div></div>`;
+    document.getElementById('tl-hint').textContent = undatedCount
+      ? `${undatedCount} offene ${undatedCount === 1 ? 'Aufgabe hat' : 'Aufgaben haben'} kein Datum und ${undatedCount === 1 ? 'erscheint' : 'erscheinen'} nicht in der Zeitleiste. Balken ziehen verschiebt die Aufgabe, an den Enden ziehen ändert Beginn oder Fälligkeit.`
+      : 'Balken ziehen verschiebt die Aufgabe, an den Enden ziehen ändert Beginn oder Fälligkeit.';
+    box.querySelectorAll('.tl-name[data-task-row]').forEach(el => el.addEventListener('click', () => startEditTask(+el.dataset.taskRow)));
+    box.querySelectorAll('.tl-b').forEach(wireTimelineBar);
+  }
+
+  function isoWeek(d) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - yearStart) / DAY_MS + 1) / 7);
+  }
+
+  function wireTimelineBar(bar) {
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const mode = e.target.classList.contains('l') ? 'start' : e.target.classList.contains('r') ? 'end' : 'move';
+      const lanes = document.querySelector('#timeline .tl-body');
+      const dayPx = lanes.getBoundingClientRect().width / tlDays;
+      const startX = e.clientX;
+      const origLeft = bar.offsetLeft, origWidth = bar.offsetWidth;
+      let delta = 0, moved = false;
+      bar.setPointerCapture(e.pointerId);
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        if (Math.abs(dx) > 3) moved = true;
+        delta = Math.round(dx / dayPx);
+        if (mode === 'move') bar.style.left = (origLeft + delta * dayPx) + 'px';
+        if (mode === 'end') bar.style.width = Math.max(dayPx, origWidth + delta * dayPx) + 'px';
+        if (mode === 'start') { const d = Math.min(delta, Math.round(origWidth / dayPx) - 1); bar.style.left = (origLeft + d * dayPx) + 'px'; bar.style.width = (origWidth - d * dayPx) + 'px'; }
+      };
+      const onUp = async () => {
+        bar.removeEventListener('pointermove', onMove);
+        bar.removeEventListener('pointerup', onUp);
+        bar.removeEventListener('pointercancel', onUp);
+        const id = +bar.dataset.tlTask;
+        if (!moved) { startEditTask(id); return; }
+        if (!delta) { renderTimeline(); return; }
+        const shift = iso => isoDate(addDays(new Date(iso + 'T00:00:00'), delta));
+        const from = bar.dataset.from, to = bar.dataset.to;
+        let newFrom = from, newTo = to;
+        if (mode === 'move') { newFrom = shift(from); newTo = shift(to); }
+        if (mode === 'end') { newTo = shift(to); if (newTo < from) newTo = from; }
+        if (mode === 'start') { newFrom = shift(from); if (newFrom > to) newFrom = to; }
+        const payload = { due_date: newTo };
+        if (newFrom !== newTo) payload.start_date = newFrom; else payload.clear_start_date = true;
+        try {
+          await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        } catch (err) { alert(err.message); }
+        await loadTasks();
+        renderTimeline();
+      };
+      bar.addEventListener('pointermove', onMove);
+      bar.addEventListener('pointerup', onUp);
+      bar.addEventListener('pointercancel', onUp);
+    });
+  }
+
+  document.querySelectorAll('[data-tl-range]').forEach(b => b.addEventListener('click', () => { tlDays = +b.dataset.tlRange; renderTimeline(); }));
+  document.getElementById('tl-prev').addEventListener('click', () => { tlStart = addDays(tlStart, -Math.round(tlDays / 3 / 7) * 7 || -7); renderTimeline(); });
+  document.getElementById('tl-next').addEventListener('click', () => { tlStart = addDays(tlStart, Math.round(tlDays / 3 / 7) * 7 || 7); renderTimeline(); });
+  document.getElementById('tl-today').addEventListener('click', () => { tlStart = addDays(getMonday(new Date()), -7); renderTimeline(); });
+  document.getElementById('tl-person').addEventListener('change', renderTimeline);
+  document.getElementById('tl-show-done').addEventListener('change', renderTimeline);
 
   // ================= JAHRESKALENDER =================
   const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -3011,6 +3299,19 @@
   document.addEventListener('click', (e) => {
     if (!accountBtn.contains(e.target) && !accountDropdown.contains(e.target)) accountDropdown.classList.add('hidden');
   });
+
+  // Darstellung (Hell / Dunkel / System), pro Geraet gespeichert. Gesetzt wird sie schon im
+  // <head>, damit nichts aufblitzt - hier nur Umschalten und Markieren der aktiven Wahl.
+  function applyTheme(choice) {
+    document.documentElement.dataset.theme = choice;
+    try { localStorage.setItem('office_theme', choice); } catch (e) { /* egal */ }
+    const dark = choice === 'dark' || (choice === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = dark ? '#0d1015' : '#ece5d8';
+    document.querySelectorAll('[data-theme-choice]').forEach(b => b.classList.toggle('active', b.dataset.themeChoice === choice));
+  }
+  document.querySelectorAll('[data-theme-choice]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
+  applyTheme(document.documentElement.dataset.theme || 'light');
 
   document.getElementById('logout-btn').addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' });
@@ -4554,7 +4855,7 @@
       document.querySelector('main').insertAdjacentHTML('afterbegin', '<div class="empty-card"><div class="empty-card-icon">🔒</div><strong>Für dein Konto sind noch keine Bereiche freigegeben.</strong><span>Bitte an einen Admin wenden.</span></div>');
     } else {
       let last = null;
-      try { last = localStorage.getItem('office_last_tab'); } catch (e) { /* egal */ }
+      try { last = sessionStorage.getItem('office_last_tab'); } catch (e) { /* egal */ }
       const sidebarOrder = [...document.querySelectorAll('.sidebar .tab-btn')].map(b => b.dataset.tab).filter(can);
       const urlParams = new URLSearchParams(window.location.search);
       const mkConnect = urlParams.get('mk_connect') && can('marketing');

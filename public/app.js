@@ -87,15 +87,15 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', finder: 'Finder', marketing: 'Marketing',
+    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
   // Eigener Einstieg /nk ("NK Konzerte" als App auf dem Home-Bildschirm): nur die NK-Reiter
   const NK_MODE = !!window.NK_MODE;
-  const NK_TABS = ['nk_projects', 'nk_polls', 'nk_sponsors'];
+  const NK_TABS = ['nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts'];
 
   function can(tab) {
     if (NK_MODE && !NK_TABS.includes(tab)) return false;
@@ -133,6 +133,7 @@
     if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
     if (tab === 'nk_sponsors') { showNkSponsorList(); loadNkSponsors(); }
+    if (tab === 'nk_contacts') { showNkContactList(); loadNkContacts(); }
     if (tab === 'finder') { loadFinder(); }
     if (tab === 'marketing') { loadMarketing(); }
   }
@@ -3362,11 +3363,11 @@
   const TAB_LABELS = [
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'],
-    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'], ['nk_sponsors', 'NK · Sponsoren'],
+    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_contacts', 'NK · Kontakte'],
     ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
-    nk: ['nk_polls', 'nk_projects', 'nk_sponsors'],
+    nk: ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts'],
     office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'],
     all: TAB_LABELS.map(t => t[0]),
   };
@@ -4422,7 +4423,7 @@
   // ---------- Projekte (Konzerte) ----------
   let nkConcerts = [];
   let nkConcertDetail = null;
-  let nkConcertFolder = 'contracts';
+  let nkConcertFolder = 'overview';
   let nkBudgetKind = 'plan';
   // Ungespeicherte Kalkulation/Abrechnung (auch nach Excel-Import), damit ein Neuzeichnen nichts verliert
   let nkBudgetDraft = null; // { concertId, kind, data, visitors, source, imported }
@@ -4430,10 +4431,13 @@
   const NK_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abgesagt'];
   // Ordnerstruktur je Projekt: "<Datum> <Eventname>" -> Verträge / Sonstige Absprachen / Kalkulation / GEMA / 2Dos
   const NK_FOLDERS = {
+    overview: { name: 'Übersicht', icon: '🧭' },
     contracts: { name: 'Verträge', icon: '📑', folder: 'Verträge', categories: ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'] },
     agreements: { name: 'Sonstige Absprachen', icon: '💬', folder: 'Sonstige Absprachen', categories: ['Sonstiges', 'Angebot/Rechnung', 'Protokoll/Notiz'] },
     budget: { name: 'Kalkulation', icon: '💶', folder: 'Kalkulation', categories: ['Kalkulation', 'Abrechnung'] },
     gema: { name: 'GEMA', icon: '🎼', folder: 'GEMA', categories: ['GEMA-Liste/Musikfolge', 'GEMA-Anmeldung', 'GEMA-Rechnung'] },
+    promo: { name: 'Werbung', icon: '📣', folder: 'Werbung', categories: ['Plakat/Flyer', 'Pressetext', 'Fotos', 'Social Media', 'Sonstige Werbung'] },
+    evening: { name: 'Konzertabend', icon: '🎤' },
     todos: { name: '2Dos', icon: '☑️' },
   };
   const BUDGET_KINDS = { plan: 'Kalkulation (Plan)', ist: 'Abrechnung (Ist)' };
@@ -4447,7 +4451,8 @@
   function parseAmount(v) {
     let s = String(v ?? '').replace(/[€\s]/g, '');
     if (!s) return null;
-    if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+    if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); // 1.200 = Tausenderpunkt
+    else if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
     else s = s.replace(/,/g, '');
     const n = parseFloat(s);
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
@@ -4482,6 +4487,7 @@
     }));
     renderNkFinance();
     refreshNkBadges();
+    setNkView(nkView);
   }
 
   function nkConcertCardHtml(c) {
@@ -4505,7 +4511,12 @@
             <span>💶 Kalkulation ${budgetLine}</span>
             <span>🎼 GEMA <em>${c.gema_registered_at ? '✓ angemeldet' : 'nicht angemeldet'}${c.gema_reported_at ? ' · Musikfolge gemeldet' : ''}</em></span>
             <span class="${c.todo_open ? 'has-open' : ''}">☑️ 2Dos <em>${c.todo_total ? `${c.todo_open} offen` : '0'}</em></span>
+            ${c.tickets_sold !== null && c.tickets_sold !== undefined ? `<span>🎟️ Tickets <em>${fmtNum(c.tickets_sold)}${c.tickets_capacity ? ' / ' + fmtNum(c.tickets_capacity) : ''}</em></span>` : ''}
           </div>
+          ${c.progress ? `<div class="progress-line" title="${escapeHtml(c.progress.next ? 'Als Nächstes: ' + c.progress.next : 'Alles erledigt')}">
+            <div class="progress-bar"><span style="width:${Math.round(c.progress.done / c.progress.total * 100)}%"></span></div>
+            <small>${c.progress.done}/${c.progress.total}${c.progress.next ? ' · ' + escapeHtml(c.progress.next) : ' · fertig'}</small>
+          </div>` : ''}
         </div>
       </button>`;
   }
@@ -4564,7 +4575,7 @@
 
   async function openNkConcert(id, folder) {
     nkConcertDetail = await api(`/api/nk/concerts/${id}`);
-    nkConcertFolder = NK_FOLDERS[folder] ? folder : 'contracts';
+    nkConcertFolder = NK_FOLDERS[folder] ? folder : 'overview';
     if (folder === 'budget' && !nkConcertDetail.budgets[nkBudgetKind]) nkBudgetKind = nkConcertDetail.budgets.ist ? 'ist' : 'plan';
     document.getElementById('nk-projects-list-view').classList.add('hidden');
     document.getElementById('nk-concert-detail-view').classList.remove('hidden');
@@ -4643,7 +4654,7 @@
       <div class="file-row ${f.seen_by_me ? 'is-seen' : 'is-unseen'}">
         <span class="file-icon">${fileIcon(f)}</span>
         <div class="file-main">
-          <a href="/api/nk/concerts/${c.id}/files/${f.id}/download" target="_blank" rel="noopener" class="file-name">${escapeHtml(f.filename)}</a>
+          <a href="/api/nk/concerts/${c.id}/files/${f.id}/download" target="_blank" rel="noopener" class="file-name" data-preview data-preview-name="${escapeHtml(f.filename)}" data-preview-mime="${escapeHtml(f.mime_type || '')}">${escapeHtml(f.filename)}</a>
           <div class="file-meta">${escapeHtml(f.category || 'Sonstiges')} · ${fmtBytes(f.size_bytes)} · ${escapeHtml(f.uploaded_by.short)} · ${fmtTimestamp(f.uploaded_at)}${f.in_dropbox ? ' · in Dropbox gesichert' : ''}</div>
           <div class="file-seen">
             ${f.seen_by_me
@@ -4660,7 +4671,7 @@
         ${f.can_delete ? `<button type="button" class="icon-btn" data-delete-file="${f.id}" title="Entfernen">✕</button>` : ''}
       </div>`;
     };
-    const folder = NK_FOLDERS[nkConcertFolder] ? nkConcertFolder : 'contracts';
+    const folder = NK_FOLDERS[nkConcertFolder] ? nkConcertFolder : 'overview';
 
     const filesCardHtml = (key, emptyText, title) => {
       const files = filesIn(key);
@@ -4720,7 +4731,8 @@
       </div>`;
     const todosCardHtml = `
       <div class="card nk-todos-card">
-        <div class="section-card-head"><h3>2Dos <span class="count-chip">${openTodos.length} offen</span></h3></div>
+        <div class="section-card-head"><h3>2Dos <span class="count-chip">${openTodos.length} offen</span></h3>
+          ${c.todos.filter(t => t.template_key).length < c.template_total ? '<button type="button" class="ghost" data-todo-template title="Vertrag, Werbung, GEMA, Helfer, Abrechnung … mit Fristen relativ zum Konzertdatum">+ Standard-2Dos</button>' : ''}</div>
         <form id="nk-todo-form" class="nk-todo-form">
           <input type="text" id="nk-todo-title" placeholder="Neues 2Do, z.B. GEMA anmelden" required>
           <select id="nk-todo-assignee"><option value="">Wer?</option>${members.map(m => `<option value="${m.user_id}">${escapeHtml(m.name)}</option>`).join('')}</select>
@@ -4741,12 +4753,18 @@
       budget: c.budgets.ist ? 'Ist' : (c.budgets.plan ? 'Plan' : '–'),
       gema: filesIn('gema').length + c.links.length,
       todos: `${openTodos.length} offen`,
+      overview: c.checklist ? `${c.checklist.done}/${c.checklist.total}` : '',
+      promo: filesIn('promo').length,
+      evening: c.evening ? (c.evening.shifts.reduce((n, sh) => n + sh.open, 0) ? `${c.evening.shifts.reduce((n, sh) => n + sh.open, 0)} frei` : (c.evening.run_items.length || '–')) : '–',
     };
     let folderContent;
     if (folder === 'contracts') folderContent = filesCardHtml('contracts', 'Noch keine Verträge in diesem Ordner.');
     else if (folder === 'agreements') folderContent = `<div class="concert-grid">${commentsCardHtml}${filesCardHtml('agreements', 'Noch keine Dokumente in diesem Ordner.')}</div>`;
     else if (folder === 'budget') folderContent = budgetPanelHtml(c) + filesCardHtml('budget', 'Noch keine Kalkulations-Dateien. Excel-Dateien, die oben ausgelesen werden, landen automatisch hier.', 'Dateien');
     else if (folder === 'gema') folderContent = `<div class="concert-grid gema-grid">${gemaPanelHtml(c)}${filesCardHtml('gema', 'Noch keine GEMA-Listen oder -Unterlagen.', 'GEMA-Listen & Unterlagen')}</div>`;
+    else if (folder === 'overview') folderContent = overviewPanelHtml(c);
+    else if (folder === 'promo') folderContent = `<div class="concert-grid">${promoPanelHtml(c)}${filesCardHtml('promo', 'Noch keine Plakate, Pressetexte oder Fotos.', 'Werbematerial')}</div>`;
+    else if (folder === 'evening') folderContent = eveningPanelHtml(c);
     else folderContent = todosCardHtml;
 
     view.innerHTML = `
@@ -4768,6 +4786,8 @@
           <div class="detail-meta">
             ${c.date ? `<span>📅 ${fmtWeekdayDate(c.date, true)}${c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : ''}</span>` : '<span>📅 Datum noch offen</span>'}
             ${c.location ? `<span>📍 ${escapeHtml(c.location)}</span>` : ''}
+            ${c.capacity ? `<span>🪑 ${fmtNum(c.capacity)} Plätze</span>` : ''}
+            ${c.date && c.date >= todayIsoLocal() && c.status !== 'Abgesagt' ? `<span class="countdown">${daysUntilLabel(c.date)}</span>` : ''}
           </div>
           ${c.notes ? `<p class="detail-notes">${escapeHtml(c.notes)}</p>` : ''}
         </div>
@@ -4881,6 +4901,26 @@
 
     if (folder === 'budget') bindBudgetPanel(c, refresh);
     if (folder === 'gema') bindGemaPanel(c, refresh);
+    if (folder === 'overview') bindOverviewPanel(c, refresh);
+    if (folder === 'promo') bindPromoPanel(c, refresh);
+    if (folder === 'evening') bindEveningPanel(c, refresh);
+    if (folder === 'todos') {
+      const tpl = view.querySelector('[data-todo-template]');
+      if (tpl) tpl.addEventListener('click', async () => {
+        try {
+          const res = await api(`/api/nk/concerts/${c.id}/todo-template`, { method: 'POST' });
+          nkConcertDetail = res.detail;
+          renderNkConcertDetail();
+          toast(res.added ? `${res.added} Standard-2Dos angelegt` : 'Alle Standard-2Dos sind schon da');
+        } catch (err) { alert(err.message); }
+      });
+    }
+    // Dateien in der Vorschau oeffnen statt in einem neuen Tab
+    view.querySelectorAll('a.file-name[data-preview]').forEach(a => a.addEventListener('click', (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      openFilePreview({ name: a.dataset.previewName, url: a.getAttribute('href'), mime: a.dataset.previewMime });
+    }));
 
     const fileInput = document.getElementById('nk-file-input');
     if (!fileInput) return;
@@ -4988,6 +5028,20 @@
           </div>
         </div>
 
+        <div class="budget-tickets">
+          <h4>🎟️ Ticketpreise &amp; Kostendeckung</h4>
+          <div class="ticket-tier-head"><span>Preisstufe</span><span>Preis</span><span>${isIst ? 'verkauft' : 'geplant'}</span><span></span></div>
+          ${(b.data.tickets || []).map((t, i) => `
+            <div class="ticket-tier" data-tier="${i}">
+              <input type="text" data-tier-field="label" value="${escapeHtml(t.label)}" placeholder="z.B. Vorverkauf">
+              <div class="budget-amount-wrap"><input type="text" class="budget-amount" data-tier-field="price" inputmode="decimal" value="${escapeHtml(amountInput(t.price))}" placeholder="0"><span class="budget-euro">€</span></div>
+              <input type="number" min="0" data-tier-field="count" value="${t.count ?? ''}" inputmode="numeric" placeholder="Anzahl">
+              <button type="button" class="icon-btn" data-tier-remove="${i}" title="Preisstufe entfernen">✕</button>
+            </div>`).join('')}
+          <button type="button" class="ghost budget-add" data-tier-add>+ Preisstufe</button>
+          <div id="budget-breakeven" class="budget-breakeven"></div>
+        </div>
+
         <div class="budget-summary">
           <label class="budget-visitors">Besucher ${isIst ? '(tatsächlich)' : '(erwartet)'}
             <input type="number" min="0" step="1" id="budget-visitors" value="${b.visitors ?? ''}" inputmode="numeric">
@@ -4999,7 +5053,12 @@
           <button type="button" id="budget-save">${isIst ? 'Abrechnung speichern' : 'Kalkulation speichern'}</button>
           ${b.dirty ? '<button type="button" class="secondary" id="budget-discard">Änderungen verwerfen</button>' : ''}
           ${c.budgets[nkBudgetKind] ? `<button type="button" class="ghost danger-text" id="budget-delete">${isIst ? 'Abrechnung' : 'Kalkulation'} löschen</button>` : ''}
+          <select id="budget-copy-from" class="budget-copy-from" title="Posten und Beträge aus einem anderen Konzert als Vorlage übernehmen">
+            <option value="">📋 Aus anderem Konzert übernehmen …</option>
+          </select>
         </div>
+        ${isIst && c.tickets && (c.tickets.sold || (c.evening && c.evening.guest_total)) ? `<p class="hint budget-visitor-hint">🎟️ ${fmtNum(c.tickets.sold)} verkaufte Tickets${c.evening && c.evening.guest_total ? ` + ${fmtNum(c.evening.guest_total)} Freikarten` : ''} = ${fmtNum(c.tickets.sold + ((c.evening && c.evening.guest_total) || 0))}
+          <button type="button" class="link-btn" data-budget-visitors="${c.tickets.sold + ((c.evening && c.evening.guest_total) || 0)}">als Besucherzahl übernehmen</button></p>` : ''}
 
         <div class="budget-import">
           <div>
@@ -5039,6 +5098,15 @@
         <div><span>Ausgaben</span><strong>${fmtEuro(exp)}</strong>${plan ? `<small>Plan ${fmtEuro(plan.expense)}</small>` : ''}</div>
         <div class="budget-result"><span>Ergebnis</span><strong class="${resultClass(res)}">${fmtEuro(res)}</strong>${plan ? `<small>Plan ${fmtEuro(plan.result)}</small>` : ''}</div>
         ${v ? `<div><span>pro Besucher</span><strong class="${resultClass(res)}">${fmtEuro(Math.round(res / v * 100) / 100)}</strong><small>Kosten ${fmtEuro(Math.round(exp / v * 100) / 100)}</small></div>` : ''}`;
+      const be = breakEven(b.data);
+      const cap = c.capacity;
+      const sold = c.tickets ? c.tickets.sold : null;
+      document.getElementById('budget-breakeven').innerHTML = be ? `
+        ${be.revenue ? `<div>Ticketeinnahmen laut Preisstufen: <strong>${fmtEuro(be.revenue)}</strong> (${fmtNum(be.planned)} Tickets)</div>` : ''}
+        <div class="${be.tickets === 0 ? 'amount-pos' : ''}">${be.tickets === 0 ? '✓ Ausgaben sind schon ohne Ticketeinnahmen gedeckt'
+          : `Kostendeckung ab <strong>${fmtNum(be.tickets)} Tickets</strong> (Ø ${fmtEuro(be.avg)}, fehlender Betrag ${fmtEuro(be.need)})${cap ? ` = <strong>${pct(be.tickets, cap)} %</strong> von ${fmtNum(cap)} Plätzen${be.tickets > cap ? ' – <span class="amount-neg">mehr als Plätze vorhanden!</span>' : ''}` : ''}`}</div>
+        ${sold !== null && be.tickets ? `<div>Verkauft bisher: <strong>${fmtNum(sold)}</strong> – ${sold >= be.tickets ? '<span class="amount-pos">✓ Kostendeckung erreicht</span>' : `noch <strong>${fmtNum(be.tickets - sold)}</strong> bis zur Kostendeckung`}</div>` : ''}`
+        : '<span class="hint">Preise eintragen, dann rechnet das Tool aus, ab wie vielen Tickets die Kosten gedeckt sind.</span>';
     };
     updateTotals();
 
@@ -5076,6 +5144,59 @@
       nkBudgetKind = btn.dataset.budgetKind;
       renderNkConcertDetail();
     }));
+    if (!b.data.tickets) b.data.tickets = [];
+    view.querySelectorAll('[data-tier]').forEach(row => row.querySelectorAll('[data-tier-field]').forEach(inp => inp.addEventListener('input', () => {
+      const t = b.data.tickets[+row.dataset.tier];
+      const f = inp.dataset.tierField;
+      t[f] = f === 'price' ? parseAmount(inp.value) : f === 'count' ? (inp.value === '' ? null : Math.max(0, Math.round(+inp.value))) : inp.value;
+      markDirty();
+      updateTotals();
+    })));
+    view.querySelectorAll('[data-tier-remove]').forEach(btn => btn.addEventListener('click', () => {
+      b.data.tickets.splice(+btn.dataset.tierRemove, 1);
+      b.dirty = true;
+      rerender();
+    }));
+    const tierAdd = view.querySelector('[data-tier-add]');
+    if (tierAdd) tierAdd.addEventListener('click', () => {
+      b.data.tickets.push({ label: '', price: null, count: null });
+      b.dirty = true;
+      rerender();
+    });
+    const takeVisitors = view.querySelector('[data-budget-visitors]');
+    if (takeVisitors) takeVisitors.addEventListener('click', () => {
+      b.visitors = +takeVisitors.dataset.budgetVisitors;
+      b.dirty = true;
+      rerender();
+    });
+    // Vorlage aus einem anderen Konzert: Liste erst beim Aufklappen laden
+    const copyFrom = document.getElementById('budget-copy-from');
+    let sourcesLoaded = false;
+    const loadSources = async () => {
+      if (sourcesLoaded) return;
+      sourcesLoaded = true;
+      try {
+        const list = (await api('/api/nk/budget-sources')).filter(x => x.concert_id !== c.id);
+        copyFrom.innerHTML = '<option value="">📋 Aus anderem Konzert übernehmen …</option>' + (list.length ? list.map(x =>
+          `<option value="${x.concert_id}:${x.kind}">${x.date ? fmtDateDE(x.date) + ' ' : ''}${escapeHtml(x.title)} – ${x.kind === 'ist' ? 'Abrechnung' : 'Kalkulation'} (${fmtEuro(x.totals.result)})</option>`).join('')
+          : '<option value="" disabled>Noch keine anderen Kalkulationen vorhanden</option>');
+      } catch (err) { sourcesLoaded = false; }
+    };
+    ['focus', 'mousedown', 'touchstart'].forEach(ev => copyFrom.addEventListener(ev, loadSources, { passive: true }));
+    copyFrom.addEventListener('change', async () => {
+      if (!copyFrom.value) return;
+      const [cid, kind] = copyFrom.value.split(':');
+      if (!confirm('Alle Posten und Beträge dieser Ansicht durch die Vorlage ersetzen? (Erst beim Speichern endgültig.)')) { copyFrom.value = ''; return; }
+      try {
+        const src = await api(`/api/nk/concerts/${cid}/budget/${kind}`);
+        b.data = JSON.parse(JSON.stringify(src.data));
+        if (!b.data.tickets || !b.data.tickets.length) b.data.tickets = JSON.parse(JSON.stringify(c.budget_template.tickets || []));
+        b.source = `Vorlage: ${copyFrom.options[copyFrom.selectedIndex].text}`;
+        b.dirty = true;
+        rerender();
+        toast('Vorlage übernommen – bitte anpassen und speichern');
+      } catch (err) { alert(err.message); }
+    });
     const visitors = document.getElementById('budget-visitors');
     visitors.addEventListener('input', () => {
       b.visitors = visitors.value === '' ? null : Math.max(0, Math.round(+visitors.value));
@@ -5208,6 +5329,845 @@
       refresh(api(`/api/nk/concerts/${c.id}/links`, { method: 'POST', body: JSON.stringify({ title: 'GEMA', url: 'https://www.gema.de' }) })));
   }
 
+  // ================= NK: Übersicht, Jahresplanung, Auswertung, Suche =================
+  let nkView = 'overview';
+  try { nkView = localStorage.getItem('nk_view') || 'overview'; } catch (e) { /* egal */ }
+  let nkStats = null;
+  let nkPlanYear = String(new Date().getFullYear());
+  let nkStatsYear = '';
+  const NK_VIEWS = ['overview', 'list', 'year', 'stats'];
+
+  function daysUntilLabel(iso) {
+    const d = Math.round((isoToDate(iso) - isoToDate(todayIsoLocal())) / 86400000);
+    if (d === 0) return 'heute';
+    if (d === 1) return 'morgen';
+    if (d > 1) return `in ${d} Tagen`;
+    if (d === -1) return 'gestern';
+    return `vor ${-d} Tagen`;
+  }
+  const pct = (a, b) => (a !== null && a !== undefined && b ? Math.min(100, Math.round(a / b * 100)) : 0);
+
+  function setNkView(v) {
+    nkView = NK_VIEWS.includes(v) ? v : 'overview';
+    try { localStorage.setItem('nk_view', nkView); } catch (e) { /* egal */ }
+    document.querySelectorAll('[data-nk-view]').forEach(b => b.classList.toggle('active', b.dataset.nkView === nkView));
+    NK_VIEWS.forEach(k => document.getElementById('nk-view-' + k).classList.toggle('hidden', k !== nkView));
+    if (nkView === 'overview') loadNkDashboard();
+    if (nkView === 'year') loadNkStats().then(renderNkYear);
+    if (nkView === 'stats') loadNkStats().then(renderNkStats);
+  }
+  document.querySelectorAll('[data-nk-view]').forEach(b => b.addEventListener('click', () => setNkView(b.dataset.nkView)));
+
+  async function loadNkStats() {
+    try { nkStats = await api('/api/nk/stats'); } catch (err) { toast(err.message); }
+    return nkStats;
+  }
+
+  // ---- Startseite ----
+  async function loadNkDashboard() {
+    const box = document.getElementById('nk-view-overview');
+    let d;
+    try { d = await api('/api/nk/dashboard'); } catch (err) { box.innerHTML = `<p class="empty-state">${escapeHtml(err.message)}</p>`; return; }
+    const todoRow = (t) => `
+      <div class="dash-todo ${t.overdue ? 'is-overdue' : ''}">
+        <input type="checkbox" class="task-done-checkbox" data-dash-todo="${t.id}" data-concert="${t.concert_id}" title="Erledigt">
+        <button type="button" class="dash-todo-main" data-open-concert="${t.concert_id}" data-folder="todos">
+          <strong>${escapeHtml(t.title)}</strong>
+          <small>${escapeHtml(t.concert_title)}${t.due_date ? ` · <span class="${t.overdue ? 'todo-overdue' : ''}">fällig ${fmtWeekdayDate(t.due_date, true)}</span>` : ''}</small>
+        </button>
+      </div>`;
+    const concertCard = (c) => `
+      <button type="button" class="card dash-concert" data-open-concert="${c.id}" data-folder="overview">
+        ${dateBlockHtml(c.date)}
+        <div class="dash-concert-main">
+          <div class="nk-card-top">${statusPill(c.status)}<span class="pill pill-accent">${daysUntilLabel(c.date)}</span></div>
+          <div class="nk-card-title">${escapeHtml(c.title)}</div>
+          <div class="nk-card-meta">${[WD_SHORT[isoToDate(c.date).getDay()] + (c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : ''), c.location ? '📍 ' + escapeHtml(c.location) : ''].filter(Boolean).join(' · ')}</div>
+          <div class="progress-line">
+            <div class="progress-bar"><span style="width:${pct(c.progress.done, c.progress.total)}%"></span></div>
+            <small>${c.progress.done}/${c.progress.total} Schritte${c.progress.next ? ' · als Nächstes: ' + escapeHtml(c.progress.next) : ''}</small>
+          </div>
+          ${c.tickets ? `<div class="progress-line tickets-line">
+            <div class="progress-bar progress-tickets"><span style="width:${pct(c.tickets.sold, c.tickets.capacity)}%"></span></div>
+            <small>🎟️ ${fmtNum(c.tickets.sold)}${c.tickets.capacity ? ` von ${fmtNum(c.tickets.capacity)} Tickets (${pct(c.tickets.sold, c.tickets.capacity)} %)` : ' Tickets verkauft'}</small>
+          </div>` : ''}
+          ${c.todo_open ? `<small class="dash-concert-todos">☑️ ${c.todo_open} offene 2Dos</small>` : ''}
+        </div>
+      </button>`;
+    const deadlineRow = (x) => `
+      <button type="button" class="dash-deadline ${x.overdue ? 'is-overdue' : ''} dl-${x.type}" data-open-concert="${x.concert_id}" data-folder="${x.folder || 'overview'}">
+        <span class="dash-deadline-date">${x.overdue ? 'überfällig' : fmtWeekdayDate(x.date)}</span>
+        <span>${escapeHtml(x.title)}${x.assignee ? ` <small>· ${escapeHtml(x.assignee)}</small>` : ''}</span>
+      </button>`;
+    const pushOk = 'serviceWorker' in navigator && 'PushManager' in window;
+    box.innerHTML = `
+      <div class="dash-grid">
+        <div class="dash-main">
+          ${d.next_concerts.length ? d.next_concerts.map(concertCard).join('') : `
+            <div class="empty-card"><div class="empty-card-icon">🎵</div><strong>Kein Konzert in Sicht</strong><span>Lege oben ein neues Konzert an.</span></div>`}
+          <div class="card">
+            <div class="section-card-head"><h3>☑️ Meine 2Dos <span class="count-chip">${d.my_todos.length}</span></h3></div>
+            <div class="dash-list">${d.my_todos.length ? d.my_todos.map(todoRow).join('') : '<p class="empty-state">Dir ist gerade nichts zugewiesen. 🎉</p>'}</div>
+            ${d.due_todos.length ? `<h4 class="dash-subhead">Ohne Zuständigkeit · bald fällig</h4><div class="dash-list">${d.due_todos.map(todoRow).join('')}</div>` : ''}
+          </div>
+        </div>
+        <div class="dash-side">
+          ${d.news.length ? `<div class="card dash-news">
+            <div class="section-card-head"><h3>🔴 Neu für dich</h3></div>
+            ${d.news.map(n => `<button type="button" class="dash-deadline" data-open-concert="${n.concert_id}" data-folder="${n.comments ? 'agreements' : ''}">
+              <span>${escapeHtml(n.concert_title)}</span>
+              <small>${[n.files ? `${n.files} Datei${n.files === 1 ? '' : 'en'}` : '', n.comments ? `${n.comments} Kommentar${n.comments === 1 ? '' : 'e'}` : ''].filter(Boolean).join(' · ')}</small>
+            </button>`).join('')}
+          </div>` : ''}
+          ${d.polls.length ? `<div class="card">
+            <div class="section-card-head"><h3>🗳️ Bitte abstimmen</h3></div>
+            ${d.polls.map(p => `<button type="button" class="dash-deadline" data-open-poll="${p.id}"><span>${escapeHtml(p.title)}</span></button>`).join('')}
+          </div>` : ''}
+          <div class="card">
+            <div class="section-card-head"><h3>⏰ Fristen · 4 Wochen</h3></div>
+            ${d.deadlines.length ? d.deadlines.map(deadlineRow).join('') : '<p class="empty-state">Keine Fristen in den nächsten vier Wochen.</p>'}
+          </div>
+          ${d.my_shifts.length ? `<div class="card">
+            <div class="section-card-head"><h3>🙋 Meine Dienste</h3></div>
+            ${d.my_shifts.map(s => `<button type="button" class="dash-deadline" data-open-concert="${s.concert_id}" data-folder="evening">
+              <span class="dash-deadline-date">${fmtWeekdayDate(s.concert_date)}</span>
+              <span>${escapeHtml(s.role)}${s.start_time ? ` ${s.start_time}${s.end_time ? '–' + s.end_time : ''}` : ''} <small>· ${escapeHtml(s.concert_title)}</small></span>
+            </button>`).join('')}
+          </div>` : ''}
+          ${d.sponsor_renewals.length ? `<div class="card">
+            <div class="section-card-head"><h3>🤝 Sponsoren für ${new Date().getFullYear()} anfragen</h3></div>
+            ${d.sponsor_renewals.map(sp => `<button type="button" class="dash-deadline" data-open-sponsor="${sp.id}"><span>${escapeHtml(sp.name)}</span><small>${new Date().getFullYear() - 1}: ${fmtEuro(sp.last_amount)}</small></button>`).join('')}
+          </div>` : ''}
+          <div class="card dash-quick">
+            <button type="button" class="ghost" data-dash-notify>📅 Kalender abonnieren${pushOk ? ' · 📲 Mitteilungen' : ''}</button>
+          </div>
+        </div>
+      </div>`;
+    box.querySelectorAll('[data-open-concert]').forEach(b => b.addEventListener('click', () => openNkConcert(+b.dataset.openConcert, b.dataset.folder || null)));
+    box.querySelectorAll('[data-open-poll]').forEach(b => b.addEventListener('click', () => { switchTab('nk_polls'); openNkPoll(+b.dataset.openPoll); }));
+    box.querySelectorAll('[data-open-sponsor]').forEach(b => b.addEventListener('click', async () => {
+      switchTab('nk_sponsors');
+      nkSponsorDetailId = +b.dataset.openSponsor;
+      await loadNkSponsors();
+    }));
+    box.querySelectorAll('[data-dash-todo]').forEach(cb => cb.addEventListener('change', async () => {
+      try {
+        await api(`/api/nk/concerts/${cb.dataset.concert}/todos/${cb.dataset.dashTodo}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) });
+        toast('2Do erledigt');
+        loadNkDashboard();
+      } catch (err) { alert(err.message); }
+    }));
+    const quick = box.querySelector('[data-dash-notify]');
+    if (quick) quick.addEventListener('click', () => document.getElementById('notify-settings-btn').click());
+  }
+
+  // ---- Jahresplanung ----
+  const MONTH_LONG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  function renderNkYear() {
+    const box = document.getElementById('nk-view-year');
+    if (!nkStats) { box.innerHTML = ''; return; }
+    const thisYear = new Date().getFullYear();
+    const years = [...new Set([...nkStats.concerts.filter(c => c.date).map(c => +c.date.slice(0, 4)), thisYear, thisYear + 1])].sort();
+    const year = nkPlanYear;
+    const list = nkStats.concerts.filter(c => c.date && c.date.startsWith(year));
+    const active = list.filter(c => c.status !== 'Abgesagt');
+    const sum = (arr, f) => Math.round(arr.reduce((s, c) => s + (f(c) || 0), 0) * 100) / 100;
+    const planned = active.filter(c => c.plan);
+    const settled = active.filter(c => c.ist);
+    const gap = sum(planned.filter(c => c.plan.totals.result < 0), c => -c.plan.totals.result);
+    const sp = nkStats.sponsor_years.filter(x => String(x.year) === year && x.status !== 'abgelehnt');
+    const spTotal = Math.round(sp.reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100;
+    const spPaid = Math.round(sp.filter(x => x.status === 'bezahlt').reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100;
+    box.innerHTML = `
+      <div class="year-toolbar">
+        <button type="button" class="icon-btn" data-year-step="-1" title="Vorjahr">‹</button>
+        <select id="nk-plan-year" class="status-select">${years.map(y => `<option ${String(y) === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
+        <button type="button" class="icon-btn" data-year-step="1" title="Folgejahr">›</button>
+      </div>
+      <div class="sponsor-stats year-stats">
+        <div><span>Konzerte</span><strong>${active.length}</strong><small>${active.filter(c => c.status === 'Bestätigt' || c.status === 'Abgeschlossen').length} bestätigt</small></div>
+        <div><span>Ergebnis laut Kalkulation</span><strong class="${resultClass(planned.length ? sum(planned, c => c.plan.totals.result) : null)}">${planned.length ? fmtEuro(sum(planned, c => c.plan.totals.result)) : '–'}</strong><small>${planned.length} von ${active.length} kalkuliert</small></div>
+        <div><span>Ergebnis laut Abrechnung</span><strong class="${resultClass(settled.length ? sum(settled, c => c.ist.totals.result) : null)}">${settled.length ? fmtEuro(sum(settled, c => c.ist.totals.result)) : '–'}</strong><small>${settled.length} abgerechnet</small></div>
+        <div><span>Finanzierungslücke (Plan)</span><strong class="${gap ? 'amount-neg' : ''}">${fmtEuro(gap)}</strong><small>Summe der geplanten Fehlbeträge</small></div>
+        <div><span>Sponsoring ${year}</span><strong>${fmtEuro(spTotal)}</strong><small>davon bezahlt ${fmtEuro(spPaid)}</small></div>
+      </div>
+      <div class="year-months">
+        ${MONTH_LONG.map((m, i) => {
+          const inMonth = list.filter(c => +c.date.slice(5, 7) === i + 1);
+          return `<div class="year-month ${inMonth.length ? '' : 'is-free'}">
+            <div class="year-month-name">${m}</div>
+            ${inMonth.length ? inMonth.map(c => `
+              <button type="button" class="year-chip status-${(c.status || 'Planung').toLowerCase().replace(/[^a-zäöü]/g, '')}" data-open-concert="${c.id}">
+                <span>${+c.date.slice(8, 10)}.</span> ${escapeHtml(c.title)}
+                ${c.plan ? `<small class="${resultClass(c.plan.totals.result)}">${fmtEuro(c.plan.totals.result)}</small>` : ''}
+              </button>`).join('') : '<span class="year-free">frei</span>'}
+          </div>`;
+        }).join('')}
+      </div>
+      ${active.length ? `<div class="card">
+        <div class="section-card-head"><h3>💶 Saison-Budget ${year}</h3></div>
+        <div class="finance-table year-table">
+          <div class="finance-row finance-head"><span>Konzert</span><span>Plan</span><span>Ist</span></div>
+          ${active.map(c => `<button type="button" class="finance-row" data-open-concert="${c.id}" data-folder="budget">
+            <span class="finance-title"><small>${fmtDateDE(c.date)} · ${escapeHtml(c.status)}</small>${escapeHtml(c.title)}</span>
+            <span class="finance-num">${c.plan ? `<strong class="${resultClass(c.plan.totals.result)}">${fmtEuro(c.plan.totals.result)}</strong>` : '<em class="finance-missing">fehlt</em>'}</span>
+            <span class="finance-num">${c.ist ? `<strong class="${resultClass(c.ist.totals.result)}">${fmtEuro(c.ist.totals.result)}</strong>` : '–'}</span>
+          </button>`).join('')}
+        </div>
+      </div>` : ''}`;
+    document.getElementById('nk-plan-year').addEventListener('change', (e) => { nkPlanYear = e.target.value; renderNkYear(); });
+    box.querySelectorAll('[data-year-step]').forEach(b => b.addEventListener('click', () => { nkPlanYear = String(+nkPlanYear + +b.dataset.yearStep); renderNkYear(); }));
+    box.querySelectorAll('[data-open-concert]').forEach(b => b.addEventListener('click', () => openNkConcert(+b.dataset.openConcert, b.dataset.folder || null)));
+  }
+
+  // ---- Auswertung ----
+  // Einfaches Balkendiagramm als SVG (positive Werte nach oben, negative nach unten)
+  function barChartSvg(items, format) {
+    if (!items.length) return '';
+    const max = Math.max(1, ...items.map(i => Math.abs(i.value || 0)));
+    const hasNeg = items.some(i => i.value < 0);
+    const w = 100 / items.length;
+    const H = 120, zero = hasNeg ? H / 2 : H;
+    const scale = (hasNeg ? H / 2 - 14 : H - 18) / max;
+    return `<svg class="bar-chart" viewBox="0 0 100 ${H + 18}" preserveAspectRatio="none" role="img">
+      <line x1="0" x2="100" y1="${zero}" y2="${zero}" class="bar-axis" vector-effect="non-scaling-stroke"/>
+      ${items.map((it, i) => {
+        const v = it.value || 0;
+        const h = Math.abs(v) * scale;
+        const y = v >= 0 ? zero - h : zero;
+        const bw = Math.min(w * 0.64, 16);
+        return `<rect x="${i * w + (w - bw) / 2}" width="${bw}" y="${y}" height="${Math.max(h, v ? 0.8 : 0)}" class="${v < 0 ? 'bar-neg' : 'bar-pos'}"><title>${escapeHtml(it.label)}: ${escapeHtml(format(v))}</title></rect>`;
+      }).join('')}
+    </svg>
+    <div class="bar-labels">${items.map(it => `<span title="${escapeHtml(it.label)}">${escapeHtml(it.short || it.label)}<br><b>${escapeHtml(format(it.value))}</b></span>`).join('')}</div>`;
+  }
+
+  function renderNkStats() {
+    const box = document.getElementById('nk-view-stats');
+    if (!nkStats) { box.innerHTML = ''; return; }
+    const all = nkStats.concerts.filter(c => c.status !== 'Abgesagt' && c.date);
+    const years = [...new Set(all.map(c => c.date.slice(0, 4)))].sort().reverse();
+    if (nkStatsYear && !years.includes(nkStatsYear)) nkStatsYear = '';
+    const shown = all.filter(c => !nkStatsYear || c.date.startsWith(nkStatsYear));
+    const settled = shown.filter(c => c.metrics.result !== null);
+    const sumV = settled.reduce((s, c) => s + (c.metrics.visitors || 0), 0);
+    const sumR = Math.round(settled.reduce((s, c) => s + c.metrics.result, 0) * 100) / 100;
+    const withUtil = settled.filter(c => c.metrics.utilization !== null);
+    const avgUtil = withUtil.length ? Math.round(withUtil.reduce((s, c) => s + c.metrics.utilization, 0) / withUtil.length) : null;
+    // Diagramme: alle Jahre -> je Jahr, ein Jahr -> je Konzert
+    let chartItems;
+    if (!nkStatsYear) {
+      chartItems = [...new Set(settled.map(c => c.date.slice(0, 4)))].sort().map(y => {
+        const inY = settled.filter(c => c.date.startsWith(y));
+        return { label: y, short: y, visitors: inY.reduce((s, c) => s + (c.metrics.visitors || 0), 0), result: Math.round(inY.reduce((s, c) => s + c.metrics.result, 0)) };
+      });
+    } else {
+      chartItems = settled.map(c => ({ label: c.title, short: fmtDateDE(c.date).slice(0, 6), visitors: c.metrics.visitors || 0, result: Math.round(c.metrics.result) }));
+    }
+    // Groesste Abweichungen Plan -> Ist je Posten
+    const deviations = [];
+    shown.filter(c => c.plan && c.ist).forEach(c => ['income', 'expense'].forEach(section => {
+      c.ist.data[section].forEach(r => {
+        const p = c.plan.data[section].find(x => x.label.trim().toLowerCase() === r.label.trim().toLowerCase());
+        if (!p || p.amount === null || r.amount === null) return;
+        const diff = Math.round((r.amount - p.amount) * 100) / 100;
+        // fuers Ergebnis: mehr Einnahmen bzw. weniger Ausgaben = gut
+        if (diff) deviations.push({ concert: c, label: r.label, section, plan: p.amount, ist: r.amount, diff, effect: section === 'income' ? diff : -diff });
+      });
+    }));
+    deviations.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+    const yearQ = nkStatsYear ? `?year=${nkStatsYear}` : '';
+    box.innerHTML = `
+      <div class="year-toolbar">
+        <select id="nk-stats-year" class="status-select"><option value="">Alle Jahre</option>${years.map(y => `<option ${y === nkStatsYear ? 'selected' : ''}>${y}</option>`).join('')}</select>
+        <div class="stats-export">
+          <a class="ghost button-like" href="/api/nk/report.xlsx${yearQ}">⤓ Excel</a>
+          <a class="ghost button-like" href="/api/nk/report.pdf${yearQ}" target="_blank" rel="noopener">⤓ PDF für Vorstand/Förderer</a>
+        </div>
+      </div>
+      <div class="sponsor-stats">
+        <div><span>Abgerechnet</span><strong>${settled.length}</strong><small>von ${shown.length} Konzerten</small></div>
+        <div><span>Besucher</span><strong>${fmtNum(sumV)}</strong><small>${settled.length ? `Ø ${fmtNum(Math.round(sumV / settled.length))} je Konzert` : ''}</small></div>
+        <div><span>Ergebnis</span><strong class="${resultClass(settled.length ? sumR : null)}">${settled.length ? fmtEuro(sumR) : '–'}</strong><small>${sumV && sumR < 0 ? `Zuschuss ${fmtEuro(Math.round(-sumR / sumV * 100) / 100)} je Besucher` : ''}</small></div>
+        <div><span>Ø Auslastung</span><strong>${avgUtil !== null ? avgUtil + ' %' : '–'}</strong><small>${withUtil.length ? `${withUtil.length} mit Kapazität` : 'Kapazität im Konzert eintragen'}</small></div>
+      </div>
+      ${chartItems.length ? `<div class="concert-grid stats-charts">
+        <div class="card"><div class="section-card-head"><h3>👥 Besucher ${nkStatsYear ? 'je Konzert' : 'je Jahr'}</h3></div>${barChartSvg(chartItems.map(i => ({ ...i, value: i.visitors })), fmtNum)}</div>
+        <div class="card"><div class="section-card-head"><h3>💶 Ergebnis ${nkStatsYear ? 'je Konzert' : 'je Jahr'}</h3></div>${barChartSvg(chartItems.map(i => ({ ...i, value: i.result })), fmtEuro)}</div>
+      </div>` : '<div class="empty-card"><div class="empty-card-icon">📊</div><strong>Noch keine Abrechnungen</strong><span>Sobald Abrechnungen (Ist) eingetragen sind, erscheinen hier Diagramme und Kennzahlen.</span></div>'}
+      ${shown.length ? `<div class="card">
+        <div class="section-card-head"><h3>🎵 Kennzahlen je Konzert</h3></div>
+        <div class="stats-table-wrap"><table class="stats-table">
+          <thead><tr><th>Konzert</th><th>Besucher</th><th>Auslastung</th><th>Kosten je Bes.</th><th>Zuschuss je Bes.</th><th>Ergebnis</th><th>ggü. Plan</th></tr></thead>
+          <tbody>${shown.map(c => `<tr data-open-concert="${c.id}" data-folder="budget">
+            <td><small>${fmtDateDE(c.date)}</small><br>${escapeHtml(c.title)}</td>
+            <td>${fmtNum(c.metrics.visitors)}</td>
+            <td>${c.metrics.utilization !== null ? `<div class="mini-bar"><span style="width:${Math.min(100, c.metrics.utilization)}%"></span></div>${c.metrics.utilization} %` : '–'}</td>
+            <td>${fmtEuro(c.metrics.cost_per_visitor)}</td>
+            <td>${fmtEuro(c.metrics.subsidy_per_visitor)}</td>
+            <td><strong class="${resultClass(c.metrics.result)}">${fmtEuro(c.metrics.result)}</strong></td>
+            <td class="${resultClass(c.metrics.deviation)}">${c.metrics.deviation !== null ? (c.metrics.deviation > 0 ? '+' : '') + fmtEuro(c.metrics.deviation) : '–'}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>` : ''}
+      ${deviations.length ? `<div class="card">
+        <div class="section-card-head"><h3>🔍 Größte Abweichungen Plan → Ist</h3></div>
+        <div class="dash-list">${deviations.slice(0, 10).map(x => `
+          <button type="button" class="dash-deadline" data-open-concert="${x.concert.id}" data-folder="budget">
+            <span>${escapeHtml(x.label)} <small>· ${x.section === 'income' ? 'Einnahme' : 'Ausgabe'} · ${escapeHtml(x.concert.title)}</small></span>
+            <small>Plan ${fmtEuro(x.plan)} → Ist ${fmtEuro(x.ist)} <strong class="${x.effect >= 0 ? 'amount-pos' : 'amount-neg'}">${x.diff > 0 ? '+' : ''}${fmtEuro(x.diff)}</strong></small>
+          </button>`).join('')}</div>
+      </div>` : ''}`;
+    document.getElementById('nk-stats-year').addEventListener('change', (e) => { nkStatsYear = e.target.value; renderNkStats(); });
+    box.querySelectorAll('[data-open-concert]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.folder === 'budget') nkBudgetKind = 'ist';
+      openNkConcert(+b.dataset.openConcert, b.dataset.folder || null);
+    }));
+  }
+
+  // ---- Suche ----
+  const nkSearch = document.getElementById('nk-search');
+  const nkSearchResults = document.getElementById('nk-search-results');
+  let nkSearchTimer = null;
+  let nkSearchSeq = 0;
+  nkSearch.addEventListener('input', () => {
+    clearTimeout(nkSearchTimer);
+    const q = nkSearch.value.trim();
+    if (q.length < 2) { nkSearchResults.classList.add('hidden'); return; }
+    nkSearchTimer = setTimeout(async () => {
+      const seq = ++nkSearchSeq;
+      let results;
+      try { results = await api('/api/nk/search?q=' + encodeURIComponent(q)); } catch (err) { return; }
+      if (seq !== nkSearchSeq) return;
+      const TYPE_LABEL = { concert: 'Konzerte', file: 'Dateien', comment: 'Kommentare', todo: '2Dos', contact: 'Kontakte', sponsor: 'Sponsoren' };
+      const groups = Object.keys(TYPE_LABEL).map(t => [t, results.filter(r => r.type === t)]).filter(([, l]) => l.length);
+      nkSearchResults.innerHTML = groups.length ? groups.map(([t, list]) => `
+        <div class="search-group"><div class="search-group-title">${TYPE_LABEL[t]}</div>
+          ${list.map((r, i) => `<button type="button" class="search-hit" data-hit="${results.indexOf(r)}">
+            <span class="search-hit-icon">${r.icon}</span>
+            <span><strong>${escapeHtml(r.title)}</strong><small>${escapeHtml(r.sub || '')}</small>${r.snippet ? `<em>${escapeHtml(r.snippet)}</em>` : ''}</span>
+          </button>`).join('')}
+        </div>`).join('') : `<p class="empty-state">Nichts gefunden für „${escapeHtml(q)}“.</p>`;
+      nkSearchResults.classList.remove('hidden');
+      nkSearchResults.querySelectorAll('[data-hit]').forEach(b => b.addEventListener('click', async () => {
+        const r = results[+b.dataset.hit];
+        nkSearchResults.classList.add('hidden');
+        if (r.type === 'contact') { switchTab('nk_contacts'); nkContactDetailId = r.contact_id; await loadNkContacts(); return; }
+        if (r.type === 'sponsor') { switchTab('nk_sponsors'); nkSponsorDetailId = r.sponsor_id; await loadNkSponsors(); return; }
+        await openNkConcert(r.concert_id, r.folder_key || null);
+        if (r.type === 'file') openFilePreview({ name: r.filename, url: `/api/nk/concerts/${r.concert_id}/files/${r.file_id}/download`, mime: r.mime_type });
+      }));
+    }, 250);
+  });
+  nkSearch.addEventListener('keydown', (e) => { if (e.key === 'Escape') { nkSearch.value = ''; nkSearchResults.classList.add('hidden'); } });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.nk-search-wrap')) nkSearchResults.classList.add('hidden');
+  });
+  nkSearch.addEventListener('focus', () => { if (nkSearchResults.innerHTML && nkSearch.value.trim().length >= 2) nkSearchResults.classList.remove('hidden'); });
+
+  // ---- Dateivorschau ----
+  const filePreview = document.getElementById('file-preview-overlay');
+  function openFilePreview({ name, url, mime }) {
+    const n = String(name || '').toLowerCase();
+    const isPdf = (mime || '').includes('pdf') || n.endsWith('.pdf');
+    const isImg = /^image\//.test(mime || '') || /\.(png|jpe?g|gif|webp|svg)$/.test(n);
+    document.getElementById('file-preview-name').textContent = name;
+    document.getElementById('file-preview-open').href = url;
+    document.getElementById('file-preview-download').href = url + (url.includes('?') ? '&' : '?') + 'download=1';
+    document.getElementById('file-preview-body').innerHTML = isPdf
+      ? `<iframe src="${escapeHtml(url)}" title="${escapeHtml(name)}"></iframe>`
+      : isImg ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}">`
+        : `<div class="empty-card"><div class="empty-card-icon">📎</div><strong>Für diesen Dateityp gibt es keine Vorschau</strong><span>Bitte herunterladen oder in einem neuen Tab öffnen.</span></div>`;
+    filePreview.classList.remove('hidden');
+  }
+  const closePreview = () => { filePreview.classList.add('hidden'); document.getElementById('file-preview-body').innerHTML = ''; };
+  document.getElementById('file-preview-close').addEventListener('click', closePreview);
+  filePreview.addEventListener('click', (e) => { if (e.target === filePreview) closePreview(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !filePreview.classList.contains('hidden')) closePreview(); });
+
+  // ================= NK: Konzert-Ordner Übersicht, Werbung, Konzertabend =================
+  // Kostendeckung aus der Kalkulation: Ausgaben minus Einnahmen ohne Tickets, geteilt durch den Ø-Ticketpreis
+  const isTicketRow = (r) => /ticket|karte|abendkasse|vorverkauf|eintritt/i.test(r.label || '');
+  function breakEven(data) {
+    if (!data) return null;
+    const tiers = (data.tickets || []).filter(t => t.price > 0);
+    if (!tiers.length) return null;
+    const other = sumRows(data.income.filter(r => !isTicketRow(r)));
+    const need = Math.round((sumRows(data.expense) - other) * 100) / 100;
+    const counted = tiers.filter(t => t.count > 0);
+    const avg = counted.length
+      ? counted.reduce((s, t) => s + t.price * t.count, 0) / counted.reduce((s, t) => s + t.count, 0)
+      : tiers.reduce((s, t) => s + t.price, 0) / tiers.length;
+    const revenue = Math.round(counted.reduce((s, t) => s + t.price * t.count, 0) * 100) / 100;
+    return { need, avg: Math.round(avg * 100) / 100, tickets: need <= 0 ? 0 : Math.ceil(need / avg), revenue, planned: counted.reduce((s, t) => s + t.count, 0) };
+  }
+
+  function sparklineSvg(history) {
+    if (!history || history.length < 2) return '';
+    const max = Math.max(1, ...history.map(h => h.sold));
+    const pts = history.map((h, i) => `${(i / (history.length - 1) * 100).toFixed(2)},${(38 - h.sold / max * 34).toFixed(2)}`).join(' ');
+    return `<svg class="sparkline" viewBox="0 0 100 40" preserveAspectRatio="none"><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>
+      <div class="sparkline-legend"><span>${fmtWeekdayDate(history[0].day)}</span><span>Verlauf</span><span>${fmtWeekdayDate(history[history.length - 1].day)}</span></div>`;
+  }
+
+  function overviewPanelHtml(c) {
+    const cl = c.checklist;
+    const t = c.tickets;
+    const be = breakEven(c.budgets.plan && c.budgets.plan.data);
+    const guests = c.evening ? c.evening.guest_total : 0;
+    const feeSum = c.participants.reduce((s, p) => s + (p.fee || 0), 0);
+    const files = c.files;
+    return `
+      <div class="concert-grid overview-grid">
+        <div>
+          <div class="card checklist-card">
+            <div class="section-card-head"><h3>🧭 Fahrplan</h3><span class="count-chip">${cl.done}/${cl.total}</span></div>
+            <div class="progress-bar progress-big"><span style="width:${pct(cl.done, cl.total)}%"></span></div>
+            <div class="checklist">
+              ${cl.steps.map(st => `
+                <div class="check-step ${st.done ? 'is-done' : ''}">
+                  <label>
+                    <input type="checkbox" data-check-step="${st.key}" ${st.done ? 'checked' : ''} ${st.auto_done && !st.manual ? 'disabled' : ''}>
+                    <span><strong>${escapeHtml(st.label)}</strong><small>${st.auto_done ? '✓ automatisch erkannt' : st.manual ? `✓ ${escapeHtml(st.done_by || '')} ${fmtTimestamp(st.done_at)}` : escapeHtml(st.hint || '')}</small></span>
+                  </label>
+                  ${st.folder ? `<button type="button" class="link-btn" data-goto-folder="${st.folder}">${NK_FOLDERS[st.folder].name} ›</button>` : ''}
+                </div>`).join('')}
+            </div>
+          </div>
+          <div class="card tickets-card">
+            <div class="section-card-head"><h3>🎟️ Ticketverkauf</h3>
+              ${t && t.sources.some(x => x.source === 'kreatief') ? '<button type="button" class="ghost" data-tickets-refresh title="Jetzt von der Homepage abfragen (sonst stündlich)">↻ Aktualisieren</button>' : ''}</div>
+            ${t ? `
+              <div class="ticket-big"><strong>${fmtNum(t.sold)}</strong><span>${t.capacity ? `von ${fmtNum(t.capacity)} verkauft · ${pct(t.sold, t.capacity)} %` : 'verkauft'}</span></div>
+              ${t.capacity ? `<div class="progress-bar progress-tickets progress-big"><span style="width:${pct(t.sold, t.capacity)}%"></span>${be && be.tickets ? `<i class="be-marker" style="left:${pct(be.tickets, t.capacity)}%" title="Kostendeckung"></i>` : ''}</div>` : ''}
+              ${be ? `<p class="ticket-be ${t.sold >= be.tickets ? 'is-ok' : ''}">${be.tickets === 0 ? '✓ Kosten laut Kalkulation schon ohne Tickets gedeckt'
+                : t.sold >= be.tickets ? `✓ Kostendeckung erreicht (ab ${fmtNum(be.tickets)} Tickets)` : `Noch <strong>${fmtNum(be.tickets - t.sold)}</strong> Tickets bis zur Kostendeckung (${fmtNum(be.tickets)} bei Ø ${fmtEuro(be.avg)})`}</p>`
+                : '<p class="hint">Ticketpreise in der Kalkulation eintragen, dann zeigt das Tool, ab wann die Kosten gedeckt sind.</p>'}
+              ${guests ? `<p class="hint">Dazu ${fmtNum(guests)} Freikarten laut Gästeliste → erwartet ${fmtNum(t.sold + guests)} Besucher</p>` : ''}
+              ${sparklineSvg(t.history)}
+              <div class="ticket-sources">
+                ${t.sources.map(s => `
+                  <div class="ticket-source" data-ticket-source="${s.id}">
+                    <div class="ticket-source-main">
+                      <strong>${escapeHtml(s.source_label)}</strong>
+                      <small>${s.url ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.label || 'Veranstaltung')}</a>` : escapeHtml(s.label || '')}
+                        ${s.source === 'kreatief' ? ` · ${s.remaining !== null ? fmtNum(s.remaining) + ' frei' : ''}${s.last_checked_at ? ' · Stand ' + fmtTimestamp(s.last_checked_at) : ''}` : (s.updated_at ? ' · eingetragen ' + fmtTimestamp(s.updated_at) : '')}</small>
+                      ${s.error ? `<small class="todo-overdue">${escapeHtml(s.error)}</small>` : ''}
+                    </div>
+                    ${s.source === 'kreatief' ? '' : `<label class="ticket-num">verkauft<input type="number" min="0" data-ticket-field="sold" value="${s.sold ?? ''}" inputmode="numeric"></label>`}
+                    <label class="ticket-num">Kontingent<input type="number" min="0" data-ticket-field="capacity" value="${s.capacity ?? ''}" inputmode="numeric"></label>
+                    <button type="button" class="icon-btn" data-ticket-delete="${s.id}" title="Quelle entfernen">✕</button>
+                  </div>`).join('')}
+              </div>` : '<p class="empty-state">Noch keine Ticketquelle verknüpft.</p>'}
+            <form class="ticket-add" id="ticket-add-form">
+              <select id="ticket-add-source">${Object.entries(c.ticket_source_types).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('')}</select>
+              <select id="ticket-add-event"><option value="">Veranstaltung auf der Homepage wählen …</option></select>
+              <input type="text" id="ticket-add-label" placeholder="Bezeichnung, z.B. Reservix" class="hidden">
+              <input type="number" id="ticket-add-sold" placeholder="verkauft" min="0" inputmode="numeric" class="hidden">
+              <input type="number" id="ticket-add-capacity" placeholder="Kontingent" min="0" inputmode="numeric" value="${c.capacity || ''}">
+              <button type="submit">+ Verknüpfen</button>
+            </form>
+            <p class="hint ticket-add-hint" id="ticket-add-hint">Die Homepage meldet die freien Plätze – verkauft = Kontingent minus frei. Abgleich stündlich.</p>
+          </div>
+        </div>
+        <div>
+          <div class="card participants-card">
+            <div class="section-card-head"><h3>👥 Beteiligte <span class="count-chip">${c.participants.length}</span></h3>
+              ${feeSum ? `<span class="hint">Gagen ${fmtEuro(feeSum)}</span>` : ''}</div>
+            <div class="participant-list">
+              ${c.participants.length ? c.participants.map(p => `
+                <div class="participant" data-participant="${p.id}">
+                  <div class="participant-main">
+                    <strong>${escapeHtml(p.name)}</strong> <span class="pill pill-xs pill-muted">${escapeHtml(p.kind || '')}</span>
+                    <div class="participant-edit">
+                      <input type="text" data-participant-field="role" value="${escapeHtml(p.role || '')}" placeholder="Rolle, z.B. Gesang, Ton">
+                      <input type="text" data-participant-field="fee" value="${escapeHtml(amountInput(p.fee))}" placeholder="Gage €" inputmode="decimal">
+                    </div>
+                    <small>${[p.contact_person, p.phone ? `<a href="tel:${escapeHtml(p.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(p.phone)}</a>` : '', p.email ? `<a href="mailto:${escapeHtml(p.email)}">${escapeHtml(p.email)}</a>` : ''].filter(Boolean).join(' · ')}</small>
+                    ${p.rider ? `<small class="participant-rider">🎛️ ${escapeHtml(p.rider)}</small>` : ''}
+                  </div>
+                  <button type="button" class="icon-btn" data-participant-delete="${p.id}" title="Entfernen">✕</button>
+                </div>`).join('') : '<p class="empty-state">Noch niemand verknüpft – Künstler, Technik, Saal …</p>'}
+            </div>
+            <form class="participant-add" id="participant-add-form">
+              <select id="participant-contact">
+                <option value="">— neuer Kontakt —</option>
+                ${c.contact_choices.map(k => `<option value="${k.id}">${escapeHtml(k.name)} (${escapeHtml(k.kind || '')})</option>`).join('')}
+              </select>
+              <input type="text" id="participant-new-name" placeholder="Name des neuen Kontakts">
+              <select id="participant-new-kind">${c.contact_kinds.map(k => `<option>${escapeHtml(k)}</option>`).join('')}</select>
+              <input type="text" id="participant-role" placeholder="Rolle">
+              <input type="text" id="participant-fee" placeholder="Gage €" inputmode="decimal">
+              <button type="submit">+ Hinzufügen</button>
+            </form>
+            ${can('nk_contacts') ? '<button type="button" class="link-btn" data-goto-contacts>Alle Kontakte ›</button>' : ''}
+          </div>
+          <div class="card share-card">
+            <div class="section-card-head"><h3>🔗 Lese-Link für Externe</h3></div>
+            <p class="hint">Künstler, Agentur oder Technik sehen nur, was du freigibst – ohne eigenes Konto. Gagen und interne Notizen bleiben immer verborgen.</p>
+            ${c.share_links.map(l => `
+              <div class="share-link ${l.active ? '' : 'is-inactive'}">
+                <div class="share-link-head"><strong>${escapeHtml(l.label)}</strong>
+                  <span class="pill pill-xs ${l.active ? 'pill-ok' : 'pill-muted'}">${l.revoked ? 'zurückgezogen' : l.expired ? 'abgelaufen' : 'aktiv'}</span>
+                  <small>${l.view_count}× geöffnet${l.expires_at ? ' · bis ' + fmtDateDE(l.expires_at) : ''}</small></div>
+                <small>${l.sections.map(k => escapeHtml(c.share_sections[k] || k)).join(' · ')}${l.file_ids.length ? ` (${l.file_ids.length} Datei${l.file_ids.length === 1 ? '' : 'en'})` : ''}</small>
+                ${l.active ? `<div class="share-url"><input type="text" readonly value="${escapeHtml(l.url)}"><button type="button" class="ghost" data-share-copy="${escapeHtml(l.url)}">Kopieren</button><a class="ghost button-like" href="${escapeHtml(l.url)}" target="_blank" rel="noopener">Ansehen</a></div>` : ''}
+                <div class="share-actions">
+                  ${l.active ? `<button type="button" class="link-btn" data-share-revoke="${l.id}">Zurückziehen</button>` : ''}
+                  <button type="button" class="link-btn danger-text" data-share-delete="${l.id}">Löschen</button>
+                </div>
+              </div>`).join('')}
+            <details class="share-new" ${c.share_links.length ? '' : 'open'}>
+              <summary>+ Neuen Lese-Link erstellen</summary>
+              <form id="share-form">
+                <input type="text" id="share-label" placeholder="Für wen? z.B. Künstler-Info, Technik">
+                <div class="share-sections">${Object.entries(c.share_sections).map(([k, v]) => `
+                  <label class="checkbox-label"><input type="checkbox" name="share-section" value="${k}" ${k !== 'files' ? 'checked' : ''}> <span>${escapeHtml(v)}</span></label>`).join('')}</div>
+                <div class="share-files hidden" id="share-files">${files.length ? files.map(f => `
+                  <label class="checkbox-label"><input type="checkbox" name="share-file" value="${f.id}" ${f.category === 'Technik/Rider' ? 'checked' : ''}> <span>${escapeHtml(f.filename)} <small>${escapeHtml(f.category || '')}</small></span></label>`).join('') : '<p class="hint">Noch keine Dateien im Projekt.</p>'}</div>
+                <textarea id="share-message" rows="2" placeholder="Nachricht oben auf der Seite, z.B. Anfahrt, Parken, Künstlereingang"></textarea>
+                <label class="share-expiry">gültig bis (optional) <input type="date" id="share-expires" value="${c.date ? (() => { const d = isoToDate(c.date); d.setDate(d.getDate() + 7); return isoDate(d); })() : ''}"></label>
+                <button type="submit">Link erstellen</button>
+              </form>
+            </details>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function copyText(text, msg) {
+    try { await navigator.clipboard.writeText(text); toast(msg || 'Kopiert'); }
+    catch (e) { window.prompt('Zum Kopieren:', text); }
+  }
+
+  function bindOverviewPanel(c, refresh) {
+    const view = document.getElementById('nk-concert-detail-view');
+    view.querySelectorAll('[data-check-step]').forEach(cb => cb.addEventListener('change', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/checks/${cb.dataset.checkStep}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) }))));
+    view.querySelectorAll('[data-goto-folder]').forEach(b => b.addEventListener('click', () => { nkConcertFolder = b.dataset.gotoFolder; renderNkConcertDetail(); }));
+    const gotoContacts = view.querySelector('[data-goto-contacts]');
+    if (gotoContacts) gotoContacts.addEventListener('click', () => switchTab('nk_contacts'));
+
+    // Tickets
+    const refreshBtn = view.querySelector('[data-tickets-refresh]');
+    if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Fragt ab …';
+      await refresh(api(`/api/nk/concerts/${c.id}/tickets/refresh`, { method: 'POST' }));
+      toast('Ticketstand aktualisiert');
+    });
+    view.querySelectorAll('[data-ticket-source]').forEach(row => row.querySelectorAll('[data-ticket-field]').forEach(inp => inp.addEventListener('change', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/tickets/${row.dataset.ticketSource}`, { method: 'PUT', body: JSON.stringify({ [inp.dataset.ticketField]: inp.value === '' ? null : +inp.value }) })))));
+    view.querySelectorAll('[data-ticket-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Diese Ticketquelle entfernen? Der Verlauf geht dabei verloren.')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/tickets/${b.dataset.ticketDelete}`, { method: 'DELETE' }));
+    }));
+    const srcSel = document.getElementById('ticket-add-source');
+    const evSel = document.getElementById('ticket-add-event');
+    const label = document.getElementById('ticket-add-label');
+    const sold = document.getElementById('ticket-add-sold');
+    const hint = document.getElementById('ticket-add-hint');
+    let eventsLoaded = false;
+    const loadEvents = async () => {
+      if (eventsLoaded) return;
+      eventsLoaded = true;
+      evSel.innerHTML = '<option value="">Lädt Veranstaltungen …</option>';
+      try {
+        const events = await api('/api/nk/tickets/kreatief-events');
+        const linked = new Set((c.tickets ? c.tickets.sources : []).map(s => s.external_id));
+        evSel.innerHTML = '<option value="">Veranstaltung auf der Homepage wählen …</option>' + events.filter(e => !linked.has(e.id)).map(e =>
+          `<option value="${e.id}" ${e.date === c.date ? 'selected' : ''}>${e.date ? fmtDateDE(e.date) + ' · ' : ''}${escapeHtml(e.name)}${e.remaining !== null ? ` (${e.remaining} frei)` : ''}</option>`).join('');
+      } catch (err) {
+        evSel.innerHTML = `<option value="">${escapeHtml(err.message)}</option>`;
+        eventsLoaded = false;
+      }
+    };
+    const syncForm = () => {
+      const k = srcSel.value === 'kreatief';
+      evSel.classList.toggle('hidden', !k);
+      label.classList.toggle('hidden', k);
+      sold.classList.toggle('hidden', k);
+      if (!k && !label.value) label.value = srcSel.value === 'reservix' ? 'Reservix' : 'Abendkasse';
+      hint.textContent = k ? 'Die Homepage meldet die freien Plätze – verkauft = Kontingent minus frei. Abgleich stündlich.'
+        : 'Zahl von Hand eintragen und bei Bedarf aktualisieren – der Verlauf wird mitgeschrieben.';
+      if (k) loadEvents();
+    };
+    srcSel.addEventListener('change', syncForm);
+    syncForm();
+    document.getElementById('ticket-add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = { source: srcSel.value, capacity: document.getElementById('ticket-add-capacity').value || null };
+      if (body.source === 'kreatief') {
+        if (!evSel.value) { alert('Bitte die Veranstaltung auf der Homepage auswählen.'); return; }
+        body.external_id = evSel.value;
+        if (!body.capacity) { alert('Bitte das Kontingent eintragen (Plätze, die auf der Homepage verkauft werden) – sonst lässt sich „verkauft“ nicht berechnen.'); return; }
+      } else {
+        body.label = label.value.trim();
+        body.sold = sold.value || 0;
+      }
+      await refresh(api(`/api/nk/concerts/${c.id}/tickets`, { method: 'POST', body: JSON.stringify(body) }));
+      toast('Ticketquelle verknüpft');
+    });
+
+    // Beteiligte
+    const contactSel = document.getElementById('participant-contact');
+    const newName = document.getElementById('participant-new-name');
+    const newKind = document.getElementById('participant-new-kind');
+    const syncNew = () => { const isNew = !contactSel.value; newName.classList.toggle('hidden', !isNew); newKind.classList.toggle('hidden', !isNew); };
+    contactSel.addEventListener('change', syncNew);
+    syncNew();
+    document.getElementById('participant-add-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      refresh(api(`/api/nk/concerts/${c.id}/participants`, { method: 'POST', body: JSON.stringify({
+        contact_id: contactSel.value || null, new_name: newName.value.trim(), new_kind: newKind.value,
+        role: document.getElementById('participant-role').value.trim(), fee: parseAmount(document.getElementById('participant-fee').value),
+      }) }));
+    });
+    view.querySelectorAll('[data-participant]').forEach(row => row.querySelectorAll('[data-participant-field]').forEach(inp => inp.addEventListener('change', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/participants/${row.dataset.participant}`, { method: 'PUT', body: JSON.stringify({
+        [inp.dataset.participantField]: inp.dataset.participantField === 'fee' ? parseAmount(inp.value) : inp.value,
+      }) })))));
+    view.querySelectorAll('[data-participant-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Aus diesem Konzert entfernen? (Der Kontakt selbst bleibt erhalten.)')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/participants/${b.dataset.participantDelete}`, { method: 'DELETE' }));
+    }));
+
+    // Lese-Links
+    view.querySelectorAll('[data-share-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.shareCopy, 'Link kopiert')));
+    view.querySelectorAll('[data-share-revoke]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Link zurückziehen? Wer ihn hat, sieht danach nichts mehr.')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/share/${b.dataset.shareRevoke}/revoke`, { method: 'POST' }));
+    }));
+    view.querySelectorAll('[data-share-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Link endgültig löschen?')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/share/${b.dataset.shareDelete}`, { method: 'DELETE' }));
+    }));
+    const filesBox = document.getElementById('share-files');
+    const filesCb = view.querySelector('input[name="share-section"][value="files"]');
+    if (filesCb) filesCb.addEventListener('change', () => filesBox.classList.toggle('hidden', !filesCb.checked));
+    document.getElementById('share-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const sections = [...view.querySelectorAll('input[name="share-section"]:checked')].map(x => x.value);
+      const fileIds = sections.includes('files') ? [...view.querySelectorAll('input[name="share-file"]:checked')].map(x => +x.value) : [];
+      try {
+        nkConcertDetail = await api(`/api/nk/concerts/${c.id}/share`, { method: 'POST', body: JSON.stringify({
+          label: document.getElementById('share-label').value.trim(), sections, file_ids: fileIds,
+          message: document.getElementById('share-message').value.trim(), expires_at: document.getElementById('share-expires').value || null,
+        }) });
+        renderNkConcertDetail();
+        const link = nkConcertDetail.share_links[0];
+        if (link) copyText(link.url, 'Link erstellt und kopiert');
+      } catch (err) { alert(err.message); }
+    });
+  }
+
+  // ---- Werbung ----
+  function promoText(c) {
+    return [
+      c.title,
+      `${c.date ? fmtWeekdayDate(c.date, true) : ''}${c.time ? ', ' + c.time.slice(0, 5) + ' Uhr' : ''}${c.location ? ' · ' + c.location : ''}`,
+      '', c.promo_short || c.promo_text || '',
+      c.ticket_url ? `\nTickets: ${c.ticket_url}` : '',
+    ].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function promoPanelHtml(c) {
+    const kreatiefUrl = c.tickets && (c.tickets.sources.find(s => s.url) || {}).url;
+    return `
+      <div>
+        <div class="card promo-card">
+          <div class="section-card-head"><h3>📣 Ankündigung</h3></div>
+          <label>Kurztext <small class="hint">für Social Media, Kalender, Newsletter</small>
+            <textarea id="promo-short" rows="3" maxlength="600" placeholder="Zwei, drei Sätze, die Lust auf den Abend machen">${escapeHtml(c.promo_short || '')}</textarea>
+            <small class="hint" id="promo-short-count"></small>
+          </label>
+          <label>Langtext <small class="hint">für Presse und Programmheft</small>
+            <textarea id="promo-text" rows="8" placeholder="Pressetext mit Künstlern, Programm, Termin, Ort, Tickets">${escapeHtml(c.promo_text || '')}</textarea>
+          </label>
+          <label>Ticket-Link
+            <input type="text" id="promo-ticket-url" inputmode="url" value="${escapeHtml(c.ticket_url || '')}" placeholder="https://www.kreatief-neckarsulm.de/veranstaltungen/…">
+          </label>
+          ${kreatiefUrl && kreatiefUrl !== c.ticket_url ? `<button type="button" class="link-btn" data-promo-ticketurl="${escapeHtml(kreatiefUrl)}">Link der Homepage-Veranstaltung übernehmen</button>` : ''}
+          <div class="budget-actions">
+            <button type="button" id="promo-save">Speichern</button>
+            <button type="button" class="ghost" id="promo-copy-short">Ankündigung kopieren</button>
+            <button type="button" class="ghost" id="promo-copy-long">Langtext kopieren</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-card-head"><h3>🗓️ Neckarsulmer Kulturkalender</h3></div>
+          <div id="kk-status" class="kk-status"><p class="hint">Wird geprüft …</p></div>
+        </div>
+        ${c.sponsorships.some(x => x.status !== 'abgelehnt') && can('nk_sponsors') ? `<div class="card">
+          <div class="section-card-head"><h3>🤝 Sponsoren-Logos</h3></div>
+          <p class="hint">${c.sponsorships.filter(x => x.status !== 'abgelehnt').map(x => escapeHtml(x.sponsor_name)).join(', ')}</p>
+          <a class="ghost button-like" href="/api/nk/sponsors-logos.zip?concert=${c.id}">⤓ Logo-Paket für Plakat &amp; Programmheft (ZIP)</a>
+        </div>` : ''}
+        ${can('marketing') && !NK_MODE ? `<div class="card">
+          <div class="section-card-head"><h3>📱 Social Media</h3></div>
+          <p class="hint">Posts für Instagram und Facebook planst du im Reiter Marketing – die Ankündigung oben kannst du dort einfügen.</p>
+          <button type="button" class="ghost" data-goto-marketing>Zum Marketing ›</button>
+        </div>` : ''}
+      </div>`;
+  }
+  function bindPromoPanel(c, refresh) {
+    const view = document.getElementById('nk-concert-detail-view');
+    const short = document.getElementById('promo-short');
+    const count = () => { document.getElementById('promo-short-count').textContent = `${short.value.length}/600 Zeichen`; };
+    short.addEventListener('input', count);
+    count();
+    const values = () => ({ promo_short: short.value, promo_text: document.getElementById('promo-text').value, ticket_url: document.getElementById('promo-ticket-url').value.trim() });
+    document.getElementById('promo-save').addEventListener('click', async () => {
+      await refresh(api(`/api/nk/concerts/${c.id}`, { method: 'PUT', body: JSON.stringify(values()) }));
+      toast('Ankündigung gespeichert');
+    });
+    document.getElementById('promo-copy-short').addEventListener('click', () => copyText(promoText({ ...c, ...values() }), 'Ankündigung kopiert'));
+    document.getElementById('promo-copy-long').addEventListener('click', () => copyText(values().promo_text || promoText({ ...c, ...values() }), 'Langtext kopiert'));
+    const take = view.querySelector('[data-promo-ticketurl]');
+    if (take) take.addEventListener('click', () => { document.getElementById('promo-ticket-url').value = take.dataset.promoTicketurl; take.remove(); });
+    const mk = view.querySelector('[data-goto-marketing]');
+    if (mk) mk.addEventListener('click', () => switchTab('marketing'));
+    const box = document.getElementById('kk-status');
+    api(`/api/nk/concerts/${c.id}/kulturkalender`).then(r => {
+      if (!document.body.contains(box)) return;
+      if (!r.checked) { box.innerHTML = `<p class="hint">${escapeHtml(r.reason)} – sobald ein Datum feststeht, wird geprüft, ob der Termin im Kulturkalender steht.</p>`; return; }
+      const others = r.same_day.length ? `<p class="hint">Am selben Tag im Kulturkalender: ${r.same_day.map(x => `<a href="${escapeHtml(x.url)}" target="_blank" rel="noopener">${escapeHtml(x.title)}</a>${x.time ? ' (' + escapeHtml(x.time) + ')' : ''}`).join(', ')}</p>` : '';
+      box.innerHTML = r.found
+        ? `<p class="kk-found">✓ Steht im Kulturkalender: <a href="${escapeHtml(r.found.url)}" target="_blank" rel="noopener">${escapeHtml(r.found.title)}</a></p>${others}`
+        : `<p>Noch nicht im Kulturkalender gefunden.</p>
+           <p class="hint">Kreatief-Termine von der Homepage übernimmt der Kulturkalender automatisch. Andere Termine trägt man über den Vereinszugang ein – die Angaben kopiert das Tool vorher in die Zwischenablage.</p>
+           <button type="button" class="ghost" id="kk-submit">Angaben kopieren & Eintragsformular öffnen</button>${others}`;
+      const btn = document.getElementById('kk-submit');
+      if (btn) btn.addEventListener('click', () => { copyText(promoText({ ...c, ...values() }), 'Angaben kopiert'); window.open(r.submit_url, '_blank', 'noopener'); });
+    }).catch(err => { if (document.body.contains(box)) box.innerHTML = `<p class="hint">Kulturkalender nicht erreichbar: ${escapeHtml(err.message)}</p>`; });
+  }
+
+  // ---- Konzertabend: Ablaufplan, Dienstplan, Gaesteliste ----
+  function eveningPanelHtml(c) {
+    const e = c.evening;
+    return `
+      <div class="concert-grid evening-grid">
+        <div>
+          <div class="card">
+            <div class="section-card-head"><h3>🕒 Ablaufplan</h3>${c.time ? `<span class="hint">Beginn ${c.time.slice(0, 5)} Uhr</span>` : ''}</div>
+            <div class="run-list">
+              ${e.run_items.map(it => `
+                <div class="run-row" data-run="${it.id}">
+                  <input type="time" data-run-field="time" value="${escapeHtml(it.time || '')}">
+                  <input type="text" data-run-field="title" value="${escapeHtml(it.title)}">
+                  <input type="text" data-run-field="note" value="${escapeHtml(it.note || '')}" placeholder="Notiz, wer?">
+                  <button type="button" class="icon-btn" data-run-delete="${it.id}" title="Entfernen">✕</button>
+                </div>`).join('') || '<p class="empty-state">Noch kein Ablauf. <button type="button" class="link-btn" data-run-template>Standardablauf einfügen</button> (relativ zum Konzertbeginn)</p>'}
+            </div>
+            <form class="run-row run-new" id="run-form">
+              <input type="time" id="run-time">
+              <input type="text" id="run-title" placeholder="Was passiert? z.B. Soundcheck" required>
+              <input type="text" id="run-note" placeholder="Notiz, wer?">
+              <button type="submit">+</button>
+            </form>
+          </div>
+          <div class="card">
+            <div class="section-card-head"><h3>🎫 Gästeliste &amp; Freikarten</h3>
+              <span class="hint">${fmtNum(e.guest_total)} Freikarten · ${fmtNum(e.guest_checked_in)} da</span></div>
+            <div class="guest-list">
+              ${e.guests.map(g => `
+                <div class="guest-row ${g.checked_in_at ? 'is-in' : ''}">
+                  <input type="checkbox" class="task-done-checkbox" data-guest-in="${g.id}" ${g.checked_in_at ? 'checked' : ''} title="Ist da">
+                  <div class="guest-main"><strong>${escapeHtml(g.name)}</strong>${g.count > 1 ? ` <span class="count-chip">×${g.count}</span>` : ''}
+                    <span class="pill pill-xs pill-muted">${escapeHtml(g.category || '')}</span>
+                    <small>${escapeHtml(g.note || '')}${g.checked_in_at ? ` · da ${fmtTimestamp(g.checked_in_at)}${g.checked_by_display ? ' (' + escapeHtml(g.checked_by_display) + ')' : ''}` : ''}</small></div>
+                  <button type="button" class="icon-btn" data-guest-delete="${g.id}" title="Entfernen">✕</button>
+                </div>`).join('') || '<p class="empty-state">Noch keine Gäste – Sponsoren, Presse, Künstler …</p>'}
+            </div>
+            <form class="guest-add" id="guest-form">
+              <input type="text" id="guest-name" placeholder="Name" required>
+              <select id="guest-category">${e.guest_categories.map(k => `<option>${escapeHtml(k)}</option>`).join('')}</select>
+              <input type="number" id="guest-count" min="1" value="1" title="Anzahl Karten" inputmode="numeric">
+              <input type="text" id="guest-note" placeholder="Notiz">
+              <button type="submit">+</button>
+            </form>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-card-head"><h3>🙋 Dienstplan</h3>
+            <span class="hint">${e.shifts.reduce((n, s) => n + s.open, 0) ? `${e.shifts.reduce((n, s) => n + s.open, 0)} Plätze frei` : (e.shifts.length ? '✓ alle besetzt' : '')}</span></div>
+          <div class="shift-list">
+            ${e.shifts.map(s => `
+              <div class="shift ${s.open ? '' : 'is-full'} ${s.mine ? 'is-mine' : ''}">
+                <div class="shift-head">
+                  <strong>${escapeHtml(s.role)}</strong>
+                  <span>${s.start_time ? `${s.start_time}${s.end_time ? '–' + s.end_time : ''} Uhr` : ''}</span>
+                  <span class="count-chip">${s.signups.length}/${s.needed}</span>
+                  <button type="button" class="icon-btn" data-shift-delete="${s.id}" title="Dienst löschen">✕</button>
+                </div>
+                ${s.note ? `<small>${escapeHtml(s.note)}</small>` : ''}
+                <div class="shift-people">
+                  ${s.signups.map(su => `<span class="shift-person">${su.person ? avatarHtml(su.person, 'xs') : '👤'} ${escapeHtml(su.name)}${su.can_remove ? ` <button type="button" class="link-btn" data-signup-remove="${s.id}:${su.id}" title="Austragen">✕</button>` : ''}</span>`).join('')}
+                  ${Array.from({ length: s.open }).map(() => '<span class="shift-person is-open">frei</span>').join('')}
+                </div>
+                <div class="shift-actions">
+                  ${s.mine ? '' : `<button type="button" class="${s.open ? '' : 'ghost'}" data-signup-me="${s.id}">🙋 Ich mache mit</button>`}
+                  <form class="shift-name-form" data-signup-name="${s.id}"><input type="text" placeholder="+ andere Person (Name)"><button type="submit" class="ghost">+</button></form>
+                </div>
+              </div>`).join('') || '<p class="empty-state">Noch keine Dienste. <button type="button" class="link-btn" data-shift-template>Standard-Dienste anlegen</button> (Aufbau, Kasse, Einlass, Bewirtung, Abbau)</p>'}
+          </div>
+          <form class="shift-add" id="shift-form">
+            <input type="text" id="shift-role" placeholder="Dienst" list="shift-roles" required>
+            <datalist id="shift-roles">${e.shift_roles.map(r => `<option value="${escapeHtml(r)}">`).join('')}</datalist>
+            <input type="time" id="shift-start" title="von">
+            <input type="time" id="shift-end" title="bis">
+            <input type="number" id="shift-needed" min="1" value="2" title="Wie viele Personen?" inputmode="numeric">
+            <button type="submit">+ Dienst</button>
+          </form>
+        </div>
+      </div>`;
+  }
+  function bindEveningPanel(c, refresh) {
+    const view = document.getElementById('nk-concert-detail-view');
+    const base = `/api/nk/concerts/${c.id}`;
+    const post = (path, body) => refresh(api(base + path, { method: 'POST', body: JSON.stringify(body || {}) }));
+    view.querySelectorAll('[data-run]').forEach(row => row.querySelectorAll('[data-run-field]').forEach(inp => inp.addEventListener('change', () =>
+      refresh(api(`${base}/run/${row.dataset.run}`, { method: 'PUT', body: JSON.stringify({ [inp.dataset.runField]: inp.value }) })))));
+    view.querySelectorAll('[data-run-delete]').forEach(b => b.addEventListener('click', () => refresh(api(`${base}/run/${b.dataset.runDelete}`, { method: 'DELETE' }))));
+    const runTpl = view.querySelector('[data-run-template]');
+    if (runTpl) runTpl.addEventListener('click', () => post('/run', { template: true }));
+    document.getElementById('run-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      post('/run', { time: document.getElementById('run-time').value, title: document.getElementById('run-title').value, note: document.getElementById('run-note').value });
+    });
+    view.querySelectorAll('[data-guest-in]').forEach(cb => cb.addEventListener('change', () =>
+      refresh(api(`${base}/guests/${cb.dataset.guestIn}`, { method: 'PUT', body: JSON.stringify({ checked_in: cb.checked }) }))));
+    view.querySelectorAll('[data-guest-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Gast von der Liste nehmen?')) return;
+      refresh(api(`${base}/guests/${b.dataset.guestDelete}`, { method: 'DELETE' }));
+    }));
+    document.getElementById('guest-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      post('/guests', { name: document.getElementById('guest-name').value, category: document.getElementById('guest-category').value,
+        count: document.getElementById('guest-count').value, note: document.getElementById('guest-note').value });
+    });
+    const shiftTpl = view.querySelector('[data-shift-template]');
+    if (shiftTpl) shiftTpl.addEventListener('click', () => post('/shifts', { template: true }));
+    view.querySelectorAll('[data-shift-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Diesen Dienst mit allen Eintragungen löschen?')) return;
+      refresh(api(`${base}/shifts/${b.dataset.shiftDelete}`, { method: 'DELETE' }));
+    }));
+    view.querySelectorAll('[data-signup-me]').forEach(b => b.addEventListener('click', () => post(`/shifts/${b.dataset.signupMe}/signup`, {})));
+    view.querySelectorAll('[data-signup-remove]').forEach(b => b.addEventListener('click', () => {
+      const [shiftId, signupId] = b.dataset.signupRemove.split(':');
+      refresh(api(`${base}/shifts/${shiftId}/signup/${signupId}`, { method: 'DELETE' }));
+    }));
+    view.querySelectorAll('[data-signup-name]').forEach(f => f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = f.querySelector('input').value.trim();
+      if (name) post(`/shifts/${f.dataset.signupName}/signup`, { name });
+    }));
+    document.getElementById('shift-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      post('/shifts', { role: document.getElementById('shift-role').value, start_time: document.getElementById('shift-start').value,
+        end_time: document.getElementById('shift-end').value, needed: document.getElementById('shift-needed').value });
+    });
+  }
+
   // ---- Konzert anlegen/bearbeiten ----
   const nkConcertModal = document.getElementById('nk-concert-modal-overlay');
   let nkConcertEditingId = null;
@@ -5223,6 +6183,9 @@
     document.getElementById('nk-concert-location').value = c ? (c.location || '') : '';
     document.getElementById('nk-concert-status').value = c ? (c.status || 'Planung') : 'Planung';
     document.getElementById('nk-concert-notes').value = c ? (c.notes || '') : '';
+    document.getElementById('nk-concert-capacity').value = c && c.capacity ? c.capacity : '';
+    document.getElementById('nk-concert-template').checked = true;
+    document.getElementById('nk-concert-template-wrap').classList.toggle('hidden', !!c);
     nkConcertModal.classList.remove('hidden');
     setTimeout(() => document.getElementById('nk-concert-title').focus(), 0);
   }
@@ -5238,10 +6201,12 @@
       location: document.getElementById('nk-concert-location').value.trim() || null,
       status: document.getElementById('nk-concert-status').value,
       notes: document.getElementById('nk-concert-notes').value.trim() || null,
+      capacity: document.getElementById('nk-concert-capacity').value || null,
     };
+    if (!nkConcertEditingId) payload.with_template = document.getElementById('nk-concert-template').checked;
     if (!payload.title) return;
     try {
-      if (!nkConcertEditingId) nkConcertFolder = 'contracts';
+      if (!nkConcertEditingId) nkConcertFolder = 'overview';
       nkConcertDetail = nkConcertEditingId
         ? await api(`/api/nk/concerts/${nkConcertEditingId}`, { method: 'PUT', body: JSON.stringify(payload) })
         : await api('/api/nk/concerts', { method: 'POST', body: JSON.stringify(payload) });
@@ -5291,7 +6256,16 @@
         <div><span>angefragt</span><strong>${fmtEuro(sumOf(inYear.filter(x => x.status === 'angefragt')))}</strong></div>
         <div><span>Sponsoren</span><strong>${sponsors.length}</strong></div>
       </div>
-      ${years.length ? `<select id="nk-sponsor-year" class="status-select"><option value="">Alle Jahre</option>${years.map(y => `<option ${y === nkSponsorYear ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}` : '';
+      <div class="sponsor-tools">
+        ${years.length ? `<select id="nk-sponsor-year" class="status-select"><option value="">Alle Jahre</option>${years.map(y => `<option ${y === nkSponsorYear ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}
+        ${sponsors.some(s => s.logos.length) ? `<a class="ghost button-like" href="/api/nk/sponsors-logos.zip${nkSponsorYear ? '?year=' + nkSponsorYear : ''}" title="Alle Logos als ZIP – z.B. für Grafiker oder Plakat">⤓ Logo-Paket${nkSponsorYear ? ' ' + nkSponsorYear : ''} (ZIP)</a>` : ''}
+      </div>` : '';
+    const renewals = nkSponsorData.renewals || [];
+    document.getElementById('nk-sponsor-renewals').innerHTML = renewals.length ? `
+      <div class="notice-box renewal-box">🔁 <strong>Für ${new Date().getFullYear()} noch nicht angefragt:</strong>
+        ${renewals.map(r => `<button type="button" class="link-btn" data-renew-open="${r.id}">${escapeHtml(r.name)}</button> <small>(${new Date().getFullYear() - 1}: ${fmtEuro(r.last_amount)})</small>`).join(', ')}
+      </div>` : '';
+    document.querySelectorAll('[data-renew-open]').forEach(b => b.addEventListener('click', () => { nkSponsorDetailId = +b.dataset.renewOpen; renderNkSponsorDetail(); window.scrollTo({ top: 0 }); }));
     const sel = document.getElementById('nk-sponsor-year');
     if (sel) sel.addEventListener('change', () => { nkSponsorYear = sel.value; renderNkSponsorList(); });
 
@@ -5373,6 +6347,20 @@
                   <select data-sh-field="concert_id" class="sh-concert">${concertOptions(x.concert_id)}</select>
                   <input type="text" data-sh-field="note" value="${escapeHtml(x.note || '')}" placeholder="Notiz (z.B. Sachleistung)" class="sh-note">
                   <button type="button" class="icon-btn" data-sh-delete="${x.id}" title="Eintrag löschen">✕</button>
+                </div>
+                <div class="sponsorship-extra" data-sh-extra="${x.id}">
+                  <div class="benefits">
+                    <span class="benefits-title">Gegenleistungen ${x.benefits.length ? `<small>${x.benefits.filter(bf => bf.done).length}/${x.benefits.length} erledigt</small>` : ''}</span>
+                    ${x.benefits.map((bf, i) => `<label class="benefit ${bf.done ? 'is-done' : ''}"><input type="checkbox" data-benefit-toggle="${i}" ${bf.done ? 'checked' : ''}> <span>${escapeHtml(bf.text)}</span> <button type="button" class="link-btn" data-benefit-remove="${i}" title="Entfernen">✕</button></label>`).join('')}
+                    <form class="benefit-add" data-benefit-add><input type="text" placeholder="+ Gegenleistung, z.B. Logo auf Plakat"><button type="submit" class="ghost">+</button></form>
+                  </div>
+                  <div class="letters">
+                    <span class="benefits-title">Briefe ${x.invoice_number ? `<small>Rechnung ${escapeHtml(x.invoice_number)} vom ${fmtDateDE(x.invoice_date)}</small>` : ''}</span>
+                    <a class="ghost button-like" target="_blank" rel="noopener" href="/api/nk/sponsors/${s.id}/sponsorships/${x.id}/letter.pdf?type=rechnung">🧾 Rechnung</a>
+                    <a class="ghost button-like" target="_blank" rel="noopener" href="/api/nk/sponsors/${s.id}/sponsorships/${x.id}/letter.pdf?type=spende" title="Für Spenden (keine Gegenleistung)">📜 Zuwendungsbestätigung</a>
+                    <a class="ghost button-like" target="_blank" rel="noopener" href="/api/nk/sponsors/${s.id}/sponsorships/${x.id}/letter.pdf?type=dank">💌 Dankesbrief</a>
+                    ${nkSponsorData.org && nkSponsorData.org.name ? '' : '<small class="hint">Absender fehlt – oben in der Liste unter „Vereinsdaten“ eintragen.</small>'}
+                  </div>
                 </div>`).join('') : '<p class="empty-state">Noch kein Betrag eingetragen.</p>'}
             </div>
             <form id="nk-sh-form" class="sponsorship-row sponsorship-new">
@@ -5434,6 +6422,23 @@
       const value = field === 'amount' ? parseAmount(inp.value) : inp.value;
       refresh(api(`/api/nk/sponsors/${s.id}/sponsorships/${row.dataset.sh}`, { method: 'PUT', body: JSON.stringify({ [field]: value }) }));
     })));
+    view.querySelectorAll('[data-sh-extra]').forEach(box => {
+      const shId = +box.dataset.shExtra;
+      const sh = s.sponsorships.find(x => x.id === shId);
+      const save = (benefits) => refresh(api(`/api/nk/sponsors/${s.id}/sponsorships/${shId}`, { method: 'PUT', body: JSON.stringify({ benefits }) }));
+      box.querySelectorAll('[data-benefit-toggle]').forEach(cb => cb.addEventListener('change', () =>
+        save(sh.benefits.map((bf, i) => (i === +cb.dataset.benefitToggle ? { ...bf, done: cb.checked } : bf)))));
+      box.querySelectorAll('[data-benefit-remove]').forEach(btn => btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        save(sh.benefits.filter((bf, i) => i !== +btn.dataset.benefitRemove));
+      }));
+      const add = box.querySelector('[data-benefit-add]');
+      add.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = add.querySelector('input').value.trim();
+        if (text) save([...sh.benefits, { text, done: false }]);
+      });
+    });
     view.querySelectorAll('[data-sh-delete]').forEach(b => b.addEventListener('click', () => {
       if (!confirm('Diesen Eintrag löschen?')) return;
       refresh(api(`/api/nk/sponsors/${s.id}/sponsorships/${b.dataset.shDelete}`, { method: 'DELETE' }));
@@ -5518,6 +6523,247 @@
     } catch (err) { alert(err.message); }
   });
 
+  // ---------- Kontakte ----------
+  let nkContactData = { contacts: [], kinds: [] };
+  let nkContactDetailId = null;
+  let nkContactKind = '';
+  function showNkContactList() {
+    document.getElementById('nk-contacts-list-view').classList.remove('hidden');
+    document.getElementById('nk-contact-detail-view').classList.add('hidden');
+    nkContactDetailId = null;
+  }
+  async function loadNkContacts() {
+    try { nkContactData = await api('/api/nk/contacts'); } catch (err) { toast(err.message); return; }
+    document.getElementById('nkc-kind').innerHTML = nkContactData.kinds.map(k => `<option>${escapeHtml(k)}</option>`).join('');
+    if (nkContactDetailId && nkContactData.contacts.some(k => k.id === nkContactDetailId)) { renderNkContactDetail(); return; }
+    showNkContactList();
+    renderNkContactList();
+  }
+  const KIND_ICON = { 'Künstler/Ensemble': '🎤', Agentur: '💼', Technik: '🎛️', 'Saal/Location': '🏛️', Presse: '📰', Dienstleister: '🧰', Sonstige: '👤' };
+  function renderNkContactList() {
+    const q = document.getElementById('nk-contact-search').value.trim().toLowerCase();
+    const kinds = nkContactData.kinds.filter(k => nkContactData.contacts.some(c => c.kind === k));
+    document.getElementById('nk-contact-kinds').innerHTML = kinds.length > 1 ? [['', 'Alle'], ...kinds.map(k => [k, `${KIND_ICON[k] || ''} ${k}`])].map(([k, label]) =>
+      `<button type="button" class="chip ${k === nkContactKind ? 'active' : ''}" data-kind="${escapeHtml(k)}">${escapeHtml(label)}</button>`).join('') : '';
+    document.querySelectorAll('#nk-contact-kinds [data-kind]').forEach(b => b.addEventListener('click', () => { nkContactKind = b.dataset.kind; renderNkContactList(); }));
+    const list = nkContactData.contacts.filter(k => (!nkContactKind || k.kind === nkContactKind)
+      && (!q || [k.name, k.contact_person, k.notes, k.email, k.rider].some(v => (v || '').toLowerCase().includes(q))));
+    document.getElementById('nk-contacts-list').innerHTML = list.length ? list.map(k => `
+      <button type="button" class="nk-card sponsor-card" data-contact-card="${k.id}">
+        <div class="sponsor-logo-box"><span>${KIND_ICON[k.kind] || '👤'}</span></div>
+        <div class="sponsor-card-body">
+          <div class="nk-card-title">${escapeHtml(k.name)}</div>
+          <div class="nk-card-meta">${escapeHtml([k.kind, k.contact_person].filter(Boolean).join(' · '))}</div>
+          <div class="sponsor-card-foot">
+            ${k.concerts.length ? `<span class="pill pill-xs pill-muted">${k.concerts.length} Konzert${k.concerts.length === 1 ? '' : 'e'}</span>` : ''}
+            ${k.fee_avg !== null ? `<small>Ø Gage ${fmtEuro(k.fee_avg)}</small>` : ''}
+          </div>
+        </div>
+      </button>`).join('') : `
+      <div class="empty-card"><div class="empty-card-icon">👥</div><strong>${nkContactData.contacts.length ? 'Keine Treffer' : 'Noch keine Kontakte'}</strong>
+        <span>${nkContactData.contacts.length ? 'Suche oder Filter ändern.' : 'Kontakte entstehen hier oder direkt im Konzert unter Übersicht › Beteiligte.'}</span></div>`;
+    document.querySelectorAll('[data-contact-card]').forEach(el => el.addEventListener('click', () => {
+      nkContactDetailId = +el.dataset.contactCard;
+      renderNkContactDetail();
+      window.scrollTo({ top: 0 });
+    }));
+  }
+  document.getElementById('nk-contact-search').addEventListener('input', renderNkContactList);
+
+  function renderNkContactDetail() {
+    const k = nkContactData.contacts.find(x => x.id === nkContactDetailId);
+    if (!k) { showNkContactList(); renderNkContactList(); return; }
+    document.getElementById('nk-contacts-list-view').classList.add('hidden');
+    const view = document.getElementById('nk-contact-detail-view');
+    view.classList.remove('hidden');
+    const website = k.website ? (/^https?:\/\//i.test(k.website) ? k.website : 'https://' + k.website) : null;
+    const info = [
+      k.contact_person ? `<div><span>Ansprechpartner</span>${escapeHtml(k.contact_person)}</div>` : '',
+      k.email ? `<div><span>E-Mail</span><a href="mailto:${escapeHtml(k.email)}">${escapeHtml(k.email)}</a></div>` : '',
+      k.phone ? `<div><span>Telefon</span><a href="tel:${escapeHtml(k.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(k.phone)}</a></div>` : '',
+      website ? `<div><span>Website</span><a href="${escapeHtml(website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(k.website)}</a></div>` : '',
+      k.address ? `<div><span>Adresse</span><p>${escapeHtml(k.address)}</p></div>` : '',
+      k.rider ? `<div><span>Technik-Anforderungen / Rider</span><p>${escapeHtml(k.rider)}</p></div>` : '',
+      k.notes ? `<div><span>Notizen</span><p>${escapeHtml(k.notes)}</p></div>` : '',
+    ].filter(Boolean).join('');
+    view.innerHTML = `
+      <nav class="folder-path">
+        <button type="button" class="link-btn" id="nk-contact-back">👥 Kontakte</button>
+        <span>›</span><strong>${escapeHtml(k.name)}</strong>
+      </nav>
+      <div class="card detail-hero sponsor-hero">
+        <div class="sponsor-logo-box big"><span>${KIND_ICON[k.kind] || '👤'}</span></div>
+        <div class="detail-hero-main">
+          <div class="detail-hero-kicker"><span class="pill pill-muted">${escapeHtml(k.kind || '')}</span></div>
+          <h2 class="detail-title">${escapeHtml(k.name)}</h2>
+          <div class="detail-meta">${k.concerts.length ? `<span>${k.concerts.length} Konzert${k.concerts.length === 1 ? '' : 'e'}</span>` : ''}${k.fee_total ? `<span>Gagen gesamt <strong>${fmtEuro(k.fee_total)}</strong></span><span>Ø <strong>${fmtEuro(k.fee_avg)}</strong></span>` : ''}</div>
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="ghost" id="nk-contact-edit">Bearbeiten</button>
+          ${k.can_manage ? '<button type="button" class="danger" id="nk-contact-delete">Löschen</button>' : ''}
+        </div>
+      </div>
+      <div class="concert-grid">
+        <div class="card"><div class="section-card-head"><h3>📇 Informationen</h3></div>
+          <div class="sponsor-info">${info || '<p class="empty-state">Noch keine Angaben – über „Bearbeiten“ ergänzen.</p>'}</div></div>
+        <div class="card"><div class="section-card-head"><h3>🎵 Konzerte &amp; Gagen</h3></div>
+          ${k.concerts.length ? `<div class="finance-table">
+            <div class="finance-row finance-head"><span>Konzert</span><span>Rolle</span><span>Gage</span></div>
+            ${k.concerts.map(x => `<button type="button" class="finance-row" data-open-concert="${x.concert_id}">
+              <span class="finance-title"><small>${x.concert_date ? fmtDateDE(x.concert_date) : 'ohne Datum'} · ${escapeHtml(x.concert_status || '')}</small>${escapeHtml(x.concert_title)}</span>
+              <span>${escapeHtml(x.role || '–')}</span>
+              <span class="finance-num">${fmtEuro(x.fee)}</span>
+            </button>`).join('')}
+          </div>` : '<p class="empty-state">Noch keinem Konzert zugeordnet – im Konzert unter Übersicht › Beteiligte hinzufügen.</p>'}
+        </div>
+      </div>`;
+    document.getElementById('nk-contact-back').addEventListener('click', () => { showNkContactList(); renderNkContactList(); });
+    document.getElementById('nk-contact-edit').addEventListener('click', () => openNkContactModal(k));
+    const del = document.getElementById('nk-contact-delete');
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm(`Kontakt „${k.name}“ löschen? Er verschwindet auch aus den Beteiligten der Konzerte.`)) return;
+      await api(`/api/nk/contacts/${k.id}`, { method: 'DELETE' });
+      nkContactDetailId = null;
+      loadNkContacts();
+    });
+    view.querySelectorAll('[data-open-concert]').forEach(b => b.addEventListener('click', () => {
+      if (!can('nk_projects')) return;
+      switchTab('nk_projects');
+      openNkConcert(+b.dataset.openConcert, 'overview');
+    }));
+  }
+
+  const nkContactModal = document.getElementById('nk-contact-modal-overlay');
+  const NKC_FIELDS = ['name', 'kind', 'contact_person', 'website', 'email', 'phone', 'address', 'rider', 'notes'];
+  let nkContactEditingId = null;
+  function openNkContactModal(k) {
+    nkContactEditingId = k ? k.id : null;
+    document.getElementById('nk-contact-modal-heading').textContent = k ? 'Kontakt bearbeiten' : 'Neuer Kontakt';
+    document.getElementById('nk-contact-submit').textContent = k ? 'Speichern' : 'Anlegen';
+    NKC_FIELDS.forEach(f => { document.getElementById('nkc-' + f).value = k ? (k[f] || '') : (f === 'kind' ? (nkContactKind || 'Künstler/Ensemble') : ''); });
+    nkContactModal.classList.remove('hidden');
+    setTimeout(() => document.getElementById('nkc-name').focus(), 0);
+  }
+  document.getElementById('nk-contact-new-btn').addEventListener('click', () => openNkContactModal(null));
+  document.getElementById('nk-contact-cancel').addEventListener('click', () => nkContactModal.classList.add('hidden'));
+  nkContactModal.addEventListener('click', (e) => { if (e.target === nkContactModal) nkContactModal.classList.add('hidden'); });
+  document.getElementById('nk-contact-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {};
+    NKC_FIELDS.forEach(f => { payload[f] = document.getElementById('nkc-' + f).value.trim(); });
+    try {
+      const saved = nkContactEditingId
+        ? await api(`/api/nk/contacts/${nkContactEditingId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api('/api/nk/contacts', { method: 'POST', body: JSON.stringify(payload) });
+      nkContactModal.classList.add('hidden');
+      nkContactDetailId = saved.id;
+      await loadNkContacts();
+      window.scrollTo({ top: 0 });
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---------- Vereinsdaten (Sponsoren-Briefe) ----------
+  const nkOrgModal = document.getElementById('nk-org-modal-overlay');
+  const ORG_FIELDS = ['name', 'address', 'city', 'email', 'phone', 'website', 'tax_office', 'tax_number', 'exemption_date', 'exemption_year', 'purpose', 'bank', 'iban', 'bic', 'vat_id', 'vat_rate', 'signer', 'vat_note'];
+  document.getElementById('nk-org-btn').addEventListener('click', () => {
+    const org = nkSponsorData.org || {};
+    ORG_FIELDS.forEach(f => { document.getElementById('org-' + f).value = org[f] ?? ''; });
+    nkOrgModal.classList.remove('hidden');
+  });
+  document.getElementById('nk-org-cancel').addEventListener('click', () => nkOrgModal.classList.add('hidden'));
+  nkOrgModal.addEventListener('click', (e) => { if (e.target === nkOrgModal) nkOrgModal.classList.add('hidden'); });
+  document.getElementById('nk-org-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {};
+    ORG_FIELDS.forEach(f => { payload[f] = document.getElementById('org-' + f).value.trim(); });
+    try {
+      nkSponsorData.org = await api('/api/nk/sponsors-org', { method: 'PUT', body: JSON.stringify(payload) });
+      nkOrgModal.classList.add('hidden');
+      toast('Vereinsdaten gespeichert');
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---------- Push-Mitteilungen & Kalender-Abo (im Dialog "Benachrichtigungen & Kalender") ----------
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  function urlBase64ToUint8Array(base64) {
+    const padding = '='.repeat((4 - base64.length % 4) % 4);
+    const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from([...raw].map(ch => ch.charCodeAt(0)));
+  }
+  async function swRegistration() {
+    if (!('serviceWorker' in navigator)) return null;
+    try { return await navigator.serviceWorker.register('/sw.js', { scope: '/' }); } catch (e) { return null; }
+  }
+  async function renderPushState() {
+    const status = document.getElementById('push-status');
+    const enable = document.getElementById('push-enable');
+    const test = document.getElementById('push-test');
+    const disable = document.getElementById('push-disable');
+    [enable, test, disable].forEach(b => b.classList.add('hidden'));
+    if (!pushSupported()) {
+      const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+      status.textContent = ios
+        ? 'Auf dem iPhone gehen Mitteilungen nur in der App vom Home-Bildschirm (Safari › Teilen › „Zum Home-Bildschirm“, ab iOS 16.4). Dort diesen Dialog erneut öffnen.'
+        : 'Dieser Browser unterstützt keine Push-Mitteilungen.';
+      return;
+    }
+    if (Notification.permission === 'denied') { status.textContent = 'Mitteilungen sind für diese Seite in den Browser- bzw. iPhone-Einstellungen blockiert.'; return; }
+    const reg = await swRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (sub) {
+      status.textContent = '✓ Dieses Gerät bekommt Mitteilungen bei Neuigkeiten und Fristen.';
+      test.classList.remove('hidden');
+      disable.classList.remove('hidden');
+    } else {
+      status.textContent = 'Neuigkeiten und Fristen zusätzlich als Mitteilung auf diesem Gerät bekommen.';
+      enable.classList.remove('hidden');
+    }
+  }
+  document.getElementById('push-enable').addEventListener('click', async () => {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { renderPushState(); return; }
+      const reg = await swRegistration();
+      if (!reg) throw new Error('Service Worker konnte nicht gestartet werden');
+      await navigator.serviceWorker.ready;
+      const { publicKey } = await api('/api/push/key');
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+      await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
+      toast('Mitteilungen aktiviert');
+    } catch (err) { alert('Mitteilungen konnten nicht aktiviert werden: ' + err.message); }
+    renderPushState();
+  });
+  document.getElementById('push-test').addEventListener('click', async () => {
+    try { await api('/api/push/test', { method: 'POST' }); toast('Test-Mitteilung verschickt'); } catch (err) { alert(err.message); }
+  });
+  document.getElementById('push-disable').addEventListener('click', async () => {
+    const reg = await swRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (sub) {
+      await api('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    }
+    toast('Mitteilungen auf diesem Gerät abgeschaltet');
+    renderPushState();
+  });
+
+  let calLinks = null;
+  async function renderCalendarLink() {
+    try { calLinks = await api('/api/nk/calendar-link'); } catch (e) { calLinks = null; }
+    const all = document.getElementById('cal-all').checked;
+    document.getElementById('cal-webcal').href = calLinks ? (all ? calLinks.webcal_all : calLinks.webcal) : '#';
+  }
+  document.getElementById('cal-all').addEventListener('change', renderCalendarLink);
+  document.getElementById('cal-copy').addEventListener('click', () => {
+    if (calLinks) copyText(document.getElementById('cal-all').checked ? calLinks.https_all : calLinks.https, 'Kalender-Link kopiert – z.B. in Outlook oder Google Kalender als Abo einfügen');
+  });
+  document.getElementById('cal-renew').addEventListener('click', async () => {
+    if (!confirm('Neuen Link erzeugen? Bestehende Abos mit dem alten Link bekommen dann keine Termine mehr.')) return;
+    await api('/api/nk/calendar-link/renew', { method: 'POST' });
+    await renderCalendarLink();
+    toast('Neuer Kalender-Link erzeugt');
+  });
+
   // ---------- E-Mail-Benachrichtigungen (eigene Einstellungen) ----------
   const notifyModal = document.getElementById('notify-modal-overlay');
   document.getElementById('notify-settings-btn').addEventListener('click', async () => {
@@ -5531,7 +6777,10 @@
       fb.classList.toggle('hidden', !s.fallback_email);
       document.querySelectorAll('input[name="notify-mode"]').forEach(r => { r.checked = r.value === s.mode; });
       document.getElementById('notify-not-configured').classList.toggle('hidden', s.configured);
+      const nkAny = NK_TABS.some(can);
+      document.querySelectorAll('#notify-modal-overlay .notify-section').forEach(el => el.classList.toggle('hidden', !nkAny));
       notifyModal.classList.remove('hidden');
+      if (nkAny) { renderPushState(); renderCalendarLink(); }
     } catch (err) { alert(err.message); }
   });
   document.getElementById('notify-cancel').addEventListener('click', () => notifyModal.classList.add('hidden'));
@@ -5623,11 +6872,17 @@
       // Direktlinks aus den E-Mail-Benachrichtigungen: ?concert=3&folder=todos bzw. ?poll=5
       const linkConcert = +urlParams.get('concert');
       const linkPoll = +urlParams.get('poll');
+      const linkTab = urlParams.get('tab');
+      const linkView = urlParams.get('view');
+      if (linkView && NK_VIEWS.includes(linkView)) nkView = linkView;
       if (linkConcert && can('nk_projects')) last = 'nk_projects';
       else if (linkPoll && can('nk_polls')) last = 'nk_polls';
+      else if (linkTab && NK_TABS.includes(linkTab) && can(linkTab)) last = linkTab;
+      else if (linkView && can('nk_projects')) last = 'nk_projects';
       const start = last && can(last) ? last : sidebarOrder[0];
       switchTab(start, { restore: true, noScroll: true });
       if (mkConnect) mkHandleConnectReturn(urlParams);
+      if (linkTab || linkView) history.replaceState(null, '', window.location.pathname);
       if (linkConcert || linkPoll) {
         history.replaceState(null, '', window.location.pathname);
         try {
@@ -5638,6 +6893,8 @@
     }
     refreshNkBadges();
     setInterval(refreshNkBadges, 60000);
+    // Service Worker fuer Push-Mitteilungen (nur NK-Konten; ohne Offline-Cache)
+    if (NK_TABS.some(can)) swRegistration();
     refreshMkBadge();
     setInterval(() => { mkStatus = null; refreshMkBadge(); }, 120000);
   }

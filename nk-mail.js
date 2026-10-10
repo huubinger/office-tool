@@ -7,6 +7,7 @@
 const cron = require('node-cron');
 const db = require('./db');
 const { effectiveTabs } = require('./access');
+const push = require('./nk-push');
 
 const APP_URL = (process.env.APP_URL || 'https://office.martinrenner.de').replace(/\/$/, '');
 const NOTIFY_MODES = ['instant', 'daily', 'off'];
@@ -67,17 +68,18 @@ function mailText(items) {
     + '\n\n—\nBenachrichtigungen lassen sich im Office-Tool unter Konto › E-Mail-Benachrichtigungen ändern.';
 }
 
-// Meldet ein Ereignis an alle Konten mit dem Reiter `tab` (ausser dem Ausloeser).
+// Meldet ein Ereignis an alle Konten mit dem Reiter `tab` (ausser dem Ausloeser) - per E-Mail
+// (sofort oder als Tageszusammenfassung) und als Push-Mitteilung auf angemeldeten Geraeten.
 // onlyUserIds: nur an diese Konten (z.B. die Person, der ein 2Do zugewiesen wurde).
 function notify({ tab, actorId, subject, body, path, onlyUserIds }) {
-  if (!isConfigured()) return;
   const link = path ? APP_URL + path : null;
   const users = db.prepare('SELECT * FROM app_users').all()
     .filter(u => u.id !== actorId)
     .filter(u => !onlyUserIds || onlyUserIds.includes(u.id))
-    .filter(u => effectiveTabs(u).includes(tab))
-    .filter(u => (u.nk_notify || 'instant') !== 'off' && emailForUser(u));
+    .filter(u => effectiveTabs(u).includes(tab));
   for (const u of users) {
+    if (push.hasSubscriptions(u.id)) push.sendToUser(u.id, { title: subject, body, path }).catch(() => {});
+    if (!isConfigured() || (u.nk_notify || 'instant') === 'off' || !emailForUser(u)) continue;
     const info = db.prepare('INSERT INTO nk_mail_queue (user_id, subject, body, link) VALUES (?, ?, ?, ?)').run(u.id, subject, body, link);
     if ((u.nk_notify || 'instant') === 'instant') {
       const item = { body, link };
@@ -124,6 +126,7 @@ function register(app) {
       fallback_email: req.user.email ? null : emailForUser({ ...req.user, email: null }),
       mode: req.user.nk_notify || 'instant',
       configured: isConfigured(),
+      push_devices: db.prepare('SELECT COUNT(*) AS c FROM nk_push_subscriptions WHERE user_id = ?').get(req.user.id).c,
     });
   });
   app.put('/api/account/notifications', (req, res) => {

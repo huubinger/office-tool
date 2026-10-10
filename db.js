@@ -406,6 +406,15 @@ ensureColumn('nk_concerts', 'gema_registered_at', 'TEXT');
 ensureColumn('nk_concerts', 'gema_registered_by', 'INTEGER');
 ensureColumn('nk_concerts', 'gema_reported_at', 'TEXT');
 ensureColumn('nk_concerts', 'gema_reported_by', 'INTEGER');
+// Ausbau Neckarsulmer Konzerte (Kapazitaet, Werbung, Vorlagen-2Dos, Volltext, Kalender-Abo, Push)
+ensureColumn('nk_concerts', 'capacity', 'INTEGER');
+ensureColumn('nk_concerts', 'promo_short', 'TEXT');
+ensureColumn('nk_concerts', 'promo_text', 'TEXT');
+ensureColumn('nk_concerts', 'ticket_url', 'TEXT');
+ensureColumn('nk_todos', 'template_key', 'TEXT');
+ensureColumn('nk_todos', 'offset_days', 'INTEGER');
+ensureColumn('nk_concert_files', 'content_text', 'TEXT');
+ensureColumn('app_users', 'nk_ics_token', 'TEXT');
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----
 // Sind ADMIN_USERNAME und ADMIN_PASSWORD gesetzt, werden sie bei JEDEM Start durchgesetzt
@@ -438,3 +447,4 @@ if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
 module.exports = db;
 module.exports.dbPath = dbPath;
 module.exports.dbDir = dbDir;
+module.exports.ensureColumn = ensureColumn;

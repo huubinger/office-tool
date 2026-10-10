@@ -20,6 +20,13 @@ const fs = require('fs');
 const nk = require('./nk');
 const nkMail = require('./nk-mail');
 const nkSponsors = require('./nk-sponsors');
+const nkPush = require('./nk-push');
+const nkPlan = require('./nk-plan');
+const nkTickets = require('./nk-tickets');
+const nkContacts = require('./nk-contacts');
+const nkEvening = require('./nk-evening');
+const nkShare = require('./nk-share');
+const nkReport = require('./nk-report');
 const finder = require('./finder');
 const marketing = require('./marketing');
 const PDFDocument = require('pdfkit');
@@ -59,12 +66,15 @@ const PUBLIC_PATHS = new Set([
   '/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics',
   '/manifest.json', '/favicon.png',
   '/icons/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png',
-  '/nk/login', '/nk-manifest.json', '/icons/nk-apple-touch-icon.png', '/icons/nk-icon-192.png', '/icons/nk-icon-512.png',
+  '/nk/login', '/nk-manifest.json', '/sw.js', '/icons/nk-apple-touch-icon.png', '/icons/nk-icon-192.png', '/icons/nk-icon-512.png',
 ]);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
   // Freigegebene Social-Media-Bilder muessen fuer Instagram/Facebook ohne Login abrufbar sein
   if (/^\/m\/[a-f0-9]{32}\.jpg$/.test(req.path)) return next();
+  // Neckarsulmer Konzerte: Kalender-Abo und Lese-Links fuer Externe (geheimer Token statt Login)
+  if (/^\/nk\/kalender\/[a-f0-9]{48}\.ics$/.test(req.path)) return next();
+  if (/^\/nk\/s\/[A-Za-z0-9_-]{20,64}(\/datei\/\d+)?$/.test(req.path)) return next();
   if (req.session && req.session.userId) {
     // Konto bei jeder Anfrage frisch laden, damit geaenderte Rechte/Personen-Verknuepfungen
     // sofort gelten (ohne Neu-Anmeldung) und geloeschte Konten ausgesperrt werden.
@@ -93,7 +103,13 @@ const API_TAB_RULES = [
   ['/api/nk/polls', ['nk_polls']],
   ['/api/nk/concerts', ['nk_projects']],
   ['/api/nk/sponsors', ['nk_sponsors']],
-  ['/api/nk/', ['nk_polls', 'nk_projects', 'nk_sponsors']],
+  ['/api/nk/contacts', ['nk_contacts']],
+  ['/api/nk/budget-sources', ['nk_projects']],
+  ['/api/nk/stats', ['nk_projects']],
+  ['/api/nk/report', ['nk_projects']],
+  ['/api/nk/tickets', ['nk_projects']],
+  ['/api/nk/', ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts']],
+  ['/api/push/', ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts']],
   ['/api/tasks', ['tasks', 'calendar', 'contracts']],
   ['/api/calendar', ['tasks', 'calendar']],
   ['/api/time-entries', ['timetracking', 'tasks']],
@@ -1967,6 +1983,14 @@ app.delete('/api/contract-events/:id/items/:itemId', (req, res) => {
 nk.register(app);
 nkMail.register(app);
 nkSponsors.register(app);
+nkPush.register(app);
+nkPlan.register(app);
+nkTickets.register(app);
+nkContacts.register(app);
+nkEvening.register(app);
+nkShare.register(app);
+nkReport.register(app);
+nk.backfillFileText();
 finder.register(app);
 marketing.register(app);
 

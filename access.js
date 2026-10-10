@@ -1,6 +1,6 @@
 // Zugriffsrechte je Reiter (Tab) und einheitliche Anzeige von Benutzern (Name, Kuerzel, Farbe).
 
-const ALL_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'nk_polls', 'nk_projects', 'nk_sponsors', 'finder', 'marketing'];
+const ALL_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts', 'finder', 'marketing'];
 // Reiter, die ein Konto ohne ausdruecklich gesetzte Freigaben sieht (Stand vor Einfuehrung der
 // Freigaben). Die "Neckarsulmer Konzerte"-Reiter, Finder und Marketing muessen immer explizit freigegeben werden.
 const LEGACY_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'];

@@ -86,6 +86,10 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M10 16.5s-6-3.6-6-8.1A3.4 3.4 0 0 1 10 6.3a3.4 3.4 0 0 1 6 2.1c0 4.5-6 8.1-6 8.1z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         Sponsoren
       </button>
+      <button class="tab-btn" data-tab="nk_contacts" data-title="Kontakte" data-group="Neckarsulmer Konzerte">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><circle cx="8" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M2.8 16.5c.6-2.9 2.7-4.5 5.2-4.5s4.6 1.6 5.2 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13.5 4.3a2.8 2.8 0 0 1 0 5.4M15.3 12.4c1.1.7 1.8 2.1 2 4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Kontakte
+      </button>
     </nav>
     <a class="nk-app-link hidden" id="nk-app-link" href="/nk" title="Nur Neckarsulmer Konzerte – lässt sich auf dem iPhone als eigene App auf den Home-Bildschirm legen">📱 Als eigene App öffnen</a>
     <div class="sidebar-section-label" id="kreatief-section-label">Kreatief</div>
@@ -139,7 +143,7 @@
                   <button type="button" data-theme-choice="system">System</button>
                 </div>
               </div>
-              <button type="button" id="notify-settings-btn">E-Mail-Benachrichtigungen</button>
+              <button type="button" id="notify-settings-btn">Benachrichtigungen &amp; Kalender</button>
               <a id="nk-app-menu-link" class="account-dropdown-link hidden" href="/nk">📱 Neckarsulmer Konzerte als App</a>
               <a id="office-menu-link" class="account-dropdown-link hidden" href="/">Zum vollständigen Office-Tool</a>
               <button type="button" id="change-password-btn">Passwort ändern</button>
@@ -726,10 +730,24 @@
   <!-- ===================== NK: PROJEKTE ===================== -->
   <section id="tab-nk_projects" class="tab-panel">
     <div id="nk-projects-list-view">
-      <div class="section-head">
-        <p class="section-intro">Ein Ordner pro Konzert (Datum + Eventname) – darin Verträge, Absprachen, Kalkulation, GEMA und 2Dos.</p>
+      <div class="nk-list-toolbar">
+        <div class="seg-toggle nk-view-toggle" role="tablist">
+          <button type="button" data-nk-view="overview">Übersicht</button>
+          <button type="button" data-nk-view="list">Konzerte</button>
+          <button type="button" data-nk-view="year">Jahresplanung</button>
+          <button type="button" data-nk-view="stats">Auswertung</button>
+        </div>
+        <div class="nk-search-wrap">
+          <input type="search" id="nk-search" placeholder="🔍 Suchen in Konzerten, Dateien, Kommentaren …" autocomplete="off" enterkeyhint="search">
+          <div id="nk-search-results" class="nk-search-results hidden"></div>
+        </div>
         <button type="button" id="nk-concert-new-btn">+ Neues Konzert</button>
       </div>
+      <div id="nk-view-overview" class="nk-view"></div>
+      <div id="nk-view-year" class="nk-view hidden"></div>
+      <div id="nk-view-stats" class="nk-view hidden"></div>
+      <div id="nk-view-list" class="nk-view hidden">
+      <p class="section-intro">Ein Ordner pro Konzert (Datum + Eventname) – darin Übersicht, Verträge, Absprachen, Kalkulation, GEMA, Werbung, Konzertabend und 2Dos.</p>
       <div id="nk-concerts-list" class="nk-card-grid"></div>
       <div class="card done-tasks-card hidden" id="nk-concerts-archive-card">
         <button type="button" id="nk-concerts-archive-toggle" class="done-tasks-toggle">
@@ -739,6 +757,7 @@
         <div id="nk-concerts-archive-list" class="nk-card-grid nk-closed-grid hidden"></div>
       </div>
       <div class="card nk-finance-card hidden" id="nk-finance-card"></div>
+      </div>
     </div>
     <div id="nk-concert-detail-view" class="hidden"></div>
   </section>
@@ -895,12 +914,32 @@
     <div id="nk-sponsors-list-view">
       <div class="section-head">
         <p class="section-intro">Alle Sponsoren mit Logos, Kontaktdaten, Vereinbarungen und Sponsoringhöhe. Beträge, die einem Konzert zugeordnet sind, erscheinen dort in der Kalkulation.</p>
-        <button type="button" id="nk-sponsor-new-btn">+ Neuer Sponsor</button>
+        <div class="section-head-actions">
+          <button type="button" class="ghost" id="nk-org-btn" title="Absender für Rechnung, Zuwendungsbestätigung und Dankesbrief">🏛️ Vereinsdaten</button>
+          <button type="button" id="nk-sponsor-new-btn">+ Neuer Sponsor</button>
+        </div>
       </div>
+      <div id="nk-sponsor-renewals"></div>
       <div id="nk-sponsor-summary" class="nk-sponsor-summary"></div>
       <div id="nk-sponsors-list" class="sponsor-grid"></div>
     </div>
     <div id="nk-sponsor-detail-view" class="hidden"></div>
+  </section>
+
+  <!-- ===================== NK: KONTAKTE ===================== -->
+  <section id="tab-nk_contacts" class="tab-panel">
+    <div id="nk-contacts-list-view">
+      <div class="section-head">
+        <p class="section-intro">Künstler, Agenturen, Technik, Säle und Presse – mit Kontaktdaten, Technik-Anforderungen und Gagen-Historie aus den Konzerten.</p>
+        <button type="button" id="nk-contact-new-btn">+ Neuer Kontakt</button>
+      </div>
+      <div class="nk-contact-filters">
+        <input type="search" id="nk-contact-search" placeholder="Name, Ansprechpartner, Notiz …" autocomplete="off">
+        <div id="nk-contact-kinds" class="chip-row"></div>
+      </div>
+      <div id="nk-contacts-list" class="sponsor-grid"></div>
+    </div>
+    <div id="nk-contact-detail-view" class="hidden"></div>
   </section>
 
   <!-- Sponsor anlegen/bearbeiten -->
@@ -1011,6 +1050,15 @@
           </label>
           <label>Status
             <select id="nk-concert-status"></select>
+          </label>
+        </div>
+        <div class="time-row">
+          <label>Plätze / Kapazität
+            <input type="number" id="nk-concert-capacity" min="1" step="1" inputmode="numeric" placeholder="z.B. 200">
+          </label>
+          <label class="checkbox-label nk-template-check" id="nk-concert-template-wrap">
+            <input type="checkbox" id="nk-concert-template" checked>
+            <span>Standard-2Dos mit Fristen anlegen<small>Vertrag, Werbung, GEMA, Helfer, Abrechnung … relativ zum Konzertdatum</small></span>
           </label>
         </div>
         <label>Notizen
@@ -1399,7 +1447,7 @@
 
 <div id="notify-modal-overlay" class="modal-overlay hidden">
   <div class="modal">
-    <h3>E-Mail-Benachrichtigungen</h3>
+    <h3>Benachrichtigungen &amp; Kalender</h3>
     <p class="hint">Für die Neckarsulmer Konzerte: neue Terminumfragen, festgelegte Termine, neue Dateien, Kommentare und 2Dos, die dir zugewiesen werden.</p>
     <div id="notify-not-configured" class="notice-box hidden">Der Mail-Versand ist auf dem Server noch nicht eingerichtet. Deine Einstellungen werden gespeichert und gelten, sobald er aktiv ist.</div>
     <label>E-Mail-Adresse
@@ -1411,11 +1459,119 @@
       <label class="notify-mode"><input type="radio" name="notify-mode" value="daily"> <span><strong>Einmal täglich</strong><small>Zusammenfassung um 7 Uhr</small></span></label>
       <label class="notify-mode"><input type="radio" name="notify-mode" value="off"> <span><strong>Aus</strong><small>keine Mails</small></span></label>
     </div>
+    <div class="notify-section">
+      <h4>📲 Mitteilungen auf diesem Gerät</h4>
+      <p class="hint" id="push-status">Wird geprüft …</p>
+      <div class="notify-actions">
+        <button type="button" class="ghost hidden" id="push-enable">Mitteilungen aktivieren</button>
+        <button type="button" class="ghost hidden" id="push-test">Test senden</button>
+        <button type="button" class="link-btn hidden" id="push-disable">auf diesem Gerät abschalten</button>
+      </div>
+    </div>
+    <div class="notify-section">
+      <h4>📅 Kalender abonnieren</h4>
+      <p class="hint">Konzerte, deine 2Dos mit Frist und deine Dienste erscheinen automatisch im iPhone-, Mac- oder Outlook-Kalender.</p>
+      <div class="notify-actions">
+        <a class="button-like ghost" id="cal-webcal" href="#">Im Kalender abonnieren</a>
+        <button type="button" class="ghost" id="cal-copy">Link kopieren</button>
+        <label class="checkbox-label cal-all"><input type="checkbox" id="cal-all"> <span>alle 2Dos statt nur meine</span></label>
+      </div>
+      <button type="button" class="link-btn" id="cal-renew">Neuen Link erzeugen (alter Link wird ungültig)</button>
+    </div>
     <div id="notify-error" class="login-error hidden"></div>
     <div class="form-actions">
       <button type="button" id="notify-save">Speichern</button>
       <button type="button" id="notify-cancel" class="secondary">Abbrechen</button>
     </div>
+  </div>
+</div>
+
+<!-- Kontakt anlegen/bearbeiten -->
+<div id="nk-contact-modal-overlay" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <h3 id="nk-contact-modal-heading">Neuer Kontakt</h3>
+    <form id="nk-contact-form">
+      <div class="time-row">
+        <label>Name <input type="text" id="nkc-name" required placeholder="z.B. Die Forschners"></label>
+        <label>Art <select id="nkc-kind"></select></label>
+      </div>
+      <div class="time-row">
+        <label>Ansprechpartner <input type="text" id="nkc-contact_person"></label>
+        <label>Website <input type="text" id="nkc-website" placeholder="www.…"></label>
+      </div>
+      <div class="time-row">
+        <label>E-Mail <input type="email" id="nkc-email"></label>
+        <label>Telefon <input type="tel" id="nkc-phone"></label>
+      </div>
+      <label>Adresse <textarea id="nkc-address" rows="2"></textarea></label>
+      <label>Technik-Anforderungen / Rider <textarea id="nkc-rider" rows="3" placeholder="z.B. Flügel, 4 Monitore, Garderobe für 6 Personen, vegetarisches Catering"></textarea></label>
+      <label>Notizen <textarea id="nkc-notes" rows="3"></textarea></label>
+      <div class="form-actions">
+        <button type="submit" id="nk-contact-submit">Anlegen</button>
+        <button type="button" id="nk-contact-cancel" class="secondary">Abbrechen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Vereinsdaten fuer Sponsoren-Briefe -->
+<div id="nk-org-modal-overlay" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <h3>Vereinsdaten</h3>
+    <p class="hint">Absender und Angaben für Rechnung, Zuwendungsbestätigung und Dankesbrief. Bitte die Steuerangaben mit dem Freistellungsbescheid abgleichen.</p>
+    <form id="nk-org-form">
+      <label>Name des Vereins <input type="text" id="org-name" placeholder="z.B. Kreatief - Kultur im Unterland e.V."></label>
+      <div class="time-row">
+        <label>Anschrift <textarea id="org-address" rows="2" placeholder="Straße&#10;PLZ Ort"></textarea></label>
+        <label>Ort (für „Ort, Datum“) <input type="text" id="org-city" placeholder="Neckarsulm"></label>
+      </div>
+      <div class="time-row">
+        <label>E-Mail <input type="text" id="org-email"></label>
+        <label>Telefon <input type="text" id="org-phone"></label>
+      </div>
+      <label>Website <input type="text" id="org-website"></label>
+      <div class="time-row">
+        <label>Finanzamt <input type="text" id="org-tax_office"></label>
+        <label>Steuernummer <input type="text" id="org-tax_number"></label>
+      </div>
+      <div class="time-row">
+        <label>Freistellungsbescheid vom <input type="text" id="org-exemption_date" placeholder="TT.MM.JJJJ"></label>
+        <label>für Veranlagungszeitraum <input type="text" id="org-exemption_year" placeholder="z.B. 2024"></label>
+      </div>
+      <label>Steuerbegünstigter Zweck <input type="text" id="org-purpose" placeholder="Förderung von Kunst und Kultur"></label>
+      <div class="time-row">
+        <label>Bank <input type="text" id="org-bank"></label>
+        <label>IBAN <input type="text" id="org-iban"></label>
+      </div>
+      <div class="time-row">
+        <label>BIC <input type="text" id="org-bic"></label>
+        <label>USt-IdNr. (falls vorhanden) <input type="text" id="org-vat_id"></label>
+      </div>
+      <div class="time-row">
+        <label>Umsatzsteuer auf Sponsoring-Rechnungen (%) <input type="text" id="org-vat_rate" inputmode="decimal" placeholder="0 oder 19"></label>
+        <label>Unterschrift (Name, Funktion) <input type="text" id="org-signer" placeholder="z.B. Vorname Name, Vorstand"></label>
+      </div>
+      <label>Hinweis auf Rechnungen ohne Umsatzsteuer <input type="text" id="org-vat_note" placeholder="z.B. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."></label>
+      <div class="form-actions">
+        <button type="submit">Speichern</button>
+        <button type="button" id="nk-org-cancel" class="secondary">Abbrechen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Dateivorschau -->
+<div id="file-preview-overlay" class="modal-overlay hidden">
+  <div class="modal file-preview-modal">
+    <div class="file-preview-head">
+      <strong id="file-preview-name"></strong>
+      <div class="file-preview-actions">
+        <a id="file-preview-open" class="ghost button-like" target="_blank" rel="noopener">In neuem Tab</a>
+        <a id="file-preview-download" class="ghost button-like">⤓ Herunterladen</a>
+        <button type="button" class="icon-btn" id="file-preview-close" aria-label="Schließen">✕</button>
+      </div>
+    </div>
+    <div id="file-preview-body" class="file-preview-body"></div>
   </div>
 </div>
 

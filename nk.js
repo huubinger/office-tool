@@ -22,19 +22,75 @@ const FOLDER_CONTRACTS = 'Verträge';
 const FOLDER_AGREEMENTS = 'Sonstige Absprachen';
 const FOLDER_GEMA = 'GEMA';
 const FOLDER_BUDGET = 'Kalkulation';
+const FOLDER_PROMO = 'Werbung';
 const CONTRACT_CATEGORIES = ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'];
 const GEMA_CATEGORIES = ['GEMA-Liste/Musikfolge', 'GEMA-Anmeldung', 'GEMA-Rechnung'];
 const BUDGET_CATEGORIES = ['Kalkulation', 'Abrechnung'];
+const PROMO_CATEGORIES = ['Plakat/Flyer', 'Pressetext', 'Fotos', 'Social Media', 'Sonstige Werbung'];
+
+// Standard-2Dos je Konzert: Frist relativ zum Konzertdatum (Tage, negativ = vorher).
+// Aendert sich das Datum, wandern die Fristen offener Vorlagen-2Dos mit.
+const TODO_TEMPLATE = [
+  { key: 'vertrag', title: 'Künstlervertrag abschließen', offset: -120 },
+  { key: 'saal', title: 'Saal und Technik klären (Rider, Bühne, Licht)', offset: -100 },
+  { key: 'kalkulation', title: 'Kalkulation erstellen', offset: -90 },
+  { key: 'sponsoren', title: 'Sponsoren anfragen', offset: -90 },
+  { key: 'vvk', title: 'Ticketverkauf auf der Homepage starten', offset: -75 },
+  { key: 'kulturkalender', title: 'Termin in den Neckarsulmer Kulturkalender eintragen', offset: -70 },
+  { key: 'druck', title: 'Plakate und Flyer gestalten und drucken lassen', offset: -45 },
+  { key: 'social', title: 'Social-Media-Posts planen', offset: -30 },
+  { key: 'presse', title: 'Pressetext an die Redaktionen schicken', offset: -21 },
+  { key: 'gema', title: 'Veranstaltung bei der GEMA anmelden', offset: -14 },
+  { key: 'helfer', title: 'Helfer einteilen (Kasse, Einlass, Bewirtung)', offset: -14 },
+  { key: 'ablauf', title: 'Ablaufplan für den Abend erstellen', offset: -7 },
+  { key: 'gaeste', title: 'Gästeliste und Freikarten festlegen', offset: -7 },
+  { key: 'musikfolge', title: 'Musikfolge an die GEMA melden', offset: 10 },
+  { key: 'sponsoren_dank', title: 'Sponsoren danken und Rechnungen stellen', offset: 14 },
+  { key: 'abrechnung', title: 'Abrechnung erstellen', offset: 21 },
+];
+
+function addDays(iso, days) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().slice(0, 10);
+}
+
+// Fehlende Standard-2Dos anlegen; liefert die Anzahl neu angelegter
+function addTemplateTodos(concert, userId) {
+  const have = new Set(db.prepare('SELECT template_key FROM nk_todos WHERE concert_id = ? AND template_key IS NOT NULL').all(concert.id).map(r => r.template_key));
+  const stmt = db.prepare('INSERT INTO nk_todos (concert_id, title, due_date, created_by, template_key, offset_days) VALUES (?, ?, ?, ?, ?, ?)');
+  let added = 0;
+  db.transaction(() => {
+    TODO_TEMPLATE.filter(t => !have.has(t.key)).forEach(t => {
+      // Frist schon vorbei (Konzert kurzfristig angelegt)? Dann ab heute faellig statt sofort ueberfaellig
+      let due = addDays(concert.date, t.offset);
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+      if (due && due < today && t.offset < 0) due = today;
+      stmt.run(concert.id, t.title, due, userId, t.key, t.offset);
+      added++;
+    });
+  })();
+  return added;
+}
 
 function folderForCategory(category) {
   if (CONTRACT_CATEGORIES.includes(category)) return FOLDER_CONTRACTS;
   if (GEMA_CATEGORIES.includes(category)) return FOLDER_GEMA;
   if (BUDGET_CATEGORIES.includes(category)) return FOLDER_BUDGET;
+  if (PROMO_CATEGORIES.includes(category)) return FOLDER_PROMO;
   return FOLDER_AGREEMENTS;
 }
 
 function projectFolderName(concert) {
   return `${concert.date ? concert.date + ' ' : ''}${contracts.sanitizeFolderName(concert.title)}`;
+}
+
+const cleanDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+function cleanCapacity(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Math.round(+v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function canManage(req, createdBy) {
@@ -64,7 +120,38 @@ async function storeConcertFile(c, { category, filename, buffer, mimeType, userI
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(c.id, category, cleanName, path.join(String(c.id), storedName), dropboxPath, buffer.length, mimeType || null, userId);
   db.prepare('INSERT OR IGNORE INTO nk_file_reads (file_id, user_id) VALUES (?, ?)').run(info.lastInsertRowid, userId);
+  indexFileText(info.lastInsertRowid, cleanName, buffer).catch(() => {});
   return { id: info.lastInsertRowid, filename: cleanName };
+}
+
+// Text aus PDFs (und Textdateien) fuer die Volltextsuche merken
+async function extractText(filename, buffer) {
+  if (/\.pdf$/i.test(filename)) {
+    const { PDFParse } = require('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    try { return (await parser.getText()).text || ''; } finally { await parser.destroy().catch(() => {}); }
+  }
+  if (/\.(txt|csv|md)$/i.test(filename)) return buffer.toString('utf8');
+  return '';
+}
+async function indexFileText(fileId, filename, buffer) {
+  const text = (await extractText(filename, buffer)).replace(/\s+/g, ' ').trim().slice(0, 200000);
+  db.prepare('UPDATE nk_concert_files SET content_text = ? WHERE id = ?').run(text, fileId);
+}
+// Einmalig nach dem Start: bestehende Dateien nachtraeglich indexieren (nacheinander, im Hintergrund)
+function backfillFileText() {
+  const rows = db.prepare("SELECT id, filename, stored_path FROM nk_concert_files WHERE content_text IS NULL AND stored_path IS NOT NULL").all();
+  (async () => {
+    for (const f of rows) {
+      const p = path.join(FILES_DIR, f.stored_path);
+      try {
+        if (!fs.existsSync(p)) { db.prepare("UPDATE nk_concert_files SET content_text = '' WHERE id = ?").run(f.id); continue; }
+        await indexFileText(f.id, f.filename, fs.readFileSync(p));
+      } catch (e) {
+        db.prepare("UPDATE nk_concert_files SET content_text = '' WHERE id = ?").run(f.id);
+      }
+    }
+  })();
 }
 
 function safeFileName(name) {
@@ -125,6 +212,105 @@ function cleanOptions(options) {
       end_time: o.end_time || null,
     }));
 }
+
+const detailExtenders = [];
+function extendDetail(fn) { detailExtenders.push(fn); }
+const listExtenders = [];
+function extendList(fn) { listExtenders.push(fn); }
+
+// ---------- Projekt-Details (auch von den Zusatzmodulen genutzt) ----------
+const unseenFilesStmt = () => db.prepare(`
+  SELECT COUNT(*) AS c FROM nk_concert_files f
+  WHERE f.concert_id = ? AND NOT EXISTS (SELECT 1 FROM nk_file_reads r WHERE r.file_id = f.id AND r.user_id = ?)
+`);
+function budgetSummary(concertId) {
+  const out = { plan_result: null, plan_visitors: null, ist_result: null, ist_visitors: null, ist_income: null, ist_expense: null };
+  db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ?').all(concertId).forEach(b => {
+    const row = budget.budgetRow(b);
+    out[`${b.kind}_result`] = row.totals.result;
+    out[`${b.kind}_visitors`] = row.visitors;
+    if (b.kind === 'ist') { out.ist_income = row.totals.income; out.ist_expense = row.totals.expense; }
+  });
+  return out;
+}
+// Sponsoring-Zusagen, die diesem Konzert zugeordnet sind (fuer die Kalkulation)
+function sponsorshipsForConcert(concertId) {
+  return db.prepare(`
+    SELECT s.id, s.amount, s.status, s.note, sp.name AS sponsor_name, sp.id AS sponsor_id
+    FROM nk_sponsorships s JOIN nk_sponsors sp ON sp.id = s.sponsor_id
+    WHERE s.concert_id = ? ORDER BY sp.name
+  `).all(concertId);
+}
+
+const unreadForUserStmt = () => db.prepare(`
+  SELECT COUNT(*) AS c FROM nk_comments c
+  WHERE c.concert_id = ? AND NOT EXISTS (SELECT 1 FROM nk_comment_reads r WHERE r.comment_id = c.id AND r.user_id = ?)
+`);
+
+function concertDetail(concertId, req) {
+  const concert = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(concertId);
+  if (!concert) return null;
+  const members = membersWithTab(db, 'nk_projects');
+  const fileReadsStmt = db.prepare('SELECT user_id FROM nk_file_reads WHERE file_id = ?');
+  const files = db.prepare('SELECT * FROM nk_concert_files WHERE concert_id = ? ORDER BY uploaded_at DESC, id DESC').all(concert.id)
+    .map(f => {
+      const seenBy = fileReadsStmt.all(f.id).map(r => r.user_id);
+      return {
+        id: f.id, category: f.category, folder: folderForCategory(f.category), filename: f.filename, size_bytes: f.size_bytes, mime_type: f.mime_type,
+        uploaded_at: f.uploaded_at, uploaded_by: displayForUserId(db, f.uploaded_by), in_dropbox: !!f.dropbox_path,
+        can_delete: canManage(req, f.uploaded_by),
+        seen_by: seenBy, seen_by_me: seenBy.includes(req.user.id), is_mine: f.uploaded_by === req.user.id,
+      };
+    });
+  const budgets = {};
+  db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ?').all(concert.id).forEach(b => {
+    const row = budget.budgetRow(b);
+    budgets[b.kind] = { ...row, updated_by: row.updated_by ? displayForUserId(db, row.updated_by) : null };
+  });
+  const links = db.prepare('SELECT * FROM nk_links WHERE concert_id = ? ORDER BY id').all(concert.id)
+    .map(l => ({ ...l, can_delete: canManage(req, l.created_by) }));
+  const readsStmt = db.prepare('SELECT user_id, read_at FROM nk_comment_reads WHERE comment_id = ?');
+  const comments = db.prepare('SELECT * FROM nk_comments WHERE concert_id = ? ORDER BY created_at, id').all(concert.id)
+    .map(c => {
+      const reads = readsStmt.all(c.id);
+      return {
+        ...c,
+        author: displayForUserId(db, c.user_id),
+        read_by: reads.map(r => r.user_id),
+        read_by_me: reads.some(r => r.user_id === req.user.id),
+        can_delete: canManage(req, c.user_id),
+      };
+    });
+  const todos = db.prepare('SELECT * FROM nk_todos WHERE concert_id = ? ORDER BY done, due_date IS NULL, due_date, id').all(concert.id)
+    .map(t => ({
+      ...t,
+      done: !!t.done,
+      assignee: t.assignee_id ? displayForUserId(db, t.assignee_id) : null,
+      done_by_display: t.done_by ? displayForUserId(db, t.done_by) : null,
+      can_delete: canManage(req, t.created_by),
+    }));
+  const detail = {
+    ...concert,
+    folder_name: projectFolderName(concert),
+    created_by_display: displayForUserId(db, concert.created_by),
+    can_manage: canManage(req, concert.created_by),
+    files, comments, todos, members, statuses: CONCERT_STATUSES,
+    contract_categories: CONTRACT_CATEGORIES,
+    budgets, budget_template: budget.emptyBudget(), links,
+    gema: {
+      registered_at: concert.gema_registered_at, registered_by: concert.gema_registered_by ? displayForUserId(db, concert.gema_registered_by) : null,
+      reported_at: concert.gema_reported_at, reported_by: concert.gema_reported_by ? displayForUserId(db, concert.gema_reported_by) : null,
+    },
+    sponsorships: sponsorshipsForConcert(concert.id),
+    ai_available: !!process.env.ANTHROPIC_API_KEY,
+    promo_categories: PROMO_CATEGORIES,
+    template_total: TODO_TEMPLATE.length,
+  };
+  // Zusatzmodule (Checkliste, Tickets, Beteiligte, Konzertabend, Teilen …) haengen ihre Daten an
+  for (const fn of detailExtenders) Object.assign(detail, fn(concert, req, detail));
+  return detail;
+}
+
 
 function register(app) {
   app.get('/api/nk/polls', (req, res) => {
@@ -269,93 +455,6 @@ function register(app) {
   });
 
   // ---------- Projekte (Konzerte) ----------
-  const unseenFilesStmt = db.prepare(`
-    SELECT COUNT(*) AS c FROM nk_concert_files f
-    WHERE f.concert_id = ? AND NOT EXISTS (SELECT 1 FROM nk_file_reads r WHERE r.file_id = f.id AND r.user_id = ?)
-  `);
-  function budgetSummary(concertId) {
-    const out = { plan_result: null, plan_visitors: null, ist_result: null, ist_visitors: null, ist_income: null, ist_expense: null };
-    db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ?').all(concertId).forEach(b => {
-      const row = budget.budgetRow(b);
-      out[`${b.kind}_result`] = row.totals.result;
-      out[`${b.kind}_visitors`] = row.visitors;
-      if (b.kind === 'ist') { out.ist_income = row.totals.income; out.ist_expense = row.totals.expense; }
-    });
-    return out;
-  }
-  // Sponsoring-Zusagen, die diesem Konzert zugeordnet sind (fuer die Kalkulation)
-  function sponsorshipsForConcert(concertId) {
-    return db.prepare(`
-      SELECT s.id, s.amount, s.status, s.note, sp.name AS sponsor_name, sp.id AS sponsor_id
-      FROM nk_sponsorships s JOIN nk_sponsors sp ON sp.id = s.sponsor_id
-      WHERE s.concert_id = ? ORDER BY sp.name
-    `).all(concertId);
-  }
-
-  const unreadForUserStmt = db.prepare(`
-    SELECT COUNT(*) AS c FROM nk_comments c
-    WHERE c.concert_id = ? AND NOT EXISTS (SELECT 1 FROM nk_comment_reads r WHERE r.comment_id = c.id AND r.user_id = ?)
-  `);
-
-  function concertDetail(concertId, req) {
-    const concert = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(concertId);
-    if (!concert) return null;
-    const members = membersWithTab(db, 'nk_projects');
-    const fileReadsStmt = db.prepare('SELECT user_id FROM nk_file_reads WHERE file_id = ?');
-    const files = db.prepare('SELECT * FROM nk_concert_files WHERE concert_id = ? ORDER BY uploaded_at DESC, id DESC').all(concert.id)
-      .map(f => {
-        const seenBy = fileReadsStmt.all(f.id).map(r => r.user_id);
-        return {
-          id: f.id, category: f.category, folder: folderForCategory(f.category), filename: f.filename, size_bytes: f.size_bytes, mime_type: f.mime_type,
-          uploaded_at: f.uploaded_at, uploaded_by: displayForUserId(db, f.uploaded_by), in_dropbox: !!f.dropbox_path,
-          can_delete: canManage(req, f.uploaded_by),
-          seen_by: seenBy, seen_by_me: seenBy.includes(req.user.id), is_mine: f.uploaded_by === req.user.id,
-        };
-      });
-    const budgets = {};
-    db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ?').all(concert.id).forEach(b => {
-      const row = budget.budgetRow(b);
-      budgets[b.kind] = { ...row, updated_by: row.updated_by ? displayForUserId(db, row.updated_by) : null };
-    });
-    const links = db.prepare('SELECT * FROM nk_links WHERE concert_id = ? ORDER BY id').all(concert.id)
-      .map(l => ({ ...l, can_delete: canManage(req, l.created_by) }));
-    const readsStmt = db.prepare('SELECT user_id, read_at FROM nk_comment_reads WHERE comment_id = ?');
-    const comments = db.prepare('SELECT * FROM nk_comments WHERE concert_id = ? ORDER BY created_at, id').all(concert.id)
-      .map(c => {
-        const reads = readsStmt.all(c.id);
-        return {
-          ...c,
-          author: displayForUserId(db, c.user_id),
-          read_by: reads.map(r => r.user_id),
-          read_by_me: reads.some(r => r.user_id === req.user.id),
-          can_delete: canManage(req, c.user_id),
-        };
-      });
-    const todos = db.prepare('SELECT * FROM nk_todos WHERE concert_id = ? ORDER BY done, due_date IS NULL, due_date, id').all(concert.id)
-      .map(t => ({
-        ...t,
-        done: !!t.done,
-        assignee: t.assignee_id ? displayForUserId(db, t.assignee_id) : null,
-        done_by_display: t.done_by ? displayForUserId(db, t.done_by) : null,
-        can_delete: canManage(req, t.created_by),
-      }));
-    return {
-      ...concert,
-      folder_name: projectFolderName(concert),
-      created_by_display: displayForUserId(db, concert.created_by),
-      can_manage: canManage(req, concert.created_by),
-      files, comments, todos, members, statuses: CONCERT_STATUSES,
-      contract_categories: CONTRACT_CATEGORIES,
-      budgets, budget_template: budget.emptyBudget(), links,
-      gema: {
-        registered_at: concert.gema_registered_at, registered_by: concert.gema_registered_by ? displayForUserId(db, concert.gema_registered_by) : null,
-        reported_at: concert.gema_reported_at, reported_by: concert.gema_reported_by ? displayForUserId(db, concert.gema_reported_by) : null,
-      },
-      sponsorships: sponsorshipsForConcert(concert.id),
-      ai_available: !!process.env.ANTHROPIC_API_KEY,
-    };
-  }
-
   app.get('/api/nk/concerts', (req, res) => {
     const members = membersWithTab(db, 'nk_projects');
     const concerts = db.prepare(`
@@ -377,11 +476,12 @@ function register(app) {
         todo_open: db.prepare('SELECT COUNT(*) AS c FROM nk_todos WHERE concert_id = ? AND done = 0').get(c.id).c,
         todo_total: db.prepare('SELECT COUNT(*) AS c FROM nk_todos WHERE concert_id = ?').get(c.id).c,
         comment_count: commentIds.length,
-        unread_count: unreadForUserStmt.get(c.id, req.user.id).c,
+        unread_count: unreadForUserStmt().get(c.id, req.user.id).c,
         all_read: allRead,
-        unseen_files: unseenFilesStmt.get(c.id, req.user.id).c,
+        unseen_files: unseenFilesStmt().get(c.id, req.user.id).c,
         gema_file_count: db.prepare(`SELECT COUNT(*) AS c FROM nk_concert_files WHERE concert_id = ? AND category IN (${GEMA_CATEGORIES.map(() => '?').join(',')})`).get(c.id, ...GEMA_CATEGORIES).c,
         ...budgetSummary(c.id),
+        ...listExtenders.reduce((acc, fn) => Object.assign(acc, fn(c, req)), {}),
       };
     }));
   });
@@ -409,12 +509,13 @@ function register(app) {
   });
 
   app.post('/api/nk/concerts', (req, res) => {
-    const { title, date, time, location, status, notes } = req.body || {};
+    const { title, date, time, location, status, notes, capacity, with_template } = req.body || {};
     if (!title || !title.trim()) return res.status(400).json({ error: 'Titel ist erforderlich' });
     const info = db.prepare(`
-      INSERT INTO nk_concerts (title, date, time, location, status, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(title.trim(), date || null, time || null, location || null,
-      CONCERT_STATUSES.includes(status) ? status : 'Planung', notes || null, req.user.id);
+      INSERT INTO nk_concerts (title, date, time, location, status, notes, capacity, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(title.trim(), cleanDate(date), time || null, location || null,
+      CONCERT_STATUSES.includes(status) ? status : 'Planung', notes || null, cleanCapacity(capacity), req.user.id);
+    if (with_template) addTemplateTodos(db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(info.lastInsertRowid), req.user.id);
     res.status(201).json(concertDetail(info.lastInsertRowid, req));
   });
 
@@ -422,15 +523,26 @@ function register(app) {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
     if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
     const b = req.body || {};
-    db.prepare('UPDATE nk_concerts SET title = ?, date = ?, time = ?, location = ?, status = ?, notes = ? WHERE id = ?').run(
+    const text = (key, max) => (b[key] !== undefined ? (String(b[key] || '').trim().slice(0, max) || null) : c[key]);
+    const nextDate = b.date !== undefined ? cleanDate(b.date) : c.date;
+    db.prepare(`UPDATE nk_concerts SET title = ?, date = ?, time = ?, location = ?, status = ?, notes = ?, capacity = ?,
+      promo_short = ?, promo_text = ?, ticket_url = ? WHERE id = ?`).run(
       b.title !== undefined ? (String(b.title).trim() || c.title) : c.title,
-      b.date !== undefined ? (b.date || null) : c.date,
+      nextDate,
       b.time !== undefined ? (b.time || null) : c.time,
       b.location !== undefined ? (b.location || null) : c.location,
       b.status !== undefined && CONCERT_STATUSES.includes(b.status) ? b.status : c.status,
       b.notes !== undefined ? (b.notes || null) : c.notes,
+      b.capacity !== undefined ? cleanCapacity(b.capacity) : c.capacity,
+      text('promo_short', 600), text('promo_text', 8000), text('ticket_url', 1000),
       c.id
     );
+    // Fristen offener Vorlagen-2Dos wandern mit dem Konzertdatum mit
+    if (nextDate !== c.date) {
+      const stmt = db.prepare('UPDATE nk_todos SET due_date = ? WHERE id = ?');
+      db.prepare('SELECT id, offset_days FROM nk_todos WHERE concert_id = ? AND done = 0 AND offset_days IS NOT NULL').all(c.id)
+        .forEach(t => stmt.run(addDays(nextDate, t.offset_days), t.id));
+    }
     res.json(concertDetail(c.id, req));
   });
 
@@ -512,7 +624,12 @@ function register(app) {
   });
 
   // ---------- 2Dos ----------
-  const cleanDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+  app.post('/api/nk/concerts/:id/todo-template', (req, res) => {
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    const added = addTemplateTodos(c, req.user.id);
+    res.json({ added, detail: concertDetail(c.id, req) });
+  });
   const validUserId = (id) => (id && db.prepare('SELECT id FROM app_users WHERE id = ?').get(+id) ? +id : null);
 
   app.post('/api/nk/concerts/:id/todos', (req, res) => {
@@ -559,6 +676,8 @@ function register(app) {
       done ? (t.done ? t.done_at : new Date().toISOString().slice(0, 19).replace('T', ' ')) : null,
       t.id
     );
+    // Von Hand geaenderte Frist wandert nicht mehr mit dem Konzertdatum mit
+    if (b.due_date !== undefined && cleanDate(b.due_date) !== t.due_date) db.prepare('UPDATE nk_todos SET offset_days = NULL WHERE id = ?').run(t.id);
     res.json(concertDetail(req.params.id, req));
   });
 
@@ -627,6 +746,20 @@ function register(app) {
     res.json(concertDetail(c.id, req));
   });
 
+  // Vorlage aus einem anderen Konzert: Liste aller gespeicherten Kalkulationen/Abrechnungen
+  app.get('/api/nk/budget-sources', (req, res) => {
+    res.json(db.prepare(`SELECT b.concert_id, b.kind, b.data, b.updated_at, c.title, c.date FROM nk_budgets b JOIN nk_concerts c ON c.id = b.concert_id
+      ORDER BY c.date IS NULL, c.date DESC`).all().map(r => {
+      const row = budget.budgetRow(r);
+      return { concert_id: r.concert_id, kind: r.kind, title: r.title, date: r.date, totals: row.totals, visitors: row.visitors };
+    }));
+  });
+  app.get('/api/nk/concerts/:id/budget/:kind', (req, res) => {
+    const row = db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ? AND kind = ?').get(req.params.id, req.params.kind);
+    if (!row) return res.status(404).json({ error: 'Nicht vorhanden' });
+    res.json(budget.budgetRow(row));
+  });
+
   app.delete('/api/nk/concerts/:id/budget/:kind', (req, res) => {
     db.prepare('DELETE FROM nk_budgets WHERE concert_id = ? AND kind = ?').run(req.params.id, req.params.kind);
     res.json(concertDetail(req.params.id, req));
@@ -691,4 +824,7 @@ function register(app) {
   });
 }
 
-module.exports = { register, storeConcertFile, safeFileName, FILES_DIR, DROPBOX_NK_FOLDER, MAX_FILE_BYTES };
+module.exports = {
+  register, storeConcertFile, safeFileName, concertDetail, extendDetail, extendList, canManage, folderForCategory, addDays, backfillFileText,
+  budgetSummary, FILES_DIR, DROPBOX_NK_FOLDER, MAX_FILE_BYTES, CONTRACT_CATEGORIES, GEMA_CATEGORIES, PROMO_CATEGORIES, TODO_TEMPLATE,
+};

@@ -27,6 +27,7 @@ function emptyBudget() {
   return {
     income: TEMPLATE.income.map(label => ({ label, amount: null, note: '' })),
     expense: TEMPLATE.expense.map(label => ({ label, amount: null, note: '' })),
+    tickets: [{ label: 'Vorverkauf', price: null, count: null }, { label: 'Vorverkauf ermäßigt', price: null, count: null }, { label: 'Abendkasse', price: null, count: null }],
   };
 }
 
@@ -35,7 +36,8 @@ function toAmount(v) {
   if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
   // deutsche Schreibweise "1.234,50 €" ebenso wie "1234.50"
   let s = String(v).replace(/[€\s]/g, '');
-  if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); // 1.200 = Tausenderpunkt
+  else if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
   else s = s.replace(/,/g, '');
   const n = parseFloat(s);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
@@ -52,8 +54,18 @@ function cleanRows(rows) {
     .filter(r => r.label || r.amount !== null || r.note);
 }
 
+// Ticketpreise fuer den Kostendeckungs-Rechner: [{ label, price, count }] (count = geplante Anzahl, optional)
+function cleanTickets(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.slice(0, 20).map(r => ({
+    label: String((r && r.label) || '').trim().slice(0, 100),
+    price: toAmount(r && r.price),
+    count: cleanVisitors(r && r.count),
+  })).filter(r => r.label || r.price !== null);
+}
+
 function cleanBudget(data) {
-  return { income: cleanRows(data && data.income), expense: cleanRows(data && data.expense) };
+  return { income: cleanRows(data && data.income), expense: cleanRows(data && data.expense), tickets: cleanTickets(data && data.tickets) };
 }
 
 function cleanVisitors(v) {
@@ -194,4 +206,4 @@ function fmtEuro(n) {
   return Number(n).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 }
 
-module.exports = { KINDS, TEMPLATE, emptyBudget, cleanBudget, cleanVisitors, totals, budgetRow, analyzeSpreadsheet };
+module.exports = { toAmount, KINDS, TEMPLATE, emptyBudget, cleanBudget, cleanVisitors, totals, budgetRow, analyzeSpreadsheet };

@@ -127,6 +127,30 @@ Vanilla-JS-Frontend ohne Build-Schritt.
     2Dos. Versand über Resend: `RESEND_API_KEY`, `MAIL_FROM` (z.B.
     `Neckarsulmer Konzerte <konzerte@martinrenner.de>`), optional `APP_URL` für die Links
     (Standard `https://office.martinrenner.de`). Ohne diese Variablen werden keine Mails verschickt.
+  - *Übersicht* (Startseite unter Projekte): nächste Konzerte mit Countdown, Fortschritt und
+    Ticketstand, meine 2Dos, Neues, offene Umfragen, Fristen der nächsten 4 Wochen, meine Dienste.
+    Dazu die Ansichten *Jahresplanung* (Monate, Saison-Budget, Finanzierungslücke, Sponsoring)
+    und *Auswertung* (Diagramme, Kennzahlen je Konzert, Plan-Ist-Abweichungen, Export als
+    Excel und PDF). Suche über Konzerte, Dateien (inkl. PDF-Volltext), Kommentare, 2Dos,
+    Kontakte und Sponsoren; PDFs und Bilder öffnen in einer Vorschau.
+  - *Fahrplan je Konzert* (Ordner Übersicht): 12 Schritte vom Termin bis zur Abrechnung, teils
+    automatisch erkannt. Neue Konzerte bekommen auf Wunsch Standard-2Dos mit Fristen relativ zum
+    Konzertdatum (wandern bei Datumsänderung mit).
+  - *Erinnerungen* (täglich 6:50 per Mail/Push): 2Do-Fristen, GEMA-Anmeldung, Musikfolge,
+    fehlende Abrechnung, Sponsoring abrechnen, Sponsoren fürs neue Jahr anfragen, KSK-Meldung.
+  - *Ticketverkauf*: Kreatief-Homepage (öffentliche Liste, stündlich; verkauft = Kontingent − frei),
+    Reservix/Abendkasse von Hand; Verlauf, Kostendeckung aus den Ticketpreisen der Kalkulation.
+  - *Werbung*: Ankündigung/Pressetext/Ticket-Link, Prüfung ob der Termin im Neckarsulmer
+    Kulturkalender steht, Werbematerial, Sponsoren-Logo-Paket (ZIP).
+  - *Konzertabend*: Ablaufplan, Dienstplan zum Eintragen per Handy, Gästeliste mit Freikarten.
+  - *Kontakte* (Reiter `nk_contacts`): Künstler, Agenturen, Technik, Säle, Presse; im Konzert
+    als Beteiligte mit Rolle und Gage (Gagen-Historie).
+  - *Sponsoren-Pflege*: Gegenleistungen abhaken, Rechnung / Zuwendungsbestätigung / Dankesbrief
+    als PDF (Absender unter „Vereinsdaten“), Logo-Paket je Jahr oder Konzert.
+  - *Lese-Link für Externe* (`/nk/s/<token>`): Termin & Ort, Ablauf, Ansprechpartner,
+    ausgewählte Dateien – ohne Konto, zurückziehbar, optional mit Ablaufdatum.
+  - *Kalender-Abo* (`/nk/kalender/<token>.ics`) und *Push-Mitteilungen* (Web-Push, VAPID-Schlüssel
+    erzeugt der Server selbst) unter Konto › Benachrichtigungen & Kalender.
 
 ## Lokal starten
 

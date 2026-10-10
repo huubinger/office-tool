@@ -8,6 +8,8 @@ const path = require('path');
 const db = require('./db');
 const contracts = require('./contracts');
 const { displayForUserId, membersWithTab } = require('./access');
+const mail = require('./nk-mail');
+const budget = require('./nk-budget');
 
 const FILES_DIR = path.join(db.dbDir, 'nk-files');
 const DROPBOX_NK_FOLDER = process.env.DROPBOX_NK_FOLDER || '/Neckarsulmer Konzerte';
@@ -18,10 +20,17 @@ const CONCERT_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abg
 // Dokumente landen je nach Kategorie im Ordner Verträge oder Sonstige Absprachen.
 const FOLDER_CONTRACTS = 'Verträge';
 const FOLDER_AGREEMENTS = 'Sonstige Absprachen';
+const FOLDER_GEMA = 'GEMA';
+const FOLDER_BUDGET = 'Kalkulation';
 const CONTRACT_CATEGORIES = ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'];
+const GEMA_CATEGORIES = ['GEMA-Liste/Musikfolge', 'GEMA-Anmeldung', 'GEMA-Rechnung'];
+const BUDGET_CATEGORIES = ['Kalkulation', 'Abrechnung'];
 
 function folderForCategory(category) {
-  return CONTRACT_CATEGORIES.includes(category) ? FOLDER_CONTRACTS : FOLDER_AGREEMENTS;
+  if (CONTRACT_CATEGORIES.includes(category)) return FOLDER_CONTRACTS;
+  if (GEMA_CATEGORIES.includes(category)) return FOLDER_GEMA;
+  if (BUDGET_CATEGORIES.includes(category)) return FOLDER_BUDGET;
+  return FOLDER_AGREEMENTS;
 }
 
 function projectFolderName(concert) {
@@ -30,6 +39,32 @@ function projectFolderName(concert) {
 
 function canManage(req, createdBy) {
   return req.isAdmin || (createdBy && createdBy === req.user.id);
+}
+
+// Speichert eine Datei zum Konzert (Volume + Dropbox-Kopie) und markiert sie fuer den Hochladenden als gesehen.
+async function storeConcertFile(c, { category, filename, buffer, mimeType, userId }) {
+  const cleanName = safeFileName(filename);
+  const dir = path.join(FILES_DIR, String(c.id));
+  fs.mkdirSync(dir, { recursive: true });
+  const storedName = `${Date.now()}-${cleanName}`;
+  fs.writeFileSync(path.join(dir, storedName), buffer);
+
+  let dropboxPath = null;
+  if (contracts.isDropboxConfigured()) {
+    try {
+      const token = await contracts.getAccessToken();
+      const folder = `${projectFolderName(c)}/${folderForCategory(category)}`;
+      dropboxPath = await contracts.uploadFileToPath(token, `${DROPBOX_NK_FOLDER}/${folder}/${cleanName}`, buffer);
+    } catch (err) {
+      console.error('[NK] Dropbox-Kopie fehlgeschlagen:', err.message);
+    }
+  }
+  const info = db.prepare(`
+    INSERT INTO nk_concert_files (concert_id, category, filename, stored_path, dropbox_path, size_bytes, mime_type, uploaded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(c.id, category, cleanName, path.join(String(c.id), storedName), dropboxPath, buffer.length, mimeType || null, userId);
+  db.prepare('INSERT OR IGNORE INTO nk_file_reads (file_id, user_id) VALUES (?, ?)').run(info.lastInsertRowid, userId);
+  return { id: info.lastInsertRowid, filename: cleanName };
 }
 
 function safeFileName(name) {
@@ -133,7 +168,14 @@ function register(app) {
       options.forEach(o => stmt.run(info.lastInsertRowid, o.date, o.start_time, o.end_time));
       return info.lastInsertRowid;
     });
-    res.status(201).json(pollDetail(create(), req));
+    const pollId = create();
+    mail.notify({
+      tab: 'nk_polls', actorId: req.user.id,
+      subject: `Neue Terminumfrage: ${title.trim()}`,
+      body: `${displayForUserId(db, req.user.id).name} hat die Terminumfrage „${title.trim()}“ mit ${options.length} Terminvorschlag${options.length === 1 ? '' : 'en'} angelegt – bitte ankreuzen, wann du kannst.`,
+      path: `/nk?poll=${pollId}`,
+    });
+    res.status(201).json(pollDetail(pollId, req));
   });
 
   app.put('/api/nk/polls/:id', (req, res) => {
@@ -203,8 +245,17 @@ function register(app) {
     if (reopen) {
       db.prepare('UPDATE nk_polls SET closed = 0, final_option_id = NULL WHERE id = ?').run(poll.id);
     } else {
-      const opt = final_option_id ? db.prepare('SELECT id FROM nk_poll_options WHERE id = ? AND poll_id = ?').get(final_option_id, poll.id) : null;
+      const opt = final_option_id ? db.prepare('SELECT * FROM nk_poll_options WHERE id = ? AND poll_id = ?').get(final_option_id, poll.id) : null;
       db.prepare('UPDATE nk_polls SET closed = 1, final_option_id = ? WHERE id = ?').run(opt ? opt.id : null, poll.id);
+      if (opt && !poll.closed) {
+        const [y, m, d] = opt.date.split('-');
+        mail.notify({
+          tab: 'nk_polls', actorId: req.user.id,
+          subject: `Termin festgelegt: ${poll.title}`,
+          body: `Für „${poll.title}“ steht der Termin fest: ${d}.${m}.${y}${opt.start_time ? ', ' + opt.start_time.slice(0, 5) + ' Uhr' : ''}.`,
+          path: `/nk?poll=${poll.id}`,
+        });
+      }
     }
     res.json(pollDetail(poll.id, req));
   });
@@ -218,6 +269,29 @@ function register(app) {
   });
 
   // ---------- Projekte (Konzerte) ----------
+  const unseenFilesStmt = db.prepare(`
+    SELECT COUNT(*) AS c FROM nk_concert_files f
+    WHERE f.concert_id = ? AND NOT EXISTS (SELECT 1 FROM nk_file_reads r WHERE r.file_id = f.id AND r.user_id = ?)
+  `);
+  function budgetSummary(concertId) {
+    const out = { plan_result: null, plan_visitors: null, ist_result: null, ist_visitors: null, ist_income: null, ist_expense: null };
+    db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ?').all(concertId).forEach(b => {
+      const row = budget.budgetRow(b);
+      out[`${b.kind}_result`] = row.totals.result;
+      out[`${b.kind}_visitors`] = row.visitors;
+      if (b.kind === 'ist') { out.ist_income = row.totals.income; out.ist_expense = row.totals.expense; }
+    });
+    return out;
+  }
+  // Sponsoring-Zusagen, die diesem Konzert zugeordnet sind (fuer die Kalkulation)
+  function sponsorshipsForConcert(concertId) {
+    return db.prepare(`
+      SELECT s.id, s.amount, s.status, s.note, sp.name AS sponsor_name, sp.id AS sponsor_id
+      FROM nk_sponsorships s JOIN nk_sponsors sp ON sp.id = s.sponsor_id
+      WHERE s.concert_id = ? ORDER BY sp.name
+    `).all(concertId);
+  }
+
   const unreadForUserStmt = db.prepare(`
     SELECT COUNT(*) AS c FROM nk_comments c
     WHERE c.concert_id = ? AND NOT EXISTS (SELECT 1 FROM nk_comment_reads r WHERE r.comment_id = c.id AND r.user_id = ?)
@@ -227,12 +301,24 @@ function register(app) {
     const concert = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(concertId);
     if (!concert) return null;
     const members = membersWithTab(db, 'nk_projects');
+    const fileReadsStmt = db.prepare('SELECT user_id FROM nk_file_reads WHERE file_id = ?');
     const files = db.prepare('SELECT * FROM nk_concert_files WHERE concert_id = ? ORDER BY uploaded_at DESC, id DESC').all(concert.id)
-      .map(f => ({
-        id: f.id, category: f.category, folder: folderForCategory(f.category), filename: f.filename, size_bytes: f.size_bytes, mime_type: f.mime_type,
-        uploaded_at: f.uploaded_at, uploaded_by: displayForUserId(db, f.uploaded_by), in_dropbox: !!f.dropbox_path,
-        can_delete: canManage(req, f.uploaded_by),
-      }));
+      .map(f => {
+        const seenBy = fileReadsStmt.all(f.id).map(r => r.user_id);
+        return {
+          id: f.id, category: f.category, folder: folderForCategory(f.category), filename: f.filename, size_bytes: f.size_bytes, mime_type: f.mime_type,
+          uploaded_at: f.uploaded_at, uploaded_by: displayForUserId(db, f.uploaded_by), in_dropbox: !!f.dropbox_path,
+          can_delete: canManage(req, f.uploaded_by),
+          seen_by: seenBy, seen_by_me: seenBy.includes(req.user.id), is_mine: f.uploaded_by === req.user.id,
+        };
+      });
+    const budgets = {};
+    db.prepare('SELECT * FROM nk_budgets WHERE concert_id = ?').all(concert.id).forEach(b => {
+      const row = budget.budgetRow(b);
+      budgets[b.kind] = { ...row, updated_by: row.updated_by ? displayForUserId(db, row.updated_by) : null };
+    });
+    const links = db.prepare('SELECT * FROM nk_links WHERE concert_id = ? ORDER BY id').all(concert.id)
+      .map(l => ({ ...l, can_delete: canManage(req, l.created_by) }));
     const readsStmt = db.prepare('SELECT user_id, read_at FROM nk_comment_reads WHERE comment_id = ?');
     const comments = db.prepare('SELECT * FROM nk_comments WHERE concert_id = ? ORDER BY created_at, id').all(concert.id)
       .map(c => {
@@ -260,6 +346,13 @@ function register(app) {
       can_manage: canManage(req, concert.created_by),
       files, comments, todos, members, statuses: CONCERT_STATUSES,
       contract_categories: CONTRACT_CATEGORIES,
+      budgets, budget_template: budget.emptyBudget(), links,
+      gema: {
+        registered_at: concert.gema_registered_at, registered_by: concert.gema_registered_by ? displayForUserId(db, concert.gema_registered_by) : null,
+        reported_at: concert.gema_reported_at, reported_by: concert.gema_reported_by ? displayForUserId(db, concert.gema_reported_by) : null,
+      },
+      sponsorships: sponsorshipsForConcert(concert.id),
+      ai_available: !!process.env.ANTHROPIC_API_KEY,
     };
   }
 
@@ -286,6 +379,9 @@ function register(app) {
         comment_count: commentIds.length,
         unread_count: unreadForUserStmt.get(c.id, req.user.id).c,
         all_read: allRead,
+        unseen_files: unseenFilesStmt.get(c.id, req.user.id).c,
+        gema_file_count: db.prepare(`SELECT COUNT(*) AS c FROM nk_concert_files WHERE concert_id = ? AND category IN (${GEMA_CATEGORIES.map(() => '?').join(',')})`).get(c.id, ...GEMA_CATEGORIES).c,
+        ...budgetSummary(c.id),
       };
     }));
   });
@@ -299,7 +395,11 @@ function register(app) {
       SELECT COUNT(*) AS c FROM nk_polls p WHERE p.closed = 0 AND NOT EXISTS (
         SELECT 1 FROM nk_poll_votes v JOIN nk_poll_options o ON o.id = v.option_id WHERE o.poll_id = p.id AND v.user_id = ?)
     `).get(req.user.id).c : 0;
-    res.json({ unread_comments: unread, open_polls: openPolls });
+    const unseenFiles = req.tabs.includes('nk_projects') ? db.prepare(`
+      SELECT COUNT(*) AS c FROM nk_concert_files f
+      WHERE NOT EXISTS (SELECT 1 FROM nk_file_reads r WHERE r.file_id = f.id AND r.user_id = ?)
+    `).get(req.user.id).c : 0;
+    res.json({ unread_comments: unread, unseen_files: unseenFiles, open_polls: openPolls });
   });
 
   app.get('/api/nk/concerts/:id', (req, res) => {
@@ -352,34 +452,33 @@ function register(app) {
     const buffer = Buffer.from(file_base64, 'base64');
     if (buffer.length > MAX_FILE_BYTES) return res.status(400).json({ error: 'Datei ist zu groß (max. 18 MB)' });
 
-    const cleanName = safeFileName(filename);
-    const dir = path.join(FILES_DIR, String(c.id));
-    fs.mkdirSync(dir, { recursive: true });
-    const storedName = `${Date.now()}-${cleanName}`;
-    fs.writeFileSync(path.join(dir, storedName), buffer);
+    const stored = await storeConcertFile(c, { category: category || 'Sonstiges', filename, buffer, mimeType: mime_type, userId: req.user.id });
+    notifyFile(c, stored.filename, category || 'Sonstiges', req.user.id);
+    res.status(201).json({ id: stored.id, detail: concertDetail(c.id, req) });
+  });
 
-    let dropboxPath = null;
-    if (contracts.isDropboxConfigured()) {
-      try {
-        const token = await contracts.getAccessToken();
-        const folder = `${projectFolderName(c)}/${folderForCategory(category || 'Sonstiges')}`;
-        dropboxPath = await contracts.uploadFileToPath(token, `${DROPBOX_NK_FOLDER}/${folder}/${cleanName}`, buffer);
-      } catch (err) {
-        console.error('[NK] Dropbox-Kopie fehlgeschlagen:', err.message);
-      }
-    }
+  function notifyFile(c, filename, category, actorId) {
+    mail.notify({
+      tab: 'nk_projects', actorId,
+      subject: `Neue Datei bei ${c.title}`,
+      body: `${displayForUserId(db, actorId).name} hat „${filename}“ (${category}) bei „${c.title}“ hochgeladen.`,
+      path: `/nk?concert=${c.id}`,
+    });
+  }
 
-    const info = db.prepare(`
-      INSERT INTO nk_concert_files (concert_id, category, filename, stored_path, dropbox_path, size_bytes, mime_type, uploaded_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(c.id, category || 'Sonstiges', cleanName, path.join(String(c.id), storedName), dropboxPath, buffer.length, mime_type || null, req.user.id);
-
-    // Hinweis im Verlauf, damit alle mitbekommen, dass ein neues Dokument da ist
-    const commentInfo = db.prepare("INSERT INTO nk_comments (concert_id, user_id, body, kind) VALUES (?, ?, ?, 'file')")
-      .run(c.id, req.user.id, `hat „${cleanName}“ in ${folderForCategory(category || 'Sonstiges')} (${category || 'Sonstiges'}) hochgeladen.`);
-    db.prepare('INSERT OR IGNORE INTO nk_comment_reads (comment_id, user_id) VALUES (?, ?)').run(commentInfo.lastInsertRowid, req.user.id);
-
-    res.status(201).json({ id: info.lastInsertRowid, detail: concertDetail(c.id, req) });
+  // Gesehen-Status: einzelne Datei bestaetigen (oder zuruecknehmen) bzw. alle Dateien eines Konzerts
+  app.post('/api/nk/concerts/:id/files/:fileId/seen', (req, res) => {
+    const f = db.prepare('SELECT * FROM nk_concert_files WHERE id = ? AND concert_id = ?').get(req.params.fileId, req.params.id);
+    if (!f) return res.status(404).json({ error: 'Datei nicht gefunden' });
+    if (req.body && req.body.unseen) db.prepare('DELETE FROM nk_file_reads WHERE file_id = ? AND user_id = ?').run(f.id, req.user.id);
+    else db.prepare('INSERT OR IGNORE INTO nk_file_reads (file_id, user_id) VALUES (?, ?)').run(f.id, req.user.id);
+    res.json(concertDetail(req.params.id, req));
+  });
+  app.post('/api/nk/concerts/:id/files-seen-all', (req, res) => {
+    const ids = db.prepare('SELECT id FROM nk_concert_files WHERE concert_id = ?').all(req.params.id).map(r => r.id);
+    const stmt = db.prepare('INSERT OR IGNORE INTO nk_file_reads (file_id, user_id) VALUES (?, ?)');
+    db.transaction(() => ids.forEach(id => stmt.run(id, req.user.id)))();
+    res.json(concertDetail(req.params.id, req));
   });
 
   app.get('/api/nk/concerts/:id/files/:fileId/download', async (req, res) => {
@@ -422,15 +521,34 @@ function register(app) {
     const b = req.body || {};
     const title = String(b.title || '').trim();
     if (!title) return res.status(400).json({ error: '2Do ist leer' });
+    const assignee = validUserId(b.assignee_id);
     db.prepare('INSERT INTO nk_todos (concert_id, title, assignee_id, due_date, created_by) VALUES (?, ?, ?, ?, ?)')
-      .run(c.id, title.slice(0, 500), validUserId(b.assignee_id), cleanDate(b.due_date), req.user.id);
+      .run(c.id, title.slice(0, 500), assignee, cleanDate(b.due_date), req.user.id);
+    if (assignee) notifyTodo(c, title, assignee, cleanDate(b.due_date), req.user.id);
     res.status(201).json(concertDetail(c.id, req));
   });
+
+  function notifyTodo(c, title, assigneeId, dueDate, actorId) {
+    const due = dueDate ? ` (fällig ${dueDate.split('-').reverse().join('.')})` : '';
+    mail.notify({
+      tab: 'nk_projects', actorId, onlyUserIds: [assigneeId],
+      subject: `Neues 2Do für dich: ${title}`,
+      body: `${displayForUserId(db, actorId).name} hat dir bei „${c.title}“ das 2Do „${title}“${due} zugewiesen.`,
+      path: `/nk?concert=${c.id}&folder=todos`,
+    });
+  }
 
   app.put('/api/nk/concerts/:id/todos/:todoId', (req, res) => {
     const t = db.prepare('SELECT * FROM nk_todos WHERE id = ? AND concert_id = ?').get(req.params.todoId, req.params.id);
     if (!t) return res.status(404).json({ error: '2Do nicht gefunden' });
     const b = req.body || {};
+    if (b.assignee_id !== undefined) {
+      const next = validUserId(b.assignee_id);
+      if (next && next !== t.assignee_id) {
+        const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+        notifyTodo(c, b.title !== undefined ? String(b.title).trim() || t.title : t.title, next, b.due_date !== undefined ? cleanDate(b.due_date) : t.due_date, req.user.id);
+      }
+    }
     const done = b.done !== undefined ? !!b.done : !!t.done;
     db.prepare('UPDATE nk_todos SET title = ?, assignee_id = ?, due_date = ?, done = ?, done_by = ?, done_at = ? WHERE id = ?').run(
       b.title !== undefined ? (String(b.title).trim().slice(0, 500) || t.title) : t.title,
@@ -459,6 +577,12 @@ function register(app) {
     if (!body) return res.status(400).json({ error: 'Kommentar ist leer' });
     const info = db.prepare('INSERT INTO nk_comments (concert_id, user_id, body) VALUES (?, ?, ?)').run(c.id, req.user.id, body.slice(0, 5000));
     db.prepare('INSERT OR IGNORE INTO nk_comment_reads (comment_id, user_id) VALUES (?, ?)').run(info.lastInsertRowid, req.user.id);
+    mail.notify({
+      tab: 'nk_projects', actorId: req.user.id,
+      subject: `Neuer Kommentar bei ${c.title}`,
+      body: `${displayForUserId(db, req.user.id).name} bei „${c.title}“: ${body.length > 400 ? body.slice(0, 400) + ' …' : body}`,
+      path: `/nk?concert=${c.id}&folder=agreements`,
+    });
     res.status(201).json(concertDetail(c.id, req));
   });
 
@@ -487,6 +611,84 @@ function register(app) {
     db.transaction(() => ids.forEach(id => stmt.run(id, req.user.id)))();
     res.json(concertDetail(req.params.id, req));
   });
+
+  // ---------- Kalkulation (plan) & Abrechnung (ist) ----------
+  app.put('/api/nk/concerts/:id/budget/:kind', (req, res) => {
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!budget.KINDS.includes(req.params.kind)) return res.status(400).json({ error: 'Unbekannte Art' });
+    const b = req.body || {};
+    const data = budget.cleanBudget(b.data);
+    db.prepare(`
+      INSERT INTO nk_budgets (concert_id, kind, data, visitors, source, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(concert_id, kind) DO UPDATE SET data = excluded.data, visitors = excluded.visitors,
+        source = COALESCE(excluded.source, nk_budgets.source), updated_by = excluded.updated_by, updated_at = excluded.updated_at
+    `).run(c.id, req.params.kind, JSON.stringify(data), budget.cleanVisitors(b.visitors), b.source ? String(b.source).slice(0, 300) : null, req.user.id);
+    res.json(concertDetail(c.id, req));
+  });
+
+  app.delete('/api/nk/concerts/:id/budget/:kind', (req, res) => {
+    db.prepare('DELETE FROM nk_budgets WHERE concert_id = ? AND kind = ?').run(req.params.id, req.params.kind);
+    res.json(concertDetail(req.params.id, req));
+  });
+
+  // Excel/CSV hochladen: Datei wird im Ordner "Kalkulation" abgelegt, Claude liest sie aus.
+  // Das Ergebnis wird NICHT direkt gespeichert, sondern im Editor zur Kontrolle angezeigt.
+  app.post('/api/nk/concerts/:id/budget-import', async (req, res) => {
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    const { filename, file_base64, mime_type, kind } = req.body || {};
+    if (!filename || !file_base64) return res.status(400).json({ error: 'Datei fehlt' });
+    if (!/\.(xlsx|xlsm|xls|ods|csv|numbers)$/i.test(filename)) return res.status(400).json({ error: 'Bitte eine Excel-Datei (.xlsx, .xls), .ods oder .csv hochladen' });
+    if (/\.numbers$/i.test(filename)) return res.status(400).json({ error: 'Numbers-Dateien bitte vorher als Excel exportieren (Ablage › Exportieren › Excel).' });
+    const buffer = Buffer.from(file_base64, 'base64');
+    if (buffer.length > MAX_FILE_BYTES) return res.status(400).json({ error: 'Datei ist zu groß (max. 18 MB)' });
+    try {
+      const result = await budget.analyzeSpreadsheet(buffer, filename, c.title);
+      const category = (kind || result.kind_guess) === 'ist' ? 'Abrechnung' : 'Kalkulation';
+      const stored = await storeConcertFile(c, { category, filename, buffer, mimeType: mime_type, userId: req.user.id });
+      notifyFile(c, stored.filename, category, req.user.id);
+      res.json({ ...result, source: `Excel-Import: ${stored.filename}`, detail: concertDetail(c.id, req) });
+    } catch (err) {
+      console.error('[NK] Excel-Import fehlgeschlagen:', err);
+      res.status(err.status ? 502 : 400).json({ error: err.message });
+    }
+  });
+
+  // ---------- GEMA ----------
+  app.put('/api/nk/concerts/:id/gema', (req, res) => {
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    const b = req.body || {};
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    ['registered', 'reported'].forEach(key => {
+      if (b[key] === undefined) return;
+      db.prepare(`UPDATE nk_concerts SET gema_${key}_at = ?, gema_${key}_by = ? WHERE id = ?`)
+        .run(b[key] ? now : null, b[key] ? req.user.id : null, c.id);
+    });
+    res.json(concertDetail(c.id, req));
+  });
+
+  app.post('/api/nk/concerts/:id/links', (req, res) => {
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    let url = String((req.body && req.body.url) || '').trim();
+    if (!url) return res.status(400).json({ error: 'Link fehlt' });
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    try { new URL(url); } catch (e) { return res.status(400).json({ error: 'Das ist kein gültiger Link' }); }
+    const title = String((req.body && req.body.title) || '').trim().slice(0, 200) || url.replace(/^https?:\/\//, '').slice(0, 80);
+    db.prepare('INSERT INTO nk_links (concert_id, section, title, url, created_by) VALUES (?, ?, ?, ?, ?)')
+      .run(c.id, 'gema', title, url.slice(0, 2000), req.user.id);
+    res.status(201).json(concertDetail(c.id, req));
+  });
+
+  app.delete('/api/nk/concerts/:id/links/:linkId', (req, res) => {
+    const l = db.prepare('SELECT * FROM nk_links WHERE id = ? AND concert_id = ?').get(req.params.linkId, req.params.id);
+    if (!l) return res.status(404).json({ error: 'Link nicht gefunden' });
+    if (!canManage(req, l.created_by)) return res.status(403).json({ error: 'Nur wer den Link angelegt hat oder ein Admin darf ihn löschen' });
+    db.prepare('DELETE FROM nk_links WHERE id = ?').run(l.id);
+    res.json(concertDetail(req.params.id, req));
+  });
 }
 
-module.exports = { register };
+module.exports = { register, storeConcertFile, safeFileName, FILES_DIR, DROPBOX_NK_FOLDER, MAX_FILE_BYTES };

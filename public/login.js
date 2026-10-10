@@ -20,7 +20,8 @@
         errorBox.classList.remove('hidden');
         return;
       }
-      window.location.href = '/';
+      // Im NK-Einstieg zurueck nach /nk (inkl. Ziel wie ?concert=3), sonst ins Office-Tool
+      window.location.href = window.NK_MODE ? '/nk' + window.location.search : '/';
     } catch (err) {
       errorBox.textContent = 'Verbindung zum Server fehlgeschlagen.';
       errorBox.classList.remove('hidden');

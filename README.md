@@ -106,6 +106,27 @@ Vanilla-JS-Frontend ohne Build-Schritt.
     `DROPBOX_NK_FOLDER`, Standard `/Neckarsulmer Konzerte`) und Kommentaren, die
     jede Person als „gelesen“ markiert – so ist sichtbar, ob alle auf dem
     gleichen Stand sind. Konzerte erscheinen auch im Jahreskalender.
+    Ordner je Konzert: Verträge, Sonstige Absprachen, Kalkulation, GEMA, 2Dos.
+  - *Gesehen-Status für Dateien*: neue Uploads sind für alle rot markiert, bis sie
+    mit „✓ Gesehen“ bestätigt werden (dann grün; Avatare zeigen, wer schon geschaut hat).
+  - *Kalkulation (Plan) & Abrechnung (Ist)*: vorgefertigte Tabelle mit Einnahmen/Ausgaben,
+    Besucherzahl, Ergebnis und Plan/Ist-Vergleich. Excel-Dateien (.xlsx/.xls/.ods/.csv)
+    liest Claude (`ANTHROPIC_API_KEY`, Modell `claude-opus-5-5`) aus und überträgt sie in
+    die Tabelle; Summen rechnet das Tool selbst und zeigt Abweichungen zur Tabelle an.
+    Unter Projekte steht eine Bilanz aller vergangenen Konzerte (Ergebnis + Besucher,
+    Gesamtsumme unten, Filter nach Jahr).
+  - *GEMA*: Status „angemeldet“ / „Musikfolge gemeldet“, Links und GEMA-Listen je Konzert.
+  - *Sponsoren* (eigener Reiter `nk_sponsors`): Kontaktdaten, Vereinbarungen, Logos
+    (Dropbox-Kopie unter `/Neckarsulmer Konzerte/Sponsoren/<Name>`) und Beträge je Jahr bzw.
+    Konzert – einem Konzert zugeordnete Beträge lassen sich in dessen Kalkulation übernehmen.
+  - *Eigene App*: unter `/nk` (Login `/nk/login`) nur die Neckarsulmer Konzerte, mit
+    eigenem Namen „NK Konzerte“ und Icon – im iPhone-Safari über Teilen › „Zum
+    Home-Bildschirm“ als eigene App ablegen.
+  - *E-Mail-Benachrichtigungen* (Konto › E-Mail-Benachrichtigungen: sofort / täglich 7 Uhr /
+    aus): neue Terminumfragen, festgelegte Termine, neue Dateien, Kommentare, zugewiesene
+    2Dos. Versand über Resend: `RESEND_API_KEY`, `MAIL_FROM` (z.B.
+    `Neckarsulmer Konzerte <konzerte@martinrenner.de>`), optional `APP_URL` für die Links
+    (Standard `https://office.martinrenner.de`). Ohne diese Variablen werden keine Mails verschickt.
 
 ## Lokal starten
 

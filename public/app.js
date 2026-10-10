@@ -87,18 +87,20 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'timeline', 'nk_ensemble'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_ensemble: 'Ensemble', finder: 'Finder', marketing: 'Marketing',
+    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
+  // Eigener Einstieg /nk ("NK Konzerte" als App auf dem Home-Bildschirm): nur die NK-Reiter
+  const NK_MODE = !!window.NK_MODE;
+  const NK_TABS = ['nk_projects', 'nk_polls', 'nk_sponsors'];
 
   function can(tab) {
+    if (NK_MODE && !NK_TABS.includes(tab)) return false;
     // "Meine Aufgaben" ist nur eine andere Ansicht der Aufgaben und haengt an deren Freigabe
     if (tab === 'mytasks' || tab === 'timeline') return can('tasks');
-    // Ensemble ist privat und nur für Admins, unabhängig von den Reiter-Freigaben
-    if (tab === 'nk_ensemble') return !!currentUser.is_admin;
     // Finder: Admins immer, alle anderen nur mit ausdrücklicher Freigabe
     if (tab === 'finder') return !!currentUser.is_admin || (currentUser.tabs || []).includes('finder');
     if (tab === 'marketing') return !!currentUser.is_admin || (currentUser.tabs || []).includes('marketing');
@@ -130,7 +132,7 @@
     if (tab === 'contracts') { loadContractEvents(); }
     if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
-    if (tab === 'nk_ensemble') { loadEnsemble(); }
+    if (tab === 'nk_sponsors') { showNkSponsorList(); loadNkSponsors(); }
     if (tab === 'finder') { loadFinder(); }
     if (tab === 'marketing') { loadMarketing(); }
   }
@@ -142,8 +144,13 @@
   // Blendet nicht freigegebene Reiter aus und baut die mobile Navigation passend auf.
   function applyTabPermissions() {
     document.querySelectorAll('.sidebar .tab-btn').forEach(btn => btn.classList.toggle('hidden', !can(btn.dataset.tab)));
-    const anyNk = can('nk_polls') || can('nk_projects') || can('nk_ensemble');
+    const anyNk = NK_TABS.some(can);
     document.getElementById('nk-section-label').classList.toggle('hidden', !anyNk);
+    // Hinweis auf die eigene NK-App (nur im normalen Office-Tool) bzw. zurueck zum Office-Tool
+    const hasOffice = (currentUser.tabs || []).some(t => !NK_TABS.includes(t));
+    document.getElementById('nk-app-link').classList.toggle('hidden', NK_MODE || !anyNk);
+    document.getElementById('nk-app-menu-link').classList.toggle('hidden', NK_MODE || !anyNk);
+    document.getElementById('office-menu-link').classList.toggle('hidden', !NK_MODE || !hasOffice);
     document.getElementById('kreatief-section-label').classList.toggle('hidden', !can('finder'));
     document.getElementById('marketing-section-label').classList.toggle('hidden', !can('marketing'));
     const anyMain = LEGACY_TABS.some(can);
@@ -190,18 +197,20 @@
   async function refreshNkBadges() {
     if (!can('nk_polls') && !can('nk_projects')) return;
     let data;
+    // Ungelesene Kommentare und noch nicht gesehene Dateien zaehlen beide beim Reiter "Projekte"
+    const projectCount = (d) => d.unread_comments + (d.unseen_files || 0);
     try { data = await api('/api/nk/summary'); } catch (e) { return; }
     const set = (key, n) => document.querySelectorAll(`[data-badge="${key}"]`).forEach(el => {
       el.textContent = n > 99 ? '99+' : String(n);
       el.classList.toggle('hidden', !n);
     });
     set('nk_polls', data.open_polls);
-    set('nk_projects', data.unread_comments);
+    set('nk_projects', projectCount(data));
     const moreBtn = document.getElementById('bottom-nav-more');
     if (moreBtn) {
       const hiddenCount = ['nk_polls', 'nk_projects']
         .filter(t => can(t) && !document.querySelector(`#bottom-nav .tab-btn[data-tab="${t}"]`))
-        .reduce((sum, t) => sum + (t === 'nk_polls' ? data.open_polls : data.unread_comments), 0);
+        .reduce((sum, t) => sum + (t === 'nk_polls' ? data.open_polls : projectCount(data)), 0);
       set('more', hiddenCount);
     }
   }
@@ -3353,11 +3362,11 @@
   const TAB_LABELS = [
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'],
-    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'],
+    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'], ['nk_sponsors', 'NK · Sponsoren'],
     ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
-    nk: ['nk_polls', 'nk_projects'],
+    nk: ['nk_polls', 'nk_projects', 'nk_sponsors'],
     office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'],
     all: TAB_LABELS.map(t => t[0]),
   };
@@ -4414,15 +4423,37 @@
   let nkConcerts = [];
   let nkConcertDetail = null;
   let nkConcertFolder = 'contracts';
+  let nkBudgetKind = 'plan';
+  // Ungespeicherte Kalkulation/Abrechnung (auch nach Excel-Import), damit ein Neuzeichnen nichts verliert
+  let nkBudgetDraft = null; // { concertId, kind, data, visitors, source, imported }
+  let nkFinanceYear = '';
   const NK_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abgesagt'];
-  // Ordnerstruktur je Projekt: "<Datum> <Eventname>" -> Verträge / Sonstige Absprachen / 2Dos
+  // Ordnerstruktur je Projekt: "<Datum> <Eventname>" -> Verträge / Sonstige Absprachen / Kalkulation / GEMA / 2Dos
   const NK_FOLDERS = {
-    contracts: { name: 'Verträge', icon: '📑', categories: ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'] },
-    agreements: { name: 'Sonstige Absprachen', icon: '💬', categories: ['Sonstiges', 'Angebot/Rechnung', 'Protokoll/Notiz'] },
+    contracts: { name: 'Verträge', icon: '📑', folder: 'Verträge', categories: ['Künstlervertrag', 'Mietvertrag', 'Technik/Rider', 'Sonstiger Vertrag'] },
+    agreements: { name: 'Sonstige Absprachen', icon: '💬', folder: 'Sonstige Absprachen', categories: ['Sonstiges', 'Angebot/Rechnung', 'Protokoll/Notiz'] },
+    budget: { name: 'Kalkulation', icon: '💶', folder: 'Kalkulation', categories: ['Kalkulation', 'Abrechnung'] },
+    gema: { name: 'GEMA', icon: '🎼', folder: 'GEMA', categories: ['GEMA-Liste/Musikfolge', 'GEMA-Anmeldung', 'GEMA-Rechnung'] },
     todos: { name: '2Dos', icon: '☑️' },
   };
+  const BUDGET_KINDS = { plan: 'Kalkulation (Plan)', ist: 'Abrechnung (Ist)' };
   const nkFolderTitle = (c) => `${c.date ? fmtDateDE(c.date) + ' ' : ''}${c.title}`;
   const statusPill = (st) => `<span class="pill status-${(st || 'Planung').toLowerCase().replace(/[^a-zäöü]/g, '')}">${escapeHtml(st || 'Planung')}</span>`;
+  const fmtEuro = (n) => (n === null || n === undefined || n === '' || isNaN(n)) ? '–'
+    : Number(n).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: Number.isInteger(+n) ? 0 : 2 });
+  const fmtNum = (n) => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('de-DE');
+  const resultClass = (n) => (n === null || n === undefined) ? '' : (n >= 0 ? 'amount-pos' : 'amount-neg');
+  // "1.234,50" bzw. "1234.5" -> Zahl
+  function parseAmount(v) {
+    let s = String(v ?? '').replace(/[€\s]/g, '');
+    if (!s) return null;
+    if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+  }
+  const amountInput = (n) => (n === null || n === undefined) ? '' : (Number.isInteger(n) ? String(n) : n.toFixed(2).replace('.', ','));
+  const todayIsoLocal = () => isoDate(new Date());
 
   function showNkConcertList() {
     document.getElementById('nk-projects-list-view').classList.remove('hidden');
@@ -4439,7 +4470,7 @@
       <div class="empty-card">
         <div class="empty-card-icon">🎵</div>
         <strong>Noch keine Konzerte angelegt</strong>
-        <span>Jedes Konzert bekommt einen Ordner „Datum + Eventname“ mit den Unterordnern Verträge, Sonstige Absprachen und 2Dos.</span>
+        <span>Jedes Konzert bekommt einen Ordner „Datum + Eventname“ mit Verträgen, Absprachen, Kalkulation, GEMA und 2Dos.</span>
       </div>`;
     document.getElementById('nk-concerts-archive-card').classList.toggle('hidden', !archive.length);
     document.getElementById('nk-concerts-archive-count').textContent = `Archiv – abgeschlossen/abgesagt (${archive.length})`;
@@ -4449,6 +4480,7 @@
       const concert = nkConcerts.find(x => x.id === +el.dataset.concertCard);
       openNkConcert(+el.dataset.concertCard, concert && concert.unread_count ? 'agreements' : null);
     }));
+    renderNkFinance();
     refreshNkBadges();
   }
 
@@ -4456,16 +4488,22 @@
     const readState = c.comment_count
       ? (c.unread_count ? `<span class="pill pill-accent">${c.unread_count} neu</span>` : (c.all_read ? '<span class="pill pill-ok">✓ Alle gelesen</span>' : '<span class="pill pill-muted">Nicht alle gelesen</span>'))
       : '';
+    const unseen = c.unseen_files ? `<span class="pill pill-new">● ${c.unseen_files} neue Datei${c.unseen_files === 1 ? '' : 'en'}</span>` : '';
+    const budgetLine = c.ist_result !== null
+      ? `Abrechnung <em class="${resultClass(c.ist_result)}">${fmtEuro(c.ist_result)}</em>`
+      : (c.plan_result !== null ? `Plan <em class="${resultClass(c.plan_result)}">${fmtEuro(c.plan_result)}</em>` : '<em>leer</em>');
     return `
-      <button type="button" class="nk-card concert-card ${c.unread_count ? 'has-unread' : ''}" data-concert-card="${c.id}">
+      <button type="button" class="nk-card concert-card ${c.unread_count || c.unseen_files ? 'has-unread' : ''}" data-concert-card="${c.id}">
         <div class="folder-glyph" aria-hidden="true">📁</div>
         <div class="concert-card-body">
-          <div class="nk-card-top">${statusPill(c.status)}${readState}</div>
+          <div class="nk-card-top">${statusPill(c.status)}${unseen}${readState}</div>
           <div class="nk-card-title">${c.date ? `<span class="folder-date">${fmtDateDE(c.date)}</span> ` : '<span class="folder-date folder-date-open">Datum offen</span> '}${escapeHtml(c.title)}</div>
           <div class="nk-card-meta">${[c.date ? WD_SHORT[isoToDate(c.date).getDay()] + (c.time ? ' · ' + c.time.slice(0, 5) + ' Uhr' : '') : '', c.location ? '📍 ' + escapeHtml(c.location) : ''].filter(Boolean).join(' · ') || '&nbsp;'}</div>
           <div class="folder-subs">
             <span>📑 Verträge <em>${c.contract_count}</em></span>
-            <span>💬 Sonstige Absprachen <em>${c.file_count - c.contract_count + c.comment_count}</em></span>
+            <span>💬 Sonstige Absprachen <em>${c.file_count - c.contract_count - c.gema_file_count + c.comment_count}</em></span>
+            <span>💶 Kalkulation ${budgetLine}</span>
+            <span>🎼 GEMA <em>${c.gema_registered_at ? '✓ angemeldet' : 'nicht angemeldet'}${c.gema_reported_at ? ' · Musikfolge gemeldet' : ''}</em></span>
             <span class="${c.todo_open ? 'has-open' : ''}">☑️ 2Dos <em>${c.todo_total ? `${c.todo_open} offen` : '0'}</em></span>
           </div>
         </div>
@@ -4477,9 +4515,57 @@
     document.getElementById('nk-concerts-archive-chevron').classList.toggle('collapsed', list.classList.toggle('hidden'));
   });
 
+  // ---- Bilanz vergangener Konzerte (Ergebnis + Besucher, Gesamtsumme unten) ----
+  function renderNkFinance() {
+    const card = document.getElementById('nk-finance-card');
+    const today = todayIsoLocal();
+    const past = nkConcerts
+      .filter(c => c.status !== 'Abgesagt' && ((c.date && c.date < today) || c.status === 'Abgeschlossen'))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    card.classList.toggle('hidden', !past.length);
+    if (!past.length) return;
+    const years = [...new Set(past.filter(c => c.date).map(c => c.date.slice(0, 4)))].sort().reverse();
+    if (nkFinanceYear && !years.includes(nkFinanceYear)) nkFinanceYear = '';
+    const shown = past.filter(c => !nkFinanceYear || (c.date && c.date.startsWith(nkFinanceYear)));
+    const settled = shown.filter(c => c.ist_result !== null);
+    const sumResult = settled.reduce((s, c) => s + c.ist_result, 0);
+    const withVisitors = settled.filter(c => c.ist_visitors !== null);
+    const sumVisitors = withVisitors.reduce((s, c) => s + c.ist_visitors, 0);
+    card.innerHTML = `
+      <div class="section-card-head">
+        <h3>📊 Bilanz vergangener Konzerte</h3>
+        ${years.length > 1 ? `<select id="nk-finance-year" class="status-select">
+          <option value="">Alle Jahre</option>${years.map(y => `<option ${y === nkFinanceYear ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>` : ''}
+      </div>
+      <div class="finance-table" role="table">
+        <div class="finance-row finance-head" role="row"><span>Konzert</span><span>Besucher</span><span>Ergebnis</span></div>
+        ${shown.map(c => `
+          <button type="button" class="finance-row" role="row" data-finance-open="${c.id}">
+            <span class="finance-title"><small>${c.date ? fmtDateDE(c.date) : 'ohne Datum'}</small>${escapeHtml(c.title)}</span>
+            <span class="finance-num">${c.ist_result !== null ? fmtNum(c.ist_visitors) : '<em class="muted">–</em>'}</span>
+            <span class="finance-num">${c.ist_result !== null
+              ? `<strong class="${resultClass(c.ist_result)}">${fmtEuro(c.ist_result)}</strong>`
+              : '<em class="finance-missing">Abrechnung fehlt</em>'}</span>
+          </button>`).join('')}
+        <div class="finance-row finance-total" role="row">
+          <span>Gesamt${nkFinanceYear ? ' ' + nkFinanceYear : ''}<small>${settled.length} von ${shown.length} Konzert${shown.length === 1 ? '' : 'en'} abgerechnet${withVisitors.length ? ` · Ø ${fmtNum(Math.round(sumVisitors / withVisitors.length))} Besucher` : ''}</small></span>
+          <span class="finance-num">${withVisitors.length ? fmtNum(sumVisitors) : '–'}</span>
+          <span class="finance-num"><strong class="${settled.length ? resultClass(sumResult) : ''}">${settled.length ? fmtEuro(Math.round(sumResult * 100) / 100) : '–'}</strong></span>
+        </div>
+      </div>`;
+    const sel = document.getElementById('nk-finance-year');
+    if (sel) sel.addEventListener('change', () => { nkFinanceYear = sel.value; renderNkFinance(); });
+    card.querySelectorAll('[data-finance-open]').forEach(b => b.addEventListener('click', () => {
+      nkBudgetKind = 'ist';
+      openNkConcert(+b.dataset.financeOpen, 'budget');
+    }));
+  }
+
   async function openNkConcert(id, folder) {
     nkConcertDetail = await api(`/api/nk/concerts/${id}`);
-    nkConcertFolder = folder || 'contracts';
+    nkConcertFolder = NK_FOLDERS[folder] ? folder : 'contracts';
+    if (folder === 'budget' && !nkConcertDetail.budgets[nkBudgetKind]) nkBudgetKind = nkConcertDetail.budgets.ist ? 'ist' : 'plan';
     document.getElementById('nk-projects-list-view').classList.add('hidden');
     document.getElementById('nk-concert-detail-view').classList.remove('hidden');
     renderNkConcertDetail();
@@ -4491,9 +4577,23 @@
     if (n.endsWith('.pdf')) return '📄';
     if (/\.(png|jpe?g|gif|webp|heic)$/.test(n)) return '🖼️';
     if (/\.(docx?|odt|pages)$/.test(n)) return '📝';
-    if (/\.(xlsx?|csv|numbers)$/.test(n)) return '📊';
+    if (/\.(xlsx?|csv|numbers|ods)$/.test(n)) return '📊';
     return '📎';
   }
+
+  // Arbeitskopie der Kalkulation fuer die aktuelle Ansicht (Entwurf > gespeichert > Vorlage)
+  function currentBudget(c) {
+    if (nkBudgetDraft && nkBudgetDraft.concertId === c.id && nkBudgetDraft.kind === nkBudgetKind) return nkBudgetDraft;
+    const saved = c.budgets[nkBudgetKind];
+    const clone = (d) => JSON.parse(JSON.stringify(d));
+    return {
+      concertId: c.id, kind: nkBudgetKind, saved: !!saved, dirty: false,
+      data: saved ? clone(saved.data) : clone(c.budget_template),
+      visitors: saved ? saved.visitors : null,
+      source: saved ? saved.source : null,
+    };
+  }
+  const sumRows = (rows) => Math.round(rows.reduce((s, r) => s + (r.amount || 0), 0) * 100) / 100;
 
   function renderNkConcertDetail(opts = {}) {
     const c = nkConcertDetail;
@@ -4503,6 +4603,9 @@
     const members = c.members;
     const unreadMine = c.comments.filter(cm => !cm.read_by_me).length;
     const behind = members.filter(m => c.comments.some(cm => !cm.read_by.includes(m.user_id)));
+    const filesIn = (key) => c.files.filter(f => f.folder === NK_FOLDERS[key].folder);
+    const unseenIn = (key) => NK_FOLDERS[key].folder ? filesIn(key).filter(f => !f.seen_by_me).length : 0;
+    const unseenTotal = c.files.filter(f => !f.seen_by_me).length;
 
     const commentsHtml = c.comments.length ? c.comments.map(cm => {
       const readers = members.filter(m => cm.read_by.includes(m.user_id));
@@ -4532,35 +4635,53 @@
         </div>`;
     }).join('') : '<p class="empty-state">Noch keine Kommentare. Schreib den ersten!</p>';
 
-    const fileRowHtml = (f) => `
-      <div class="file-row">
+    // Datei mit Gesehen-Status: rot "neu" fuer mich, gruen sobald bestaetigt; Avatare zeigen, wer schon geschaut hat
+    const fileRowHtml = (f) => {
+      const seen = members.filter(m => f.seen_by.includes(m.user_id));
+      const notYet = members.filter(m => !f.seen_by.includes(m.user_id));
+      return `
+      <div class="file-row ${f.seen_by_me ? 'is-seen' : 'is-unseen'}">
         <span class="file-icon">${fileIcon(f)}</span>
         <div class="file-main">
           <a href="/api/nk/concerts/${c.id}/files/${f.id}/download" target="_blank" rel="noopener" class="file-name">${escapeHtml(f.filename)}</a>
           <div class="file-meta">${escapeHtml(f.category || 'Sonstiges')} · ${fmtBytes(f.size_bytes)} · ${escapeHtml(f.uploaded_by.short)} · ${fmtTimestamp(f.uploaded_at)}${f.in_dropbox ? ' · in Dropbox gesichert' : ''}</div>
+          <div class="file-seen">
+            ${f.seen_by_me
+              ? '<span class="seen-badge seen-ok">✓ Gesehen</span>'
+              : `<span class="seen-badge seen-new">● Neu</span><button type="button" class="seen-btn" data-file-seen="${f.id}">✓ Gesehen</button>`}
+            <span class="read-state" title="${seen.length ? 'Gesehen von: ' + escapeHtml(seen.map(r => r.name).join(', ')) : ''}${notYet.length ? ' · Noch nicht gesehen: ' + escapeHtml(notYet.map(r => r.name).join(', ')) : ''}">
+              ${seen.map(m => avatarHtml(m, 'xs')).join('')}${notYet.map(m => avatarHtml(m, 'xs faded')).join('')}
+              <span class="read-label">${notYet.length ? `gesehen ${seen.length}/${members.length}` : '✓ alle gesehen'}</span>
+            </span>
+            ${f.seen_by_me && !f.is_mine ? `<button type="button" class="link-btn" data-file-unseen="${f.id}">wieder als neu markieren</button>` : ''}
+          </div>
         </div>
         <a class="icon-btn" href="/api/nk/concerts/${c.id}/files/${f.id}/download?download=1" title="Herunterladen">⤓</a>
         ${f.can_delete ? `<button type="button" class="icon-btn" data-delete-file="${f.id}" title="Entfernen">✕</button>` : ''}
       </div>`;
-    const contractFiles = c.files.filter(f => f.folder === 'Verträge');
-    const otherFiles = c.files.filter(f => f.folder !== 'Verträge');
-    const openTodos = c.todos.filter(t => !t.done);
-    const doneTodos = c.todos.filter(t => t.done);
+    };
     const folder = NK_FOLDERS[nkConcertFolder] ? nkConcertFolder : 'contracts';
 
-    const filesCardHtml = (key, files, emptyText) => `
+    const filesCardHtml = (key, emptyText, title) => {
+      const files = filesIn(key);
+      const unseen = files.filter(f => !f.seen_by_me).length;
+      return `
       <div class="card concert-files">
-        <div class="section-card-head"><h3>${key === 'contracts' ? 'Verträge' : 'Dokumente'} <span class="count-chip">${files.length}</span></h3></div>
+        <div class="section-card-head">
+          <h3>${title || (key === 'contracts' ? 'Verträge' : 'Dokumente')} <span class="count-chip">${files.length}</span></h3>
+          ${unseen ? `<button type="button" class="ghost" data-files-seen-all>✓ Alle ${unseen} als gesehen markieren</button>` : ''}
+        </div>
         <div class="file-list">${files.length ? files.map(fileRowHtml).join('') : `<p class="empty-state">${emptyText}</p>`}</div>
         <div class="upload-box">
           <select id="nk-file-category">${NK_FOLDERS[key].categories.map(cat => `<option>${cat}</option>`).join('')}</select>
           <label class="file-drop" id="nk-file-drop">
             <input type="file" id="nk-file-input" multiple>
-            <span id="nk-file-drop-text"><strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder … max. 18 MB</small></span>
+            <span id="nk-file-drop-text"><strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder, Fotos … max. 18 MB</small></span>
           </label>
           <button type="button" id="nk-file-upload">In „${NK_FOLDERS[key].name}“ hochladen</button>
         </div>
       </div>`;
+    };
 
     const commentsCardHtml = `
       <div class="card concert-comments">
@@ -4581,7 +4702,9 @@
         </form>
       </div>`;
 
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayIsoLocal();
+    const openTodos = c.todos.filter(t => !t.done);
+    const doneTodos = c.todos.filter(t => t.done);
     const todoRowHtml = (t) => `
       <div class="nk-todo ${t.done ? 'is-done' : ''}">
         <input type="checkbox" class="task-done-checkbox" data-todo-toggle="${t.id}" ${t.done ? 'checked' : ''} title="${t.done ? 'Wieder öffnen' : 'Erledigt'}">
@@ -4613,15 +4736,18 @@
       </div>`;
 
     const folderCounts = {
-      contracts: contractFiles.length,
-      agreements: otherFiles.length + c.comments.length,
-      todos: openTodos.length,
+      contracts: filesIn('contracts').length,
+      agreements: filesIn('agreements').length + c.comments.length,
+      budget: c.budgets.ist ? 'Ist' : (c.budgets.plan ? 'Plan' : '–'),
+      gema: filesIn('gema').length + c.links.length,
+      todos: `${openTodos.length} offen`,
     };
-    const folderContent = folder === 'contracts'
-      ? filesCardHtml('contracts', contractFiles, 'Noch keine Verträge in diesem Ordner.')
-      : folder === 'agreements'
-        ? `<div class="concert-grid">${commentsCardHtml}${filesCardHtml('agreements', otherFiles, 'Noch keine Dokumente in diesem Ordner.')}</div>`
-        : todosCardHtml;
+    let folderContent;
+    if (folder === 'contracts') folderContent = filesCardHtml('contracts', 'Noch keine Verträge in diesem Ordner.');
+    else if (folder === 'agreements') folderContent = `<div class="concert-grid">${commentsCardHtml}${filesCardHtml('agreements', 'Noch keine Dokumente in diesem Ordner.')}</div>`;
+    else if (folder === 'budget') folderContent = budgetPanelHtml(c) + filesCardHtml('budget', 'Noch keine Kalkulations-Dateien. Excel-Dateien, die oben ausgelesen werden, landen automatisch hier.', 'Dateien');
+    else if (folder === 'gema') folderContent = `<div class="concert-grid gema-grid">${gemaPanelHtml(c)}${filesCardHtml('gema', 'Noch keine GEMA-Listen oder -Unterlagen.', 'GEMA-Listen & Unterlagen')}</div>`;
+    else folderContent = todosCardHtml;
 
     view.innerHTML = `
       <nav class="folder-path">
@@ -4636,6 +4762,7 @@
             <select id="nk-concert-status-quick" class="status-select" title="Status ändern">
               ${NK_STATUSES.map(st => `<option ${st === c.status ? 'selected' : ''}>${st}</option>`).join('')}
             </select>
+            ${unseenTotal ? `<button type="button" class="pill pill-new pill-btn" data-jump-unseen>● ${unseenTotal} neue Datei${unseenTotal === 1 ? '' : 'en'}</button>` : ''}
           </div>
           <h2 class="detail-title">📁 ${escapeHtml(nkFolderTitle(c))}</h2>
           <div class="detail-meta">
@@ -4655,8 +4782,9 @@
           <button type="button" role="tab" class="folder-tab ${key === folder ? 'active' : ''}" data-nk-folder="${key}" aria-selected="${key === folder}">
             <span class="folder-tab-icon">${key === folder ? '📂' : '📁'}</span>
             <span class="folder-tab-name">${f.name}</span>
-            <span class="count-chip">${key === 'todos' ? `${folderCounts[key]} offen` : folderCounts[key]}</span>
-            ${key === 'agreements' && unreadMine ? `<span class="pill pill-accent pill-xs">${unreadMine} neu</span>` : ''}
+            <span class="count-chip">${folderCounts[key]}</span>
+            ${unseenIn(key) ? `<span class="pill pill-new pill-xs">${unseenIn(key)} neu</span>` : ''}
+            ${key === 'agreements' && unreadMine ? `<span class="pill pill-accent pill-xs">${unreadMine} ungelesen</span>` : ''}
           </button>`).join('')}
       </div>
 
@@ -4674,8 +4802,15 @@
     }
     view.querySelectorAll('[data-nk-folder]').forEach(b => b.addEventListener('click', () => {
       nkConcertFolder = b.dataset.nkFolder;
+      // Nur eine Abrechnung vorhanden? Dann gleich diese zeigen
+      if (nkConcertFolder === 'budget' && !c.budgets.plan && c.budgets.ist && !nkBudgetDraft) nkBudgetKind = 'ist';
       renderNkConcertDetail();
     }));
+    const jump = view.querySelector('[data-jump-unseen]');
+    if (jump) jump.addEventListener('click', () => {
+      const key = Object.keys(NK_FOLDERS).find(k => unseenIn(k));
+      if (key) { nkConcertFolder = key; renderNkConcertDetail(); }
+    });
 
     const refresh = async (promise, o) => {
       try { nkConcertDetail = await promise; renderNkConcertDetail(o); refreshNkBadges(); } catch (err) { alert(err.message); }
@@ -4705,6 +4840,12 @@
       if (!confirm('Dieses Dokument aus dem Projekt entfernen?')) return;
       refresh(api(`/api/nk/concerts/${c.id}/files/${b.dataset.deleteFile}`, { method: 'DELETE' }));
     }));
+    view.querySelectorAll('[data-file-seen]').forEach(b => b.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/files/${b.dataset.fileSeen}/seen`, { method: 'POST' }))));
+    view.querySelectorAll('[data-file-unseen]').forEach(b => b.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/files/${b.dataset.fileUnseen}/seen`, { method: 'POST', body: JSON.stringify({ unseen: true }) }))));
+    view.querySelectorAll('[data-files-seen-all]').forEach(b => b.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/files-seen-all`, { method: 'POST' }))));
 
     const todoForm = document.getElementById('nk-todo-form');
     if (todoForm) todoForm.addEventListener('submit', async (e) => {
@@ -4738,13 +4879,16 @@
       commentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitComment(); } });
     }
 
+    if (folder === 'budget') bindBudgetPanel(c, refresh);
+    if (folder === 'gema') bindGemaPanel(c, refresh);
+
     const fileInput = document.getElementById('nk-file-input');
     if (!fileInput) return;
     const drop = document.getElementById('nk-file-drop');
     const dropText = document.getElementById('nk-file-drop-text');
     const showSelected = () => {
       const files = [...fileInput.files];
-      dropText.innerHTML = files.length ? `<strong>${files.map(f => escapeHtml(f.name)).join(', ')}</strong><br><small>bereit zum Hochladen</small>` : '<strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder … max. 18 MB</small>';
+      dropText.innerHTML = files.length ? `<strong>${files.map(f => escapeHtml(f.name)).join(', ')}</strong><br><small>bereit zum Hochladen</small>` : '<strong>Datei auswählen</strong> oder hierher ziehen<br><small>PDF, Word, Bilder, Fotos … max. 18 MB</small>';
       drop.classList.toggle('has-file', !!files.length);
     };
     fileInput.addEventListener('change', showSelected);
@@ -4776,6 +4920,292 @@
         btn.textContent = `In „${NK_FOLDERS[folder].name}“ hochladen`;
       }
     });
+  }
+
+  // ---- Kalkulation (Plan) / Abrechnung (Ist) ----
+  function budgetPanelHtml(c) {
+    const b = currentBudget(c);
+    const plan = c.budgets.plan;
+    const isIst = nkBudgetKind === 'ist';
+    const planAmount = (section, label) => {
+      if (!isIst || !plan) return null;
+      const row = plan.data[section].find(r => r.label.trim().toLowerCase() === label.trim().toLowerCase());
+      return row ? row.amount : null;
+    };
+    const rowsHtml = (section) => b.data[section].map((r, i) => {
+      const p = planAmount(section, r.label);
+      return `
+      <div class="budget-row" data-budget-row="${section}:${i}">
+        <input type="text" class="budget-label" data-field="label" value="${escapeHtml(r.label)}" placeholder="Posten">
+        <div class="budget-amount-wrap">
+          <input type="text" class="budget-amount" data-field="amount" inputmode="decimal" value="${escapeHtml(amountInput(r.amount))}" placeholder="0">
+          <span class="budget-euro">€</span>
+        </div>
+        <input type="text" class="budget-note" data-field="note" value="${escapeHtml(r.note || '')}" placeholder="Notiz, z.B. 150 × 18 €">
+        <button type="button" class="icon-btn" data-budget-remove="${section}:${i}" title="Zeile entfernen">✕</button>
+        ${p !== null ? `<span class="budget-plan-hint">Plan: ${fmtEuro(p)}</span>` : ''}
+      </div>`;
+    }).join('');
+    const sponsorSum = c.sponsorships.filter(s => s.status !== 'abgelehnt').reduce((s, x) => s + (x.amount || 0), 0);
+    const sponsorRow = b.data.income.find(r => /sponsor/i.test(r.label));
+    const imported = b.imported;
+    const otherKind = isIst ? 'plan' : 'ist';
+    return `
+      <div class="card budget-card">
+        <div class="section-card-head">
+          <div class="seg-toggle" role="tablist">
+            ${Object.entries(BUDGET_KINDS).map(([k, label]) => `
+              <button type="button" class="${k === nkBudgetKind ? 'active' : ''}" data-budget-kind="${k}">${label}${c.budgets[k] ? ' ✓' : ''}</button>`).join('')}
+          </div>
+          <span class="hint budget-meta">${b.dirty ? '<strong class="budget-dirty">● Nicht gespeichert</strong>' : (c.budgets[nkBudgetKind]
+            ? `Gespeichert ${fmtTimestamp(c.budgets[nkBudgetKind].updated_at)}${c.budgets[nkBudgetKind].updated_by ? ' von ' + escapeHtml(c.budgets[nkBudgetKind].updated_by.short) : ''}${b.source ? ' · ' + escapeHtml(b.source) : ''}`
+            : 'Noch nicht angelegt – Vorlage ausfüllen oder Excel einlesen')}</span>
+        </div>
+
+        ${imported ? `
+          <div class="notice-box budget-import-note">
+            <strong>Aus Excel übernommen – bitte prüfen und speichern.</strong>
+            ${imported.warnings.map(w => `<div class="budget-warn">⚠️ ${escapeHtml(w)}</div>`).join('')}
+            ${imported.remarks ? `<div>💡 ${escapeHtml(imported.remarks)}</div>` : ''}
+            ${imported.kind_guess && imported.kind_guess !== nkBudgetKind ? `<div>Die KI hält die Datei eher für eine ${imported.kind_guess === 'ist' ? 'Abrechnung' : 'Kalkulation'}. <button type="button" class="link-btn" data-budget-move>Nach „${BUDGET_KINDS[imported.kind_guess]}“ verschieben</button></div>` : ''}
+          </div>` : ''}
+
+        ${isIst && !c.budgets.ist && !b.dirty && plan ? `<div class="notice-box">Noch keine Abrechnung. <button type="button" class="link-btn" data-budget-copy-plan>Posten aus der Kalkulation übernehmen</button> und die tatsächlichen Beträge eintragen.</div>` : ''}
+
+        <div class="budget-grid">
+          <div class="budget-section">
+            <h4>Einnahmen <span class="amount-pos" id="budget-sum-income">${fmtEuro(sumRows(b.data.income))}</span></h4>
+            <div class="budget-rows">${rowsHtml('income')}</div>
+            <button type="button" class="ghost budget-add" data-budget-add="income">+ Einnahme</button>
+            ${sponsorSum ? `<div class="budget-sponsor-hint">🤝 Sponsoren für dieses Konzert (Reiter Sponsoren): <strong>${fmtEuro(sponsorSum)}</strong>
+              <small>${c.sponsorships.filter(s => s.status !== 'abgelehnt').map(s => `${escapeHtml(s.sponsor_name)} ${fmtEuro(s.amount)} (${escapeHtml(s.status)})`).join(', ')}</small>
+              ${!sponsorRow || sponsorRow.amount !== Math.round(sponsorSum * 100) / 100 ? '<button type="button" class="link-btn" data-budget-sponsors>In die Zeile „Sponsoren“ übernehmen</button>' : ''}</div>` : ''}
+          </div>
+          <div class="budget-section">
+            <h4>Ausgaben <span class="amount-neg" id="budget-sum-expense">${fmtEuro(sumRows(b.data.expense))}</span></h4>
+            <div class="budget-rows">${rowsHtml('expense')}</div>
+            <button type="button" class="ghost budget-add" data-budget-add="expense">+ Ausgabe</button>
+          </div>
+        </div>
+
+        <div class="budget-summary">
+          <label class="budget-visitors">Besucher ${isIst ? '(tatsächlich)' : '(erwartet)'}
+            <input type="number" min="0" step="1" id="budget-visitors" value="${b.visitors ?? ''}" inputmode="numeric">
+          </label>
+          <div class="budget-totals" id="budget-totals"></div>
+        </div>
+
+        <div class="budget-actions">
+          <button type="button" id="budget-save">${isIst ? 'Abrechnung speichern' : 'Kalkulation speichern'}</button>
+          ${b.dirty ? '<button type="button" class="secondary" id="budget-discard">Änderungen verwerfen</button>' : ''}
+          ${c.budgets[nkBudgetKind] ? `<button type="button" class="ghost danger-text" id="budget-delete">${isIst ? 'Abrechnung' : 'Kalkulation'} löschen</button>` : ''}
+        </div>
+
+        <div class="budget-import">
+          <div>
+            <strong>📊 Excel einlesen</strong>
+            <span class="hint">Claude liest die Tabelle aus und überträgt sie in diese Vorlage. Die Summen rechnet das Tool selbst; Abweichungen zur Tabelle werden angezeigt. Die Datei wird im Ordner „Kalkulation“ abgelegt.</span>
+          </div>
+          ${c.ai_available ? `
+            <label class="file-drop file-drop-compact">
+              <input type="file" id="budget-import-file" accept=".xlsx,.xlsm,.xls,.ods,.csv">
+              <span id="budget-import-text"><strong>Excel-Datei auswählen</strong> → wird als ${isIst ? 'Abrechnung' : 'Kalkulation'} eingelesen</span>
+            </label>` : '<p class="hint">Die KI ist auf dem Server noch nicht eingerichtet (ANTHROPIC_API_KEY fehlt).</p>'}
+        </div>
+      </div>`;
+  }
+
+  function bindBudgetPanel(c, refresh) {
+    const view = document.getElementById('nk-concert-detail-view');
+    const b = currentBudget(c);
+    const markDirty = () => {
+      if (!b.dirty) {
+        b.dirty = true;
+        nkBudgetDraft = b;
+        const meta = view.querySelector('.budget-meta');
+        if (meta) meta.innerHTML = '<strong class="budget-dirty">● Nicht gespeichert</strong>';
+      }
+    };
+    const updateTotals = () => {
+      const inc = sumRows(b.data.income);
+      const exp = sumRows(b.data.expense);
+      const res = Math.round((inc - exp) * 100) / 100;
+      document.getElementById('budget-sum-income').textContent = fmtEuro(inc);
+      document.getElementById('budget-sum-expense').textContent = fmtEuro(exp);
+      const v = b.visitors;
+      const plan = nkBudgetKind === 'ist' && c.budgets.plan ? c.budgets.plan.totals : null;
+      document.getElementById('budget-totals').innerHTML = `
+        <div><span>Einnahmen</span><strong>${fmtEuro(inc)}</strong>${plan ? `<small>Plan ${fmtEuro(plan.income)}</small>` : ''}</div>
+        <div><span>Ausgaben</span><strong>${fmtEuro(exp)}</strong>${plan ? `<small>Plan ${fmtEuro(plan.expense)}</small>` : ''}</div>
+        <div class="budget-result"><span>Ergebnis</span><strong class="${resultClass(res)}">${fmtEuro(res)}</strong>${plan ? `<small>Plan ${fmtEuro(plan.result)}</small>` : ''}</div>
+        ${v ? `<div><span>pro Besucher</span><strong class="${resultClass(res)}">${fmtEuro(Math.round(res / v * 100) / 100)}</strong><small>Kosten ${fmtEuro(Math.round(exp / v * 100) / 100)}</small></div>` : ''}`;
+    };
+    updateTotals();
+
+    view.querySelectorAll('[data-budget-row]').forEach(rowEl => {
+      const [section, idx] = rowEl.dataset.budgetRow.split(':');
+      rowEl.querySelectorAll('input[data-field]').forEach(inp => inp.addEventListener('input', () => {
+        const row = b.data[section][+idx];
+        row[inp.dataset.field] = inp.dataset.field === 'amount' ? parseAmount(inp.value) : inp.value;
+        markDirty();
+        updateTotals();
+      }));
+    });
+    // Betrag beim Verlassen schoen formatieren
+    view.querySelectorAll('.budget-amount').forEach(inp => inp.addEventListener('blur', () => {
+      const n = parseAmount(inp.value);
+      inp.value = amountInput(n);
+    }));
+    const rerender = () => { nkBudgetDraft = b; renderNkConcertDetail(); };
+    view.querySelectorAll('[data-budget-remove]').forEach(btn => btn.addEventListener('click', () => {
+      const [section, idx] = btn.dataset.budgetRemove.split(':');
+      b.data[section].splice(+idx, 1);
+      b.dirty = true;
+      rerender();
+    }));
+    view.querySelectorAll('[data-budget-add]').forEach(btn => btn.addEventListener('click', () => {
+      b.data[btn.dataset.budgetAdd].push({ label: '', amount: null, note: '' });
+      b.dirty = true;
+      rerender();
+      const rows = view.querySelectorAll(`[data-budget-row^="${btn.dataset.budgetAdd}:"] .budget-label`);
+      if (rows.length) rows[rows.length - 1].focus();
+    }));
+    view.querySelectorAll('[data-budget-kind]').forEach(btn => btn.addEventListener('click', () => {
+      if (b.dirty && btn.dataset.budgetKind !== nkBudgetKind && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
+      if (btn.dataset.budgetKind !== nkBudgetKind) nkBudgetDraft = null;
+      nkBudgetKind = btn.dataset.budgetKind;
+      renderNkConcertDetail();
+    }));
+    const visitors = document.getElementById('budget-visitors');
+    visitors.addEventListener('input', () => {
+      b.visitors = visitors.value === '' ? null : Math.max(0, Math.round(+visitors.value));
+      markDirty();
+      updateTotals();
+    });
+    const copyPlan = view.querySelector('[data-budget-copy-plan]');
+    if (copyPlan) copyPlan.addEventListener('click', () => {
+      b.data = JSON.parse(JSON.stringify(c.budgets.plan.data));
+      b.visitors = c.budgets.plan.visitors;
+      b.dirty = true;
+      rerender();
+    });
+    const moveBtn = view.querySelector('[data-budget-move]');
+    if (moveBtn) moveBtn.addEventListener('click', () => {
+      if (c.budgets[b.imported.kind_guess] && !confirm(`Die vorhandene ${BUDGET_KINDS[b.imported.kind_guess]} wird beim Speichern ersetzt. Fortfahren?`)) return;
+      b.kind = b.imported.kind_guess;
+      nkBudgetKind = b.kind;
+      rerender();
+    });
+    const sponsorBtn = view.querySelector('[data-budget-sponsors]');
+    if (sponsorBtn) sponsorBtn.addEventListener('click', () => {
+      const sum = Math.round(c.sponsorships.filter(s => s.status !== 'abgelehnt').reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100;
+      let row = b.data.income.find(r => /sponsor/i.test(r.label));
+      if (!row) { row = { label: 'Sponsoren', amount: null, note: '' }; b.data.income.push(row); }
+      row.amount = sum;
+      row.note = row.note || c.sponsorships.filter(s => s.status !== 'abgelehnt').map(s => s.sponsor_name).join(', ');
+      b.dirty = true;
+      rerender();
+    });
+    document.getElementById('budget-save').addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        nkConcertDetail = await api(`/api/nk/concerts/${c.id}/budget/${nkBudgetKind}`, {
+          method: 'PUT', body: JSON.stringify({ data: b.data, visitors: b.visitors, source: b.source || null }),
+        });
+        nkBudgetDraft = null;
+        renderNkConcertDetail();
+        toast(nkBudgetKind === 'ist' ? 'Abrechnung gespeichert' : 'Kalkulation gespeichert');
+      } catch (err) { alert(err.message); e.currentTarget.disabled = false; }
+    });
+    const discard = document.getElementById('budget-discard');
+    if (discard) discard.addEventListener('click', () => { nkBudgetDraft = null; renderNkConcertDetail(); });
+    const delBtn = document.getElementById('budget-delete');
+    if (delBtn) delBtn.addEventListener('click', () => {
+      if (!confirm(`${BUDGET_KINDS[nkBudgetKind]} wirklich löschen?`)) return;
+      nkBudgetDraft = null;
+      refresh(api(`/api/nk/concerts/${c.id}/budget/${nkBudgetKind}`, { method: 'DELETE' }));
+    });
+    const importInput = document.getElementById('budget-import-file');
+    if (importInput) importInput.addEventListener('change', async () => {
+      const f = importInput.files[0];
+      if (!f) return;
+      if (f.size > 18 * 1024 * 1024) { alert('Die Datei ist größer als 18 MB.'); return; }
+      if (b.dirty && !confirm('Die ungespeicherten Änderungen werden durch die Excel-Daten ersetzt. Fortfahren?')) { importInput.value = ''; return; }
+      const label = document.getElementById('budget-import-text');
+      label.innerHTML = `<span class="finder-spinner"></span> <strong>Claude liest „${escapeHtml(f.name)}“ …</strong> das dauert etwa eine halbe Minute`;
+      importInput.disabled = true;
+      try {
+        const res = await api(`/api/nk/concerts/${c.id}/budget-import`, {
+          method: 'POST', body: JSON.stringify({ filename: f.name, file_base64: await fileToBase64(f), mime_type: f.type || null, kind: nkBudgetKind }),
+        });
+        nkConcertDetail = res.detail;
+        nkBudgetDraft = {
+          concertId: c.id, kind: nkBudgetKind, dirty: true, data: res.data,
+          visitors: res.visitors !== null ? res.visitors : b.visitors, source: res.source,
+          imported: { warnings: res.warnings, remarks: res.remarks, kind_guess: res.kind_guess },
+        };
+        renderNkConcertDetail();
+        toast('Excel ausgelesen – bitte prüfen und speichern');
+      } catch (err) {
+        alert('Excel konnte nicht ausgelesen werden: ' + err.message);
+        renderNkConcertDetail();
+      }
+    });
+  }
+
+  // ---- GEMA: Status, Links, Listen ----
+  function gemaPanelHtml(c) {
+    const g = c.gema;
+    const gemaCost = ['ist', 'plan'].map(k => c.budgets[k] && c.budgets[k].data.expense.find(r => /gema/i.test(r.label) && r.amount !== null))
+      .map((row, i) => row ? `${i === 0 ? 'Abrechnung' : 'Kalkulation'}: <strong>${fmtEuro(row.amount)}</strong>` : '').filter(Boolean);
+    const step = (key, label, at, by) => `
+      <label class="gema-step ${at ? 'is-done' : ''}">
+        <input type="checkbox" data-gema="${key}" ${at ? 'checked' : ''}>
+        <span><strong>${label}</strong><small>${at ? `✓ ${by ? escapeHtml(by.name) + ', ' : ''}${fmtTimestamp(at)}` : 'noch offen'}</small></span>
+      </label>`;
+    return `
+      <div class="card gema-card">
+        <div class="section-card-head"><h3>🎼 GEMA-Status</h3></div>
+        <div class="gema-steps">
+          ${step('registered', 'Veranstaltung bei der GEMA angemeldet', g.registered_at, g.registered_by)}
+          ${step('reported', 'Musikfolge gemeldet', g.reported_at, g.reported_by)}
+        </div>
+        ${gemaCost.length ? `<p class="hint">GEMA-Kosten laut ${gemaCost.join(' · ')}</p>` : ''}
+        <div class="section-card-head gema-links-head"><h3>🔗 Links <span class="count-chip">${c.links.length}</span></h3></div>
+        <div class="link-list">
+          ${c.links.length ? c.links.map(l => `
+            <div class="link-row">
+              <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer"><strong>${escapeHtml(l.title)}</strong><small>${escapeHtml(l.url)}</small></a>
+              ${l.can_delete ? `<button type="button" class="icon-btn" data-link-delete="${l.id}" title="Link entfernen">✕</button>` : ''}
+            </div>`).join('') : '<p class="empty-state">Noch keine Links – z.B. zur Anmeldung im GEMA-Portal oder zur Musikfolge.</p>'}
+        </div>
+        <form id="nk-link-form" class="link-form">
+          <input type="text" id="nk-link-title" placeholder="Bezeichnung, z.B. GEMA-Anmeldung">
+          <input type="text" id="nk-link-url" placeholder="https://…" required inputmode="url">
+          <button type="submit">+ Link</button>
+        </form>
+        ${c.links.some(l => /gema\.de/i.test(l.url)) ? '' : '<button type="button" class="link-btn" data-link-quick>+ gema.de als Link hinzufügen</button>'}
+      </div>`;
+  }
+
+  function bindGemaPanel(c, refresh) {
+    const view = document.getElementById('nk-concert-detail-view');
+    view.querySelectorAll('[data-gema]').forEach(cb => cb.addEventListener('change', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/gema`, { method: 'PUT', body: JSON.stringify({ [cb.dataset.gema]: cb.checked }) }))));
+    view.querySelectorAll('[data-link-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Diesen Link entfernen?')) return;
+      refresh(api(`/api/nk/concerts/${c.id}/links/${b.dataset.linkDelete}`, { method: 'DELETE' }));
+    }));
+    document.getElementById('nk-link-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      refresh(api(`/api/nk/concerts/${c.id}/links`, { method: 'POST', body: JSON.stringify({
+        title: document.getElementById('nk-link-title').value.trim(),
+        url: document.getElementById('nk-link-url').value.trim(),
+      }) }));
+    });
+    const quick = view.querySelector('[data-link-quick]');
+    if (quick) quick.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/links`, { method: 'POST', body: JSON.stringify({ title: 'GEMA', url: 'https://www.gema.de' }) })));
   }
 
   // ---- Konzert anlegen/bearbeiten ----
@@ -4822,6 +5252,321 @@
     } catch (err) { alert(err.message); }
   });
 
+  // ---------- Sponsoren ----------
+  let nkSponsorData = { sponsors: [], concerts: [], statuses: [] };
+  let nkSponsorDetailId = null;
+  let nkSponsorYear = '';
+  const SPONSOR_STATUS_CLASS = { angefragt: 'pill-muted', zugesagt: 'pill-accent', bezahlt: 'pill-ok', abgelehnt: 'pill-declined' };
+
+  function showNkSponsorList() {
+    document.getElementById('nk-sponsors-list-view').classList.remove('hidden');
+    document.getElementById('nk-sponsor-detail-view').classList.add('hidden');
+    nkSponsorDetailId = null;
+  }
+
+  async function loadNkSponsors() {
+    nkSponsorData = await api('/api/nk/sponsors');
+    if (nkSponsorDetailId) {
+      if (nkSponsorData.sponsors.some(s => s.id === nkSponsorDetailId)) { renderNkSponsorDetail(); return; }
+      showNkSponsorList();
+    }
+    renderNkSponsorList();
+  }
+
+  function sponsorLogoUrl(s, l, download) {
+    return `/api/nk/sponsors/${s.id}/logos/${l.id}${download ? '?download=1' : ''}`;
+  }
+
+  function renderNkSponsorList() {
+    const { sponsors } = nkSponsorData;
+    const all = sponsors.flatMap(s => s.sponsorships.map(x => ({ ...x, sponsor: s })));
+    const years = [...new Set(all.map(x => x.year).filter(Boolean))].sort().reverse().map(String);
+    if (nkSponsorYear && !years.includes(nkSponsorYear)) nkSponsorYear = '';
+    const inYear = all.filter(x => x.status !== 'abgelehnt' && (!nkSponsorYear || String(x.year) === nkSponsorYear));
+    const sumOf = (list) => Math.round(list.reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100;
+    document.getElementById('nk-sponsor-summary').innerHTML = sponsors.length ? `
+      <div class="sponsor-stats">
+        <div><span>Zugesagt + bezahlt</span><strong>${fmtEuro(sumOf(inYear))}</strong></div>
+        <div><span>davon bezahlt</span><strong class="amount-pos">${fmtEuro(sumOf(inYear.filter(x => x.status === 'bezahlt')))}</strong></div>
+        <div><span>angefragt</span><strong>${fmtEuro(sumOf(inYear.filter(x => x.status === 'angefragt')))}</strong></div>
+        <div><span>Sponsoren</span><strong>${sponsors.length}</strong></div>
+      </div>
+      ${years.length ? `<select id="nk-sponsor-year" class="status-select"><option value="">Alle Jahre</option>${years.map(y => `<option ${y === nkSponsorYear ? 'selected' : ''}>${y}</option>`).join('')}</select>` : ''}` : '';
+    const sel = document.getElementById('nk-sponsor-year');
+    if (sel) sel.addEventListener('change', () => { nkSponsorYear = sel.value; renderNkSponsorList(); });
+
+    document.getElementById('nk-sponsors-list').innerHTML = sponsors.length ? sponsors.map(s => {
+      const logo = s.logos.find(l => l.is_image);
+      const shown = s.sponsorships.filter(x => !nkSponsorYear || String(x.year) === nkSponsorYear);
+      const total = sumOf(shown.filter(x => x.status !== 'abgelehnt'));
+      const statuses = [...new Set(shown.map(x => x.status))];
+      return `
+        <button type="button" class="nk-card sponsor-card" data-sponsor-card="${s.id}">
+          <div class="sponsor-logo-box">${logo ? `<img src="${sponsorLogoUrl(s, logo)}" alt="" loading="lazy">` : `<span>${escapeHtml(s.name.slice(0, 2).toUpperCase())}</span>`}</div>
+          <div class="sponsor-card-body">
+            <div class="nk-card-title">${escapeHtml(s.name)}</div>
+            <div class="nk-card-meta">${escapeHtml(s.contact_person || '')}${s.contact_person && s.logos.length ? ' · ' : ''}${s.logos.length ? `${s.logos.length} Logo${s.logos.length === 1 ? '' : 's'}` : ''}</div>
+            <div class="sponsor-card-foot">
+              <strong>${total ? fmtEuro(total) : '–'}</strong>
+              ${statuses.map(st => `<span class="pill pill-xs ${SPONSOR_STATUS_CLASS[st] || ''}">${escapeHtml(st)}</span>`).join('')}
+            </div>
+          </div>
+        </button>`;
+    }).join('') : `
+      <div class="empty-card">
+        <div class="empty-card-icon">🤝</div>
+        <strong>Noch keine Sponsoren angelegt</strong>
+        <span>Lege Sponsoren mit Logos, Kontaktdaten, Vereinbarungen und Sponsoringhöhe an.</span>
+      </div>`;
+    document.querySelectorAll('[data-sponsor-card]').forEach(el => el.addEventListener('click', () => {
+      nkSponsorDetailId = +el.dataset.sponsorCard;
+      renderNkSponsorDetail();
+      window.scrollTo({ top: 0 });
+    }));
+  }
+
+  function renderNkSponsorDetail() {
+    const s = nkSponsorData.sponsors.find(x => x.id === nkSponsorDetailId);
+    if (!s) { showNkSponsorList(); renderNkSponsorList(); return; }
+    document.getElementById('nk-sponsors-list-view').classList.add('hidden');
+    const view = document.getElementById('nk-sponsor-detail-view');
+    view.classList.remove('hidden');
+    const website = s.website ? (/^https?:\/\//i.test(s.website) ? s.website : 'https://' + s.website) : null;
+    const info = [
+      s.contact_person ? `<div><span>Ansprechpartner</span>${escapeHtml(s.contact_person)}</div>` : '',
+      s.email ? `<div><span>E-Mail</span><a href="mailto:${escapeHtml(s.email)}">${escapeHtml(s.email)}</a></div>` : '',
+      s.phone ? `<div><span>Telefon</span><a href="tel:${escapeHtml(s.phone.replace(/[^\d+]/g, ''))}">${escapeHtml(s.phone)}</a></div>` : '',
+      website ? `<div><span>Website</span><a href="${escapeHtml(website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.website)}</a></div>` : '',
+      s.address ? `<div><span>Adresse</span><p>${escapeHtml(s.address)}</p></div>` : '',
+      s.consideration ? `<div><span>Vereinbarung / Gegenleistung</span><p>${escapeHtml(s.consideration)}</p></div>` : '',
+      s.notes ? `<div><span>Notizen</span><p>${escapeHtml(s.notes)}</p></div>` : '',
+    ].filter(Boolean).join('');
+    const concertOptions = (selected) => `<option value="">— kein bestimmtes Konzert —</option>` + nkSponsorData.concerts.map(c =>
+      `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.date ? fmtDateDE(c.date) + ' ' : ''}${escapeHtml(c.title)}</option>`).join('');
+    const statusOptions = (selected) => nkSponsorData.statuses.map(st => `<option ${st === selected ? 'selected' : ''}>${st}</option>`).join('');
+    view.innerHTML = `
+      <nav class="folder-path">
+        <button type="button" class="link-btn" id="nk-sponsor-back">🤝 Sponsoren</button>
+        <span>›</span><strong>${escapeHtml(s.name)}</strong>
+      </nav>
+      <div class="card detail-hero sponsor-hero">
+        <div class="sponsor-logo-box big">${s.logos.find(l => l.is_image) ? `<img src="${sponsorLogoUrl(s, s.logos.find(l => l.is_image))}" alt="">` : `<span>${escapeHtml(s.name.slice(0, 2).toUpperCase())}</span>`}</div>
+        <div class="detail-hero-main">
+          <h2 class="detail-title">${escapeHtml(s.name)}</h2>
+          <div class="detail-meta"><span>Gesamt <strong>${fmtEuro(s.total)}</strong></span><span>bezahlt <strong class="amount-pos">${fmtEuro(s.paid)}</strong></span></div>
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="ghost" id="nk-sponsor-edit">Bearbeiten</button>
+          ${s.can_manage ? '<button type="button" class="danger" id="nk-sponsor-delete">Löschen</button>' : ''}
+        </div>
+      </div>
+      <div class="concert-grid">
+        <div>
+          <div class="card">
+            <div class="section-card-head"><h3>💶 Sponsoring</h3></div>
+            <div class="sponsorship-list">
+              ${s.sponsorships.length ? s.sponsorships.map(x => `
+                <div class="sponsorship-row" data-sh="${x.id}">
+                  <input type="text" data-sh-field="amount" inputmode="decimal" value="${escapeHtml(amountInput(x.amount))}" title="Betrag in €" class="sh-amount">
+                  <input type="number" data-sh-field="year" value="${x.year || ''}" placeholder="Jahr" class="sh-year">
+                  <select data-sh-field="status" class="sh-status">${statusOptions(x.status)}</select>
+                  <select data-sh-field="concert_id" class="sh-concert">${concertOptions(x.concert_id)}</select>
+                  <input type="text" data-sh-field="note" value="${escapeHtml(x.note || '')}" placeholder="Notiz (z.B. Sachleistung)" class="sh-note">
+                  <button type="button" class="icon-btn" data-sh-delete="${x.id}" title="Eintrag löschen">✕</button>
+                </div>`).join('') : '<p class="empty-state">Noch kein Betrag eingetragen.</p>'}
+            </div>
+            <form id="nk-sh-form" class="sponsorship-row sponsorship-new">
+              <input type="text" id="nk-sh-amount" inputmode="decimal" placeholder="Betrag €" required class="sh-amount">
+              <input type="number" id="nk-sh-year" value="${new Date().getFullYear()}" class="sh-year">
+              <select id="nk-sh-status" class="sh-status">${statusOptions('zugesagt')}</select>
+              <select id="nk-sh-concert" class="sh-concert">${concertOptions(null)}</select>
+              <input type="text" id="nk-sh-note" placeholder="Notiz" class="sh-note">
+              <button type="submit">+ Eintragen</button>
+            </form>
+          </div>
+          <div class="card">
+            <div class="section-card-head"><h3>📇 Informationen</h3></div>
+            <div class="sponsor-info">${info || '<p class="empty-state">Noch keine Angaben – über „Bearbeiten“ ergänzen.</p>'}</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-card-head"><h3>🖼️ Logos & Grafiken <span class="count-chip">${s.logos.length}</span></h3></div>
+          <div class="logo-grid">
+            ${s.logos.map(l => `
+              <div class="logo-tile">
+                <a class="logo-preview" href="${sponsorLogoUrl(s, l)}" target="_blank" rel="noopener">${l.is_image ? `<img src="${sponsorLogoUrl(s, l)}" alt="${escapeHtml(l.filename)}" loading="lazy">` : `<span>${fileIcon(l)}</span>`}</a>
+                <div class="logo-meta"><strong>${escapeHtml(l.label || l.filename)}</strong><small>${escapeHtml(l.filename)} · ${fmtBytes(l.size_bytes)}</small></div>
+                <div class="logo-actions">
+                  <a class="icon-btn" href="${sponsorLogoUrl(s, l, true)}" title="Herunterladen">⤓</a>
+                  <button type="button" class="icon-btn" data-logo-delete="${l.id}" title="Logo entfernen">✕</button>
+                </div>
+              </div>`).join('') || '<p class="empty-state">Noch keine Logos.</p>'}
+          </div>
+          <div class="upload-box">
+            <input type="text" id="nk-logo-label" placeholder="Variante (optional), z.B. hell, dunkel, Vektor" class="logo-label-input">
+            <label class="file-drop" id="nk-logo-drop">
+              <input type="file" id="nk-logo-input" multiple accept="image/*,.svg,.pdf,.eps,.ai">
+              <span id="nk-logo-drop-text"><strong>Logo auswählen</strong> oder hierher ziehen<br><small>PNG, JPG, SVG, PDF, EPS … max. 18 MB</small></span>
+            </label>
+            <button type="button" id="nk-logo-upload">Logo hochladen</button>
+          </div>
+        </div>
+      </div>`;
+
+    const refresh = async (promise) => {
+      try {
+        const updated = await promise;
+        if (updated) nkSponsorData.sponsors = nkSponsorData.sponsors.map(x => (x.id === updated.id ? updated : x));
+        renderNkSponsorDetail();
+      } catch (err) { alert(err.message); }
+    };
+    document.getElementById('nk-sponsor-back').addEventListener('click', () => { showNkSponsorList(); renderNkSponsorList(); });
+    document.getElementById('nk-sponsor-edit').addEventListener('click', () => openNkSponsorModal(s));
+    const del = document.getElementById('nk-sponsor-delete');
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm(`Sponsor „${s.name}“ mit allen Beträgen löschen?\n\nDie Logo-Dateien bleiben als Sicherung auf dem Server bzw. in Dropbox.`)) return;
+      await api(`/api/nk/sponsors/${s.id}`, { method: 'DELETE' });
+      showNkSponsorList();
+      loadNkSponsors();
+    });
+    view.querySelectorAll('[data-sh]').forEach(row => row.querySelectorAll('[data-sh-field]').forEach(inp => inp.addEventListener('change', () => {
+      const field = inp.dataset.shField;
+      const value = field === 'amount' ? parseAmount(inp.value) : inp.value;
+      refresh(api(`/api/nk/sponsors/${s.id}/sponsorships/${row.dataset.sh}`, { method: 'PUT', body: JSON.stringify({ [field]: value }) }));
+    })));
+    view.querySelectorAll('[data-sh-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Diesen Eintrag löschen?')) return;
+      refresh(api(`/api/nk/sponsors/${s.id}/sponsorships/${b.dataset.shDelete}`, { method: 'DELETE' }));
+    }));
+    document.getElementById('nk-sh-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      refresh(api(`/api/nk/sponsors/${s.id}/sponsorships`, { method: 'POST', body: JSON.stringify({
+        amount: parseAmount(document.getElementById('nk-sh-amount').value),
+        year: document.getElementById('nk-sh-year').value,
+        status: document.getElementById('nk-sh-status').value,
+        concert_id: document.getElementById('nk-sh-concert').value || null,
+        note: document.getElementById('nk-sh-note').value,
+      }) }));
+    });
+    view.querySelectorAll('[data-logo-delete]').forEach(b => b.addEventListener('click', () => {
+      if (!confirm('Dieses Logo entfernen?')) return;
+      refresh(api(`/api/nk/sponsors/${s.id}/logos/${b.dataset.logoDelete}`, { method: 'DELETE' }));
+    }));
+    const input = document.getElementById('nk-logo-input');
+    const drop = document.getElementById('nk-logo-drop');
+    const showSelected = () => {
+      const files = [...input.files];
+      document.getElementById('nk-logo-drop-text').innerHTML = files.length
+        ? `<strong>${files.map(f => escapeHtml(f.name)).join(', ')}</strong><br><small>bereit zum Hochladen</small>`
+        : '<strong>Logo auswählen</strong> oder hierher ziehen<br><small>PNG, JPG, SVG, PDF, EPS … max. 18 MB</small>';
+      drop.classList.toggle('has-file', !!files.length);
+    };
+    input.addEventListener('change', showSelected);
+    ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('drag-over'); }));
+    ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove('drag-over')));
+    drop.addEventListener('drop', (e) => { e.preventDefault(); input.files = e.dataTransfer.files; showSelected(); });
+    document.getElementById('nk-logo-upload').addEventListener('click', async (e) => {
+      const files = [...input.files];
+      if (!files.length) { input.click(); return; }
+      const tooBig = files.find(f => f.size > 18 * 1024 * 1024);
+      if (tooBig) { alert(`„${tooBig.name}“ ist größer als 18 MB.`); return; }
+      e.currentTarget.disabled = true;
+      e.currentTarget.textContent = 'Lädt hoch …';
+      const label = document.getElementById('nk-logo-label').value.trim();
+      let updated = null;
+      try {
+        for (const f of files) {
+          updated = await api(`/api/nk/sponsors/${s.id}/logos`, {
+            method: 'POST', body: JSON.stringify({ filename: f.name, file_base64: await fileToBase64(f), mime_type: f.type || null, label }),
+          });
+        }
+        refresh(Promise.resolve(updated));
+        toast(files.length === 1 ? 'Logo hochgeladen' : `${files.length} Logos hochgeladen`);
+      } catch (err) {
+        alert('Upload fehlgeschlagen: ' + err.message);
+        if (updated) refresh(Promise.resolve(updated)); else renderNkSponsorDetail();
+      }
+    });
+  }
+
+  const nkSponsorModal = document.getElementById('nk-sponsor-modal-overlay');
+  const NKS_FIELDS = ['name', 'contact_person', 'website', 'email', 'phone', 'address', 'consideration', 'notes'];
+  let nkSponsorEditingId = null;
+  function openNkSponsorModal(s) {
+    nkSponsorEditingId = s ? s.id : null;
+    document.getElementById('nk-sponsor-modal-heading').textContent = s ? 'Sponsor bearbeiten' : 'Neuer Sponsor';
+    document.getElementById('nk-sponsor-submit').textContent = s ? 'Speichern' : 'Anlegen';
+    NKS_FIELDS.forEach(f => { document.getElementById('nks-' + f).value = s ? (s[f] || '') : ''; });
+    nkSponsorModal.classList.remove('hidden');
+    setTimeout(() => document.getElementById('nks-name').focus(), 0);
+  }
+  document.getElementById('nk-sponsor-new-btn').addEventListener('click', () => openNkSponsorModal(null));
+  document.getElementById('nk-sponsor-cancel').addEventListener('click', () => nkSponsorModal.classList.add('hidden'));
+  nkSponsorModal.addEventListener('click', (e) => { if (e.target === nkSponsorModal) nkSponsorModal.classList.add('hidden'); });
+  document.getElementById('nk-sponsor-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {};
+    NKS_FIELDS.forEach(f => { payload[f] = document.getElementById('nks-' + f).value.trim(); });
+    try {
+      const saved = nkSponsorEditingId
+        ? await api(`/api/nk/sponsors/${nkSponsorEditingId}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await api('/api/nk/sponsors', { method: 'POST', body: JSON.stringify(payload) });
+      nkSponsorModal.classList.add('hidden');
+      nkSponsorDetailId = saved.id;
+      await loadNkSponsors();
+      window.scrollTo({ top: 0 });
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---------- E-Mail-Benachrichtigungen (eigene Einstellungen) ----------
+  const notifyModal = document.getElementById('notify-modal-overlay');
+  document.getElementById('notify-settings-btn').addEventListener('click', async () => {
+    accountDropdown.classList.add('hidden');
+    document.getElementById('notify-error').classList.add('hidden');
+    try {
+      const s = await api('/api/account/notifications');
+      document.getElementById('notify-email').value = s.email;
+      const fb = document.getElementById('notify-fallback');
+      fb.textContent = s.fallback_email ? `Ohne eigene Angabe wird die Adresse der verknüpften Person verwendet: ${s.fallback_email}` : '';
+      fb.classList.toggle('hidden', !s.fallback_email);
+      document.querySelectorAll('input[name="notify-mode"]').forEach(r => { r.checked = r.value === s.mode; });
+      document.getElementById('notify-not-configured').classList.toggle('hidden', s.configured);
+      notifyModal.classList.remove('hidden');
+    } catch (err) { alert(err.message); }
+  });
+  document.getElementById('notify-cancel').addEventListener('click', () => notifyModal.classList.add('hidden'));
+  notifyModal.addEventListener('click', (e) => { if (e.target === notifyModal) notifyModal.classList.add('hidden'); });
+  document.getElementById('notify-save').addEventListener('click', async () => {
+    const mode = (document.querySelector('input[name="notify-mode"]:checked') || {}).value || 'instant';
+    try {
+      await api('/api/account/notifications', { method: 'PUT', body: JSON.stringify({ email: document.getElementById('notify-email').value.trim(), mode }) });
+      notifyModal.classList.add('hidden');
+      toast('Benachrichtigungen gespeichert');
+    } catch (err) {
+      const box = document.getElementById('notify-error');
+      box.textContent = err.message;
+      box.classList.remove('hidden');
+    }
+  });
+
+  // ---------- Hinweis "Zum Home-Bildschirm" (nur NK-Einstieg im iPhone-Browser) ----------
+  function showInstallHint() {
+    if (!NK_MODE) return;
+    const standalone = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    let dismissed = false;
+    try { dismissed = localStorage.getItem('nk_install_hint') === 'off'; } catch (e) { /* egal */ }
+    if (standalone || !ios || dismissed) return;
+    const bar = document.createElement('div');
+    bar.className = 'install-hint';
+    bar.innerHTML = `<img src="icons/nk-icon-192.png" alt=""><span><strong>Als App speichern:</strong> unten auf <em>Teilen</em> <svg viewBox="0 0 20 20" width="14" height="14" fill="none" aria-hidden="true"><path d="M10 3v10M6.5 6.5 10 3l3.5 3.5M5 9.5H4v7.5h12V9.5h-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg> tippen, dann <em>„Zum Home-Bildschirm“</em>.</span><button type="button" class="icon-btn" aria-label="Hinweis schließen">✕</button>`;
+    bar.querySelector('button').addEventListener('click', () => {
+      bar.remove();
+      try { localStorage.setItem('nk_install_hint', 'off'); } catch (e) { /* egal */ }
+    });
+    document.querySelector('.main-area').prepend(bar);
+  }
+
   async function init() {
     // Manche Browser stellen einen zuvor in dieses Feld eingegebenen Wert beim Neuladen
     // der Seite automatisch wieder her, unabhaengig von autocomplete="off" - deshalb hier
@@ -4840,8 +5585,16 @@
     // Fenster fuer die zweite Jahreshaelfte sofort auf den Jahreskalender stellen, nicht erst
     // nachdem alle anderen Bereiche geladen sind - sonst sieht man vorher kurz andere Seiten.
     if (ycHalf === 'h2') switchTab('yearcalendar', { restore: true });
+    if (NK_MODE) {
+      document.querySelector('.brand-name').textContent = 'Neckarsulmer Konzerte';
+      const mark = document.querySelector('.brand-mark');
+      mark.textContent = '';
+      mark.classList.add('brand-mark-nk');
+      mark.innerHTML = '<img src="icons/nk-icon-192.png" alt="">';
+    }
     await loadAccount();
     applyTabPermissions();
+    showInstallHint();
     await loadPeople();
     // Nur laden, was fuer die freigegebenen Reiter gebraucht wird (Server lehnt den Rest ohnehin ab)
     if (can('people') || can('timetracking')) await loadToolStartDate();
@@ -4858,7 +5611,7 @@
     } else if (!allowed.length) {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('page-title').textContent = 'Keine Bereiche freigegeben';
-      document.querySelector('main').insertAdjacentHTML('afterbegin', '<div class="empty-card"><div class="empty-card-icon">🔒</div><strong>Für dein Konto sind noch keine Bereiche freigegeben.</strong><span>Bitte an einen Admin wenden.</span></div>');
+      document.querySelector('main').insertAdjacentHTML('afterbegin', `<div class="empty-card"><div class="empty-card-icon">🔒</div><strong>${NK_MODE ? 'Für dein Konto sind die Neckarsulmer Konzerte nicht freigegeben.' : 'Für dein Konto sind noch keine Bereiche freigegeben.'}</strong><span>Bitte an einen Admin wenden.</span></div>`);
     } else {
       let last = null;
       try { last = sessionStorage.getItem('office_last_tab'); } catch (e) { /* egal */ }
@@ -4866,211 +5619,28 @@
       const urlParams = new URLSearchParams(window.location.search);
       const mkConnect = urlParams.get('mk_connect') && can('marketing');
       if (mkConnect) { mkMode = 'settings'; last = 'marketing'; }
+      if (NK_MODE && !(last && can(last))) last = can('nk_projects') ? 'nk_projects' : null;
+      // Direktlinks aus den E-Mail-Benachrichtigungen: ?concert=3&folder=todos bzw. ?poll=5
+      const linkConcert = +urlParams.get('concert');
+      const linkPoll = +urlParams.get('poll');
+      if (linkConcert && can('nk_projects')) last = 'nk_projects';
+      else if (linkPoll && can('nk_polls')) last = 'nk_polls';
       const start = last && can(last) ? last : sidebarOrder[0];
       switchTab(start, { restore: true, noScroll: true });
       if (mkConnect) mkHandleConnectReturn(urlParams);
+      if (linkConcert || linkPoll) {
+        history.replaceState(null, '', window.location.pathname);
+        try {
+          if (linkConcert && can('nk_projects')) await openNkConcert(linkConcert, urlParams.get('folder'));
+          else if (linkPoll && can('nk_polls')) await openNkPoll(linkPoll);
+        } catch (err) { toast(err.message); }
+      }
     }
     refreshNkBadges();
     setInterval(refreshNkBadges, 60000);
     refreshMkBadge();
     setInterval(() => { mkStatus = null; refreshMkBadge(); }, 120000);
   }
-  // ================= ENSEMBLE (privat) =================
-  // Töne als MIDI-Nummern (60 = C4). Klaviatur von C2 bis C7.
-  const ENS_LOW = 36;
-  const ENS_HIGH = 96;
-  const NOTE_NAMES_DE = ['C', 'Cis', 'D', 'Dis', 'E', 'F', 'Fis', 'G', 'Gis', 'A', 'B', 'H'];
-  const isBlackKey = (n) => [1, 3, 6, 8, 10].includes(n % 12);
-  const noteName = (n) => (n === null || n === undefined ? '–' : `${NOTE_NAMES_DE[n % 12]}${Math.floor(n / 12) - 1}`);
-  function rangeSpanText(low, high) {
-    if (low === null || high === null) return '';
-    const semis = high - low;
-    const oct = Math.floor(semis / 12);
-    const rest = semis % 12;
-    const parts = [];
-    if (oct) parts.push(`${oct} Oktave${oct === 1 ? '' : 'n'}`);
-    if (rest || !oct) parts.push(`${rest} Halbt${rest === 1 ? 'on' : 'öne'}`);
-    return `${parts.join(' + ')} (${(semis / 12).toFixed(1).replace('.', ',')} Okt.)`;
-  }
-  const whiteKeysBetween = (a, b) => { let c = 0; for (let n = a; n <= b; n++) if (!isBlackKey(n)) c++; return c; };
-  // horizontale Position (0–100 %) eines Tons auf der Klaviatur-Achse
-  function notePos(n) {
-    const total = whiteKeysBetween(ENS_LOW, ENS_HIGH);
-    const w = 100 / total;
-    const whitesBefore = whiteKeysBetween(ENS_LOW, n) - (isBlackKey(n) ? 0 : 1);
-    return isBlackKey(n) ? whitesBefore * w : (whitesBefore + 0.5) * w;
-  }
-
-  let ensMembers = [];
-  let ensSort = 'pitch';
-  let ensEditing = null;
-  let ensRange = { low: null, high: null };
-
-  async function loadEnsemble() {
-    ensMembers = await api('/api/nk/ensemble');
-    renderEnsemble();
-  }
-
-  function ensTicksHtml() {
-    let t = '';
-    for (let n = ENS_LOW; n <= ENS_HIGH; n += 12) t += `<span class="ens-tick" style="left:${notePos(n)}%"></span>`;
-    return t;
-  }
-  function ensRangeBarHtml(m) {
-    if (m.range_low === null || m.range_high === null) return `<div class="ens-bar-track">${ensTicksHtml()}<span class="ens-bar-empty">Stimmumfang noch offen</span></div>`;
-    const a = notePos(m.range_low);
-    const b = notePos(m.range_high);
-    return `<div class="ens-bar-track">${ensTicksHtml()}
-      <div class="ens-bar" style="left:${a}%;width:${Math.max(b - a, 0.8)}%"></div>
-    </div>`;
-  }
-  function ensAxisHtml() {
-    let marks = '';
-    for (let n = ENS_LOW; n <= ENS_HIGH; n += 12) marks += `<span class="ens-axis-mark" style="left:${notePos(n)}%">${noteName(n)}</span>`;
-    return `<div class="ens-axis">${marks}</div>`;
-  }
-
-  function renderEnsemble() {
-    const withRange = ensMembers.filter(m => m.range_low !== null && m.range_high !== null);
-    document.getElementById('ens-overview').classList.toggle('hidden', !ensMembers.length);
-    const sorted = [...ensMembers].sort((a, b) => {
-      if (ensSort === 'name') return a.name.localeCompare(b.name, 'de');
-      const ma = a.range_low === null ? -1 : a.range_low + a.range_high;
-      const mb = b.range_low === null ? -1 : b.range_low + b.range_high;
-      return mb - ma || a.name.localeCompare(b.name, 'de');
-    });
-    document.querySelectorAll('[data-ens-sort]').forEach(b => b.classList.toggle('active', b.dataset.ensSort === ensSort));
-    const lowest = withRange.length ? Math.min(...withRange.map(m => m.range_low)) : null;
-    const highest = withRange.length ? Math.max(...withRange.map(m => m.range_high)) : null;
-    document.getElementById('ens-range-chart').innerHTML = `
-      ${withRange.length ? `<div class="ens-total">Gesamtumfang des Ensembles: <strong>${noteName(lowest)} – ${noteName(highest)}</strong> · ${rangeSpanText(lowest, highest)}</div>` : ''}
-      <div class="ens-chart-rows">
-        ${sorted.map(m => `
-          <button type="button" class="ens-chart-row" data-ens-edit="${m.id}">
-            <span class="ens-chart-name">${escapeHtml(m.name)}</span>
-            <span class="ens-chart-bar">${ensRangeBarHtml(m)}</span>
-            <span class="ens-chart-range">${m.range_low !== null ? `${noteName(m.range_low)}–${noteName(m.range_high)}` : ''}</span>
-          </button>`).join('')}
-        <div class="ens-chart-row ens-chart-axis-row"><span class="ens-chart-name"></span><span class="ens-chart-bar">${ensAxisHtml()}</span><span class="ens-chart-range"></span></div>
-      </div>`;
-
-    const noteBlock = (label, text) => text ? `<div class="ens-note"><span>${label}</span><p>${escapeHtml(text)}</p></div>` : '';
-    document.getElementById('ens-list').innerHTML = ensMembers.length ? [...ensMembers].sort((a, b) => a.name.localeCompare(b.name, 'de')).map(m => `
-      <div class="card ens-card">
-        <div class="ens-card-head">
-          <div>
-            <div class="ens-card-name">${escapeHtml(m.name)}</div>
-            <div class="ens-card-range">${m.range_low !== null
-              ? `🎵 ${noteName(m.range_low)} – ${noteName(m.range_high)} <em>${rangeSpanText(m.range_low, m.range_high)}</em>`
-              : '<em>Stimmumfang noch nicht eingetragen</em>'}</div>
-          </div>
-          <button type="button" class="ghost" data-ens-edit="${m.id}">Bearbeiten</button>
-        </div>
-        ${m.range_low !== null ? ensRangeBarHtml(m) : ''}
-        ${noteBlock('💃 Tanz', m.dance_notes)}
-        ${noteBlock('🎭 Schauspiel', m.acting_notes)}
-        ${noteBlock('📝 Weitere Kommentare', m.notes)}
-      </div>`).join('') : `
-      <div class="empty-card">
-        <div class="empty-card-icon">🎤</div>
-        <strong>Noch niemand im Ensemble</strong>
-        <span>Lege Personen an und klicke ihren Stimmumfang auf der Klaviatur an.</span>
-      </div>`;
-    document.querySelectorAll('#tab-nk_ensemble [data-ens-edit]').forEach(b => b.addEventListener('click', () =>
-      openEnsModal(ensMembers.find(m => m.id === +b.dataset.ensEdit))));
-  }
-  document.querySelectorAll('[data-ens-sort]').forEach(b => b.addEventListener('click', () => { ensSort = b.dataset.ensSort; renderEnsemble(); }));
-
-  // ---- Klaviatur ----
-  function renderPiano() {
-    const { low, high } = ensRange;
-    const total = whiteKeysBetween(ENS_LOW, ENS_HIGH);
-    const w = 100 / total;
-    let whites = '';
-    let blacks = '';
-    let wi = 0;
-    for (let n = ENS_LOW; n <= ENS_HIGH; n++) {
-      const inRange = low !== null && n >= low && n <= (high !== null ? high : low);
-      const cls = `${inRange ? 'in-range' : ''} ${n === low || n === high ? 'is-edge' : ''} ${n === 60 ? 'is-c4' : ''}`;
-      if (isBlackKey(n)) {
-        blacks += `<button type="button" class="piano-key black ${cls}" data-note="${n}" style="left:${wi * w - w * 0.31}%;width:${w * 0.62}%" title="${noteName(n)}"></button>`;
-      } else {
-        whites += `<button type="button" class="piano-key white ${cls}" data-note="${n}" style="width:${w}%" title="${noteName(n)}">${n % 12 === 0 ? `<span>${noteName(n)}</span>` : ''}</button>`;
-        wi++;
-      }
-    }
-    document.getElementById('ens-piano').innerHTML = whites + blacks;
-    document.getElementById('ens-range-info').innerHTML = low === null
-      ? '<span class="hint">Noch kein Ton gewählt – zuerst den tiefsten Ton anklicken.</span>'
-      : `<span>Tiefster Ton <strong>${noteName(low)}</strong></span>
-         <span>Höchster Ton <strong>${high !== null ? noteName(high) : '… jetzt anklicken'}</strong></span>
-         ${high !== null ? `<span>Umfang <strong>${rangeSpanText(low, high)}</strong></span>` : ''}
-         <button type="button" class="link-btn" id="ens-range-reset">zurücksetzen</button>`;
-    const reset = document.getElementById('ens-range-reset');
-    if (reset) reset.addEventListener('click', () => { ensRange = { low: null, high: null }; renderPiano(); });
-  }
-  // 1. Klick = tiefster Ton, 2. Klick = höchster Ton, danach verschiebt ein Klick die nähere Grenze
-  document.getElementById('ens-piano').addEventListener('click', (e) => {
-    const key = e.target.closest('[data-note]');
-    if (!key) return;
-    const n = +key.dataset.note;
-    let { low, high } = ensRange;
-    if (low === null) low = n;
-    else if (high === null) { high = n; if (high < low) [low, high] = [high, low]; }
-    else if (Math.abs(n - low) <= Math.abs(n - high)) low = Math.min(n, high);
-    else high = Math.max(n, low);
-    ensRange = { low, high };
-    renderPiano();
-  });
-
-  const ensModal = document.getElementById('ens-modal-overlay');
-  function openEnsModal(m) {
-    ensEditing = m || null;
-    document.getElementById('ens-modal-heading').textContent = m ? m.name : 'Neue Person';
-    document.getElementById('ens-name').value = m ? m.name : '';
-    document.getElementById('ens-dance').value = m ? (m.dance_notes || '') : '';
-    document.getElementById('ens-acting').value = m ? (m.acting_notes || '') : '';
-    document.getElementById('ens-notes').value = m ? (m.notes || '') : '';
-    document.getElementById('ens-delete').classList.toggle('hidden', !m);
-    ensRange = { low: m ? m.range_low : null, high: m ? m.range_high : null };
-    renderPiano();
-    ensModal.classList.remove('hidden');
-    // Klaviatur auf den gewählten Bereich (bzw. die Mitte) scrollen - wichtig am Handy
-    const scroller = ensModal.querySelector('.piano-scroll');
-    const center = ensRange.low !== null ? notePos(Math.round((ensRange.low + (ensRange.high ?? ensRange.low)) / 2)) : notePos(60);
-    requestAnimationFrame(() => { scroller.scrollLeft = scroller.scrollWidth * center / 100 - scroller.clientWidth / 2; });
-    if (!m) setTimeout(() => document.getElementById('ens-name').focus(), 0);
-  }
-  document.getElementById('ens-new-btn').addEventListener('click', () => openEnsModal(null));
-  document.getElementById('ens-cancel').addEventListener('click', () => ensModal.classList.add('hidden'));
-  ensModal.addEventListener('click', (e) => { if (e.target === ensModal) ensModal.classList.add('hidden'); });
-  document.getElementById('ens-delete').addEventListener('click', async () => {
-    if (!ensEditing || !confirm(`„${ensEditing.name}“ aus dem Ensemble löschen?`)) return;
-    await api(`/api/nk/ensemble/${ensEditing.id}`, { method: 'DELETE' });
-    ensModal.classList.add('hidden');
-    loadEnsemble();
-  });
-  document.getElementById('ens-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const payload = {
-      name: document.getElementById('ens-name').value.trim(),
-      range_low: ensRange.low,
-      range_high: ensRange.high !== null ? ensRange.high : ensRange.low,
-      dance_notes: document.getElementById('ens-dance').value,
-      acting_notes: document.getElementById('ens-acting').value,
-      notes: document.getElementById('ens-notes').value,
-    };
-    if (!payload.name) return;
-    try {
-      await api(ensEditing ? `/api/nk/ensemble/${ensEditing.id}` : '/api/nk/ensemble', {
-        method: ensEditing ? 'PUT' : 'POST', body: JSON.stringify(payload),
-      });
-      ensModal.classList.add('hidden');
-      toast('Gespeichert');
-      loadEnsemble();
-    } catch (err) { alert(err.message); }
-  });
-
   // ================= FINDER (Kreatief) =================
   // Fördergeld-, Pressekontakt- und Sponsorensuche per KI-Websuche. Die Suche läuft auf dem
   // Server im Hintergrund; hier wird der Stand alle paar Sekunden abgefragt.

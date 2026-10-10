@@ -347,25 +347,65 @@ CREATE TABLE IF NOT EXISTS nk_todos (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS nk_ensemble (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  owner_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  range_low INTEGER,
-  range_high INTEGER,
-  dance_notes TEXT,
-  acting_notes TEXT,
-  notes TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_nk_ensemble_owner ON nk_ensemble(owner_id);
 CREATE INDEX IF NOT EXISTS idx_nk_todos_concert ON nk_todos(concert_id);
 CREATE INDEX IF NOT EXISTS idx_nk_options_poll ON nk_poll_options(poll_id);
 CREATE INDEX IF NOT EXISTS idx_nk_comments_concert ON nk_comments(concert_id);
 CREATE INDEX IF NOT EXISTS idx_nk_files_concert ON nk_concert_files(concert_id);
+
+CREATE TABLE IF NOT EXISTS nk_budgets (
+  concert_id INTEGER NOT NULL REFERENCES nk_concerts(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  data TEXT NOT NULL,
+  visitors INTEGER,
+  source TEXT,
+  updated_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (concert_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS nk_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  concert_id INTEGER NOT NULL REFERENCES nk_concerts(id) ON DELETE CASCADE,
+  section TEXT DEFAULT 'gema',
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  created_by INTEGER REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_nk_links_concert ON nk_links(concert_id);
 `);
+
+// Gesehen-Status fuer hochgeladene Dateien. Beim ersten Anlegen gelten alle schon vorhandenen
+// Dateien fuer alle Konten als gesehen - sonst waere schlagartig alles rot markiert.
+const fileReadsExisted = !!db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'nk_file_reads'").get();
+db.exec(`
+CREATE TABLE IF NOT EXISTS nk_file_reads (
+  file_id INTEGER NOT NULL REFERENCES nk_concert_files(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  read_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (file_id, user_id)
+);
+`);
+if (!fileReadsExisted) {
+  db.exec('INSERT OR IGNORE INTO nk_file_reads (file_id, user_id) SELECT f.id, u.id FROM nk_concert_files f CROSS JOIN app_users u');
+}
+
+ensureColumn('app_users', 'email', 'TEXT');
+// Beim ersten Start mit Sponsoren-Reiter: wer NK-Projekte sieht, bekommt auch die Sponsoren freigegeben
+if (ensureColumn('app_users', 'nk_notify', "TEXT DEFAULT 'instant'")) {
+  db.prepare('SELECT id, allowed_tabs FROM app_users WHERE allowed_tabs IS NOT NULL').all().forEach(u => {
+    try {
+      const tabs = JSON.parse(u.allowed_tabs);
+      if (Array.isArray(tabs) && tabs.includes('nk_projects') && !tabs.includes('nk_sponsors')) {
+        db.prepare('UPDATE app_users SET allowed_tabs = ? WHERE id = ?').run(JSON.stringify([...tabs, 'nk_sponsors']), u.id);
+      }
+    } catch (e) { /* ungueltige Freigabe-Liste unveraendert lassen */ }
+  });
+}
+ensureColumn('nk_concerts', 'gema_registered_at', 'TEXT');
+ensureColumn('nk_concerts', 'gema_registered_by', 'INTEGER');
+ensureColumn('nk_concerts', 'gema_reported_at', 'TEXT');
+ensureColumn('nk_concerts', 'gema_reported_by', 'INTEGER');
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----
 // Sind ADMIN_USERNAME und ADMIN_PASSWORD gesetzt, werden sie bei JEDEM Start durchgesetzt

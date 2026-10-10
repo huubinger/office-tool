@@ -16,8 +16,10 @@ const { getSchoolHolidaysForYear } = require('./schulferien');
 const { fetchAndParseIcs, buildIcs } = require('./icalparser');
 const contracts = require('./contracts');
 const access = require('./access');
+const fs = require('fs');
 const nk = require('./nk');
-const ensemble = require('./ensemble');
+const nkMail = require('./nk-mail');
+const nkSponsors = require('./nk-sponsors');
 const finder = require('./finder');
 const marketing = require('./marketing');
 const PDFDocument = require('pdfkit');
@@ -57,6 +59,7 @@ const PUBLIC_PATHS = new Set([
   '/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics',
   '/manifest.json', '/favicon.png',
   '/icons/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png',
+  '/nk/login', '/nk-manifest.json', '/icons/nk-apple-touch-icon.png', '/icons/nk-icon-192.png', '/icons/nk-icon-512.png',
 ]);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
@@ -76,6 +79,11 @@ app.use((req, res, next) => {
     req.session.userId = null;
   }
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Nicht angemeldet' });
+  // Eigener Einstieg fuer Neckarsulmer Konzerte: eigene Login-Seite, Ziel (z.B. ?concert=3) bleibt erhalten
+  if (req.path === '/nk' || req.path === '/nk/') {
+    const q = req.originalUrl.indexOf('?');
+    return res.redirect('/nk/login' + (q >= 0 ? req.originalUrl.slice(q) : ''));
+  }
   return res.redirect('/login.html');
 });
 
@@ -84,7 +92,8 @@ app.use((req, res, next) => {
 const API_TAB_RULES = [
   ['/api/nk/polls', ['nk_polls']],
   ['/api/nk/concerts', ['nk_projects']],
-  ['/api/nk/', ['nk_polls', 'nk_projects']],
+  ['/api/nk/sponsors', ['nk_sponsors']],
+  ['/api/nk/', ['nk_polls', 'nk_projects', 'nk_sponsors']],
   ['/api/tasks', ['tasks', 'calendar', 'contracts']],
   ['/api/calendar', ['tasks', 'calendar']],
   ['/api/time-entries', ['timetracking', 'tasks']],
@@ -109,10 +118,6 @@ app.use((req, res, next) => {
   // Personenliste darf jeder lesen (Namen/Farben), aendern nur mit Reiter "Personen"
   if (req.path.startsWith('/api/people') && req.method !== 'GET' && !req.tabs.includes('people')) {
     return res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
-  }
-  // Ensemble ist ein privater Bereich: nur Admins, unabhaengig von den Reiter-Freigaben
-  if (req.path.startsWith('/api/nk/ensemble')) {
-    return req.isAdmin ? next() : res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
   }
   // Finder (Förder-/Presse-/Sponsorensuche): Admins immer, sonst per Reiter-Freigabe
   if (req.path.startsWith('/api/finder')) {
@@ -277,6 +282,40 @@ app.delete('/api/users/:id', (req, res) => {
   if (+req.params.id === req.session.userId) return res.status(400).json({ error: 'Das eigene, gerade angemeldete Konto kann nicht gelöscht werden' });
   db.prepare('DELETE FROM app_users WHERE id = ?').run(req.params.id);
   res.status(204).end();
+});
+
+// ---------- Neckarsulmer Konzerte als eigene "App" (/nk) ----------
+// Gleiche Oberflaeche wie das Office-Tool, aber mit eigenem Namen, Icon und Manifest, damit
+// sie sich auf dem iPhone als eigenes Symbol auf den Home-Bildschirm legen laesst. Im NK-Modus
+// zeigt die Oberflaeche nur die Reiter der Neckarsulmer Konzerte.
+function nkVariant(file) {
+  let html = fs.readFileSync(path.join(__dirname, 'public', file), 'utf8');
+  html = html
+    .replace('<head>', '<head>\n<base href="/">\n<script>window.NK_MODE = true; document.documentElement.classList.add(\'nk-mode\');</script>')
+    .replace(/<title>[^<]*<\/title>/, file === 'login.html' ? '<title>Anmelden – Neckarsulmer Konzerte</title>' : '<title>Neckarsulmer Konzerte</title>')
+    .replace('href="manifest.json"', 'href="nk-manifest.json"')
+    .replace('href="favicon.png"', 'href="icons/nk-icon-192.png"')
+    .replace('href="icons/apple-touch-icon.png"', 'href="icons/nk-apple-touch-icon.png"')
+    .replace('name="apple-mobile-web-app-title" content="Office-Tool"', 'name="apple-mobile-web-app-title" content="NK Konzerte"');
+  if (file === 'login.html') {
+    html = html.replace('<h1>Office-Tool</h1>', '<img src="icons/nk-icon-192.png" alt="" class="login-app-icon"><h1>Neckarsulmer Konzerte</h1>');
+  }
+  return html;
+}
+app.get('/nk', (req, res) => {
+  // "/nk/" -> "/nk", sonst zeigen die relativen Pfade (style.css, app.js) ins Leere
+  if (req.path.endsWith('/')) {
+    const q = req.originalUrl.indexOf('?');
+    return res.redirect('/nk' + (q >= 0 ? req.originalUrl.slice(q) : ''));
+  }
+  res.type('html').send(nkVariant('index.html'));
+});
+app.get('/nk/login', (req, res) => {
+  if (req.session && req.session.userId) {
+    const q = req.originalUrl.indexOf('?');
+    return res.redirect('/nk' + (q >= 0 ? req.originalUrl.slice(q) : ''));
+  }
+  res.type('html').send(nkVariant('login.html'));
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -1926,7 +1965,8 @@ app.delete('/api/contract-events/:id/items/:itemId', (req, res) => {
 });
 
 nk.register(app);
-ensemble.register(app);
+nkMail.register(app);
+nkSponsors.register(app);
 finder.register(app);
 marketing.register(app);
 

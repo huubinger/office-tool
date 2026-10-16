@@ -610,6 +610,13 @@ button.ghost:hover { background: var(--panel-alt); filter: none; color: var(--in
   padding: 2px 8px; border-radius: var(--radius-sm); line-height: 1;
 }
 .task-row-menu-btn:hover { background: var(--panel); color: var(--ink); }
+.task-actions-cell { white-space: nowrap; text-align: right; }
+.task-today-btn {
+  background: transparent; border: 1px solid transparent; color: var(--ink-faint); font-size: 15px;
+  padding: 2px 7px; border-radius: var(--radius-sm); line-height: 1; cursor: pointer;
+}
+.task-today-btn:hover { background: var(--panel); color: var(--warn); border-color: var(--line); filter: none; }
+.task-today-btn.on { color: var(--warn); }
 
 .task-row-compact {
   display: flex; align-items: center; gap: 8px;

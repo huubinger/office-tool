@@ -801,7 +801,7 @@
         <td>${t.due_date ? fmtDateDE(t.due_date) : '–'}</td>
         <td>${fmtDuration(t.estimated_minutes)}</td>
         <td>${statusPillHtml(t.status)}</td>
-        <td><button type="button" class="task-row-menu-btn" data-task-row="${t.id}">⋯</button></td>
+        <td class="task-actions-cell">${t.status === 'erledigt' ? '' : `<button type="button" class="task-today-btn ${t.due_date === isoDate(new Date()) ? 'on' : ''}" data-today-btn="${t.id}" title="Heute erledigen – in den Tagesplan">☀</button>`}<button type="button" class="task-row-menu-btn" data-task-row="${t.id}">⋯</button></td>
       </tr>
     `;
   }
@@ -832,6 +832,53 @@
         await toggleTaskDone(+cb.dataset.doneToggle, cb.checked);
       });
     });
+    container.querySelectorAll('[data-today-btn]').forEach(b => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      b.disabled = true;
+      try { await planTaskToday(+b.dataset.todayBtn); }
+      catch (err) { toast('Einplanen fehlgeschlagen'); b.disabled = false; }
+    }));
+  }
+
+  // Ein Klick auf ☀: Aufgabe ist heute faellig und bekommt in der Wochenplanung die naechste
+  // freie Luecke ab jetzt - so steht sie unter "Heute" und rechts im Tagesplan.
+  // Geplant wird fuer die eingeloggte Person, falls sie zustaendig ist, sonst fuer alle Zustaendigen.
+  // Ohne Zustaendige wird die eingeloggte Person eingetragen.
+  async function planTaskToday(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    const now = new Date();
+    const todayIso = isoDate(now);
+    const body = { due_date: todayIso };
+    if (t.start_date && t.start_date > todayIso) body.start_date = todayIso;
+    if (!t.people.length && currentUser.person_id) body.person_ids = [currentUser.person_id];
+    const updated = await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+
+    const people = (updated.people || []).filter(p => !currentUser.person_id || !updated.people.some(q => q.id === currentUser.person_id) || p.id === currentUser.person_id);
+    let entries = [];
+    try { entries = await api(`/api/calendar?from=${todayIso}&to=${todayIso}`); } catch (e) { /* dann ohne Kollisionspruefung */ }
+    const dur = updated.estimated_minutes || 30;
+    const nowMin = Math.ceil((now.getHours() * 60 + now.getMinutes()) / SLOT_MINUTES) * SLOT_MINUTES;
+    let firstStart = null, already = false;
+    for (const person of people) {
+      const mine = entries.filter(e => e.person_id === person.id);
+      if (mine.some(e => e.task_id === id)) { already = true; continue; }
+      const busy = mine.map(e => [timeToMinutes(e.start_time), timeToMinutes(e.end_time)]).sort((a, b) => a[0] - b[0]);
+      let start = nowMin;
+      for (const [s, e] of busy) {
+        if (s < start + dur && e > start) start = Math.ceil(e / SLOT_MINUTES) * SLOT_MINUTES;
+      }
+      if (start + dur > 24 * 60) start = Math.max(0, Math.min(nowMin, 24 * 60 - dur)); // Tag voll: trotzdem einplanen
+      await api('/api/calendar', {
+        method: 'POST',
+        body: JSON.stringify({ task_id: id, person_id: person.id, date: todayIso, start_time: minutesToTime(start), end_time: minutesToTime(Math.min(start + dur, 24 * 60 - 1)) }),
+      });
+      if (firstStart === null) firstStart = start;
+    }
+    toast(firstStart !== null ? `Für heute eingeplant um ${minutesToTime(firstStart)} Uhr`
+      : already ? 'Steht schon im heutigen Tagesplan'
+      : 'Auf heute gesetzt');
+    await loadTasks();
   }
 
   // Aufgaben in andere Bereiche ziehen (Maus: einfach ziehen, Handy: lange antippen und ziehen).

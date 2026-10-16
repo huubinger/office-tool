@@ -147,8 +147,23 @@
 
   // ---------- Spracherkennung ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, recording = false, baseText = '';
-  function stopRec() { if (rec) try { rec.stop(); } catch (e) {} }
+  let rec = null, recording = false, baseText = '', silenceTimer = null, parsing = false;
+  const SILENCE_MS = 2200; // nach so langer Sprechpause endet die Aufnahme von selbst
+  // Aufnahme endgueltig beenden: Ergebnisse ab jetzt ignorieren, Mikrofon freigeben
+  function stopRec() {
+    clearTimeout(silenceTimer);
+    if (!rec) return;
+    const r = rec; rec = null;
+    r.onresult = null;
+    try { r.stop(); } catch (e) {}
+    setTimeout(() => { try { r.abort(); } catch (e) {} }, 400);
+    recording = false; $('mic').classList.remove('rec');
+    if ($('mic-label').textContent.startsWith('Ich höre')) $('mic-label').textContent = 'Tippen und Aufgabe sprechen';
+  }
+  function finishRec() {
+    stopRec();
+    if ($('text').value.trim() && !tasks.length) parse();
+  }
   $('mic').addEventListener('click', () => {
     if (!SR) {
       // Fallback: Tastatur-Diktat von iOS (Mikrofon-Taste unten rechts)
@@ -156,42 +171,48 @@
       $('mic-label').textContent = 'Jetzt die 🎤-Taste auf der Tastatur tippen';
       return;
     }
-    if (recording) return stopRec();
-    rec = new SR();
-    rec.lang = 'de-DE'; rec.continuous = true; rec.interimResults = true;
+    if (recording) return finishRec();
+    if (tasks.length || parsing) return; // erst übernehmen oder verwerfen
+    const r = new SR();
+    rec = r;
+    r.lang = 'de-DE'; r.continuous = true; r.interimResults = true;
     baseText = $('text').value.trim();
-    rec.onstart = () => { recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen'; };
-    rec.onresult = e => {
+    r.onstart = () => { recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen'; };
+    r.onresult = e => {
+      if (rec !== r) return;
       let finalT = '', interim = '';
       for (let i = 0; i < e.results.length; i++) {
         if (e.results[i].isFinal) finalT += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
       }
       $('text').value = [baseText, (finalT + interim).trim()].filter(Boolean).join(' ');
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(finishRec, SILENCE_MS);
     };
-    rec.onerror = e => {
+    r.onerror = e => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         $('mic-label').textContent = 'Kein Mikrofon-Zugriff – 🎤-Taste der Tastatur nutzen';
         $('text').focus();
       }
     };
-    rec.onend = () => {
-      recording = false; $('mic').classList.remove('rec');
-      if ($('mic-label').textContent.startsWith('Ich höre')) $('mic-label').textContent = 'Tippen und Aufgabe sprechen';
-      if ($('text').value.trim() && !tasks.length) parse();
-    };
-    try { rec.start(); } catch (e) { $('text').focus(); }
+    r.onend = () => { if (rec === r) finishRec(); };
+    try { r.start(); } catch (e) { rec = null; $('text').focus(); }
   });
 
   // ---------- Auswerten ----------
   async function parse() {
+    stopRec();
+    if (parsing) return;
     const text = $('text').value.trim();
     if (!text) { msg('Bitte erst etwas diktieren.'); return; }
+    parsing = true;
     msg(''); $('parse').disabled = true; $('parse').textContent = 'Wird ausgewertet …';
     try {
       const data = await api('/api/diktat/parse', { method: 'POST', body: JSON.stringify({ text }) });
       tasks = data.tasks; render();
     } catch (err) { msg(err.message); }
+    parsing = false;
     $('parse').disabled = false; $('parse').textContent = 'Auswerten';
+    $('mic-label').textContent = tasks.length ? 'Erst übernehmen oder verwerfen' : 'Tippen und Aufgabe sprechen';
   }
   $('parse').addEventListener('click', parse);
 

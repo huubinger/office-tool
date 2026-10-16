@@ -415,6 +415,7 @@ ensureColumn('nk_todos', 'template_key', 'TEXT');
 ensureColumn('nk_todos', 'offset_days', 'INTEGER');
 ensureColumn('nk_concert_files', 'content_text', 'TEXT');
 ensureColumn('app_users', 'nk_ics_token', 'TEXT');
+ensureColumn('app_users', 'diktat_token', 'TEXT'); // Schluessel fuer den Siri-Kurzbefehl (Diktat)
 
 // ---- Erstbenutzer anlegen bzw. mit gesetzten Umgebungsvariablen synchronisieren ----
 // Sind ADMIN_USERNAME und ADMIN_PASSWORD gesetzt, werden sie bei JEDEM Start durchgesetzt

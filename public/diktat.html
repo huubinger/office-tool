@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Diktat – Office-Tool</title>
+<link rel="manifest" href="diktat-manifest.json">
+<link rel="icon" href="icons/diktat-icon-192.png">
+<link rel="apple-touch-icon" href="icons/diktat-apple-touch-icon.png">
+<meta name="theme-color" content="#0d1015">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Diktat">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap">
+<script>
+  (function () {
+    var t = 'light';
+    try { t = localStorage.getItem('office_theme') || 'light'; } catch (e) {}
+    document.documentElement.dataset.theme = t;
+    var dark = t === 'dark' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.content = dark ? '#0d1015' : '#ece5d8';
+  })();
+</script>
+<link rel="stylesheet" href="style.css">
+<style>
+  body.dk { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: Figtree, system-ui, sans-serif;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 28px); box-sizing: border-box; }
+  .dk-wrap { max-width: 560px; margin: 0 auto; }
+  .dk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .dk-head h1 { font-family: Newsreader, Georgia, serif; font-weight: 600; font-size: 30px; margin: 0; }
+  .dk-head a { color: var(--ink-soft); font-size: 14px; text-decoration: none; }
+  .dk-hello { color: var(--ink-soft); font-size: 14px; margin: -8px 0 16px; }
+  .dk-mic { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 10px 0 18px; }
+  .dk-mic button { width: 112px; height: 112px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent);
+    box-shadow: 0 10px 30px var(--accent-glow); display: grid; place-items: center; cursor: pointer; transition: transform .15s; -webkit-tap-highlight-color: transparent; }
+  .dk-mic button:active { transform: scale(.95); }
+  .dk-mic button.rec { background: var(--danger); box-shadow: 0 0 0 0 var(--danger-soft); animation: dk-pulse 1.4s infinite; }
+  @keyframes dk-pulse { 0% { box-shadow: 0 0 0 0 rgba(210,70,63,.45); } 100% { box-shadow: 0 0 0 26px rgba(210,70,63,0); } }
+  .dk-mic svg { width: 46px; height: 46px; }
+  .dk-mic-label { font-size: 14px; color: var(--ink-soft); text-align: center; min-height: 1.2em; }
+  .dk-text { width: 100%; box-sizing: border-box; min-height: 110px; resize: vertical; font: inherit; font-size: 17px; line-height: 1.4;
+    padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--field-border); background: var(--field-bg); color: var(--ink); }
+  .dk-text:focus { outline: 2px solid var(--accent-glow); border-color: var(--accent); }
+  .dk-btn { display: block; width: 100%; margin-top: 12px; padding: 14px; border-radius: var(--radius); border: 0; font: inherit; font-size: 17px; font-weight: 700;
+    background: var(--accent); color: var(--on-accent); cursor: pointer; }
+  .dk-btn.secondary { background: var(--panel-alt); color: var(--ink); border: 1px solid var(--line-strong); font-weight: 600; }
+  .dk-btn:disabled { opacity: .55; }
+  .dk-msg { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 15px; }
+  .dk-msg.err { background: var(--danger-soft); color: var(--danger); }
+  .dk-msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .dk-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-top: 14px; }
+  .dk-card label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); margin: 12px 0 5px; }
+  .dk-card label:first-child { margin-top: 0; }
+  .dk-card input, .dk-card select { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: var(--radius-sm);
+    border: 1px solid var(--field-border); background: var(--field-bg); color: var(--ink); -webkit-appearance: none; appearance: none; }
+  .dk-card input.title { font-size: 18px; font-weight: 600; }
+  .dk-row { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
+  .dk-seg { display: flex; gap: 6px; }
+  .dk-seg button, .dk-chip { flex: 1; padding: 9px 6px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel-alt);
+    color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
+  .dk-seg button.on, .dk-chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .dk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dk-chip { flex: 0 0 auto; padding: 7px 12px; border-radius: 999px; }
+  .dk-card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .dk-card-foot button { background: none; border: 0; color: var(--danger); font: inherit; font-size: 14px; cursor: pointer; padding: 4px 0; }
+  .dk-card-foot span { font-size: 13px; color: var(--ink-faint); }
+  .dk-section { margin-top: 26px; }
+  .dk-section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); margin: 0 0 8px; }
+  .dk-done { list-style: none; margin: 0; padding: 0; }
+  .dk-done li { padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 15px; }
+  .dk-done li small { display: block; color: var(--ink-soft); font-size: 13px; margin-top: 2px; }
+  details.dk-siri { margin-top: 26px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  details.dk-siri summary { font-weight: 700; cursor: pointer; }
+  .dk-siri ol { padding-left: 20px; line-height: 1.5; font-size: 15px; }
+  .dk-siri li { margin-bottom: 8px; }
+  .dk-copy { display: flex; gap: 6px; margin: 6px 0; }
+  .dk-copy code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; padding: 8px; border-radius: var(--radius-sm); background: var(--panel-alt); border: 1px solid var(--line); }
+  .dk-copy button { flex: 0 0 auto; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel-alt); color: var(--ink); font: inherit; font-size: 14px; padding: 0 12px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body class="dk">
+<div class="dk-wrap">
+  <div class="dk-head"><h1>Diktat</h1><a href="/">Office-Tool ›</a></div>
+  <p class="dk-hello" id="hello"></p>
+
+  <div class="dk-mic">
+    <button id="mic" type="button" aria-label="Diktat starten">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/><path d="M8 22h8"/></svg>
+    </button>
+    <div class="dk-mic-label" id="mic-label">Tippen und Aufgabe sprechen</div>
+  </div>
+
+  <textarea class="dk-text" id="text" placeholder="z. B. „Bis Freitag Plakatierungsantrag für den Weihnachtsmarkt abgeben, Projekt Kreatief, dringend“"></textarea>
+  <button class="dk-btn" id="parse" type="button">Auswerten</button>
+  <div id="msg" class="dk-msg hidden"></div>
+
+  <div id="cards"></div>
+  <button class="dk-btn hidden" id="save" type="button">Ins Office-Tool übernehmen</button>
+  <button class="dk-btn secondary hidden" id="discard" type="button">Verwerfen</button>
+
+  <div class="dk-section hidden" id="done-wrap">
+    <h2>Gerade übernommen</h2>
+    <ul class="dk-done" id="done"></ul>
+  </div>
+
+  <details class="dk-siri" id="siri">
+    <summary>Mit Siri diktieren (Kurzbefehl)</summary>
+    <p style="font-size:15px;color:var(--ink-soft)">Damit sagst du „Hey Siri, neue Aufgabe“, diktierst, und die Aufgabe landet direkt im Office-Tool – ohne die App zu öffnen.</p>
+    <button class="dk-btn secondary" id="token-btn" type="button">Persönlichen Schlüssel erzeugen</button>
+    <div id="token-box" class="hidden">
+      <ol>
+        <li>App <b>Kurzbefehle</b> öffnen → <b>+</b> → Name: <b>Neue Aufgabe</b>.</li>
+        <li>Aktion <b>Text diktieren</b> hinzufügen (Sprache Deutsch, Diktat beenden: „Nach Pause“).</li>
+        <li>Aktion <b>Inhalte von URL abrufen</b> hinzufügen, URL:
+          <div class="dk-copy"><code id="siri-url"></code><button type="button" data-copy="siri-url">Kopieren</button></div>
+          Pfeil aufklappen: Methode <b>POST</b>, Header <b>Authorization</b> =
+          <div class="dk-copy"><code id="siri-auth"></code><button type="button" data-copy="siri-auth">Kopieren</button></div>
+          Anfragetext <b>JSON</b>, Feld <b>text</b> (Text) = Variable <b>Diktierter Text</b>.</li>
+        <li>Aktion <b>Text sprechen</b> mit <b>Inhalte von URL</b> – Siri liest dann vor, was angelegt wurde.</li>
+        <li>Fertig. „Hey Siri, neue Aufgabe“ startet den Kurzbefehl. Auch auf die Apple Watch oder die Action-Taste legbar.</li>
+      </ol>
+      <p style="font-size:13px;color:var(--ink-faint)">Der Schlüssel ist wie ein Passwort. Neu erzeugen macht den alten ungültig.</p>
+    </div>
+  </details>
+</div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const PRIOS = ['hoch', 'mittel', 'niedrig'];
+  let projects = [], people = [], me = null, tasks = [];
+
+  async function api(url, opts) {
+    const res = await fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' }, opts || {}));
+    if (res.status === 401) { location.href = '/login.html?next=/diktat'; throw new Error('Nicht angemeldet'); }
+    const data = res.status === 204 ? null : await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data && data.error) || 'Fehler ' + res.status);
+    return data;
+  }
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function msg(text, kind) { const m = $('msg'); m.textContent = text || ''; m.className = 'dk-msg ' + (kind || 'err') + (text ? '' : ' hidden'); }
+
+  // ---------- Spracherkennung ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, recording = false, baseText = '';
+  function stopRec() { if (rec) try { rec.stop(); } catch (e) {} }
+  $('mic').addEventListener('click', () => {
+    if (!SR) {
+      // Fallback: Tastatur-Diktat von iOS (Mikrofon-Taste unten rechts)
+      $('text').focus();
+      $('mic-label').textContent = 'Jetzt die 🎤-Taste auf der Tastatur tippen';
+      return;
+    }
+    if (recording) return stopRec();
+    rec = new SR();
+    rec.lang = 'de-DE'; rec.continuous = true; rec.interimResults = true;
+    baseText = $('text').value.trim();
+    rec.onstart = () => { recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen'; };
+    rec.onresult = e => {
+      let finalT = '', interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalT += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
+      }
+      $('text').value = [baseText, (finalT + interim).trim()].filter(Boolean).join(' ');
+    };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        $('mic-label').textContent = 'Kein Mikrofon-Zugriff – 🎤-Taste der Tastatur nutzen';
+        $('text').focus();
+      }
+    };
+    rec.onend = () => {
+      recording = false; $('mic').classList.remove('rec');
+      if ($('mic-label').textContent.startsWith('Ich höre')) $('mic-label').textContent = 'Tippen und Aufgabe sprechen';
+      if ($('text').value.trim() && !tasks.length) parse();
+    };
+    try { rec.start(); } catch (e) { $('text').focus(); }
+  });
+
+  // ---------- Auswerten ----------
+  async function parse() {
+    const text = $('text').value.trim();
+    if (!text) { msg('Bitte erst etwas diktieren.'); return; }
+    msg(''); $('parse').disabled = true; $('parse').textContent = 'Wird ausgewertet …';
+    try {
+      const data = await api('/api/diktat/parse', { method: 'POST', body: JSON.stringify({ text }) });
+      tasks = data.tasks; render();
+    } catch (err) { msg(err.message); }
+    $('parse').disabled = false; $('parse').textContent = 'Auswerten';
+  }
+  $('parse').addEventListener('click', parse);
+
+  function render() {
+    $('cards').innerHTML = tasks.map((t, i) => `
+      <div class="dk-card" data-i="${i}">
+        <label>Aufgabe</label>
+        <input class="title" data-f="title" value="${esc(t.title)}">
+        <label>Fällig</label>
+        <div class="dk-row"><input type="date" data-f="due_date" value="${esc(t.due_date || '')}"><input type="time" data-f="due_time" value="${esc(t.due_time || '')}"></div>
+        <label>Priorität</label>
+        <div class="dk-seg">${PRIOS.map(p => `<button type="button" data-prio="${p}" class="${t.priority === p ? 'on' : ''}">${p[0].toUpperCase() + p.slice(1)}</button>`).join('')}</div>
+        <label>Projekt</label>
+        <select data-f="project_id"><option value="">– kein Projekt –</option>${projects.map(p => `<option value="${p.id}" ${t.project_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+        <label>Für</label>
+        <div class="dk-chips">${people.map(p => `<button type="button" class="dk-chip ${t.person_ids.includes(p.id) ? 'on' : ''}" data-person="${p.id}">${esc(p.name)}</button>`).join('')}</div>
+        ${t.description ? `<label>Notiz</label><input data-f="description" value="${esc(t.description)}">` : ''}
+        <div class="dk-card-foot"><span>${tasks.length > 1 ? 'Aufgabe ' + (i + 1) + ' von ' + tasks.length : ''}</span><button type="button" data-remove>Entfernen</button></div>
+      </div>`).join('');
+    const has = tasks.length > 0;
+    $('save').classList.toggle('hidden', !has);
+    $('discard').classList.toggle('hidden', !has);
+    $('parse').classList.toggle('hidden', has);
+    $('save').textContent = tasks.length > 1 ? `${tasks.length} Aufgaben übernehmen` : 'Ins Office-Tool übernehmen';
+    if (has) $('cards').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  $('cards').addEventListener('input', e => {
+    const card = e.target.closest('.dk-card'); const f = e.target.dataset.f;
+    if (!card || !f) return;
+    const t = tasks[card.dataset.i];
+    t[f] = f === 'project_id' ? (e.target.value ? Number(e.target.value) : null) : (e.target.value || null);
+  });
+  $('cards').addEventListener('click', e => {
+    const card = e.target.closest('.dk-card'); if (!card) return;
+    const t = tasks[card.dataset.i];
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.prio) t.priority = b.dataset.prio;
+    else if (b.dataset.person) {
+      const id = Number(b.dataset.person);
+      t.person_ids = t.person_ids.includes(id) ? t.person_ids.filter(x => x !== id) : t.person_ids.concat(id);
+    } else if (b.hasAttribute('data-remove')) tasks.splice(Number(card.dataset.i), 1);
+    render();
+  });
+
+  function reset() { tasks = []; render(); $('text').value = ''; $('mic-label').textContent = 'Tippen und Aufgabe sprechen'; }
+  $('discard').addEventListener('click', () => { reset(); msg(''); });
+
+  $('save').addEventListener('click', async () => {
+    if (tasks.some(t => !String(t.title || '').trim())) { msg('Jede Aufgabe braucht einen Titel.'); return; }
+    $('save').disabled = true;
+    try {
+      for (const t of tasks) {
+        await api('/api/tasks', { method: 'POST', body: JSON.stringify({
+          title: t.title.trim(), description: t.description || null, priority: t.priority, due_date: t.due_date || null,
+          due_time: t.due_time || null, project_id: t.project_id || null, person_ids: t.person_ids,
+          estimated_minutes: t.estimated_minutes || undefined,
+        }) });
+        addDone(t);
+      }
+      const n = tasks.length;
+      reset(); msg(n > 1 ? `${n} Aufgaben übernommen ✓` : 'Aufgabe übernommen ✓', 'ok');
+      setTimeout(() => msg(''), 3500);
+    } catch (err) { msg(err.message); }
+    $('save').disabled = false;
+  });
+
+  function addDone(t) {
+    const bits = [];
+    if (t.due_date) bits.push('fällig ' + new Date(t.due_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' }) + (t.due_time ? ', ' + t.due_time : ''));
+    const pr = projects.find(p => p.id === t.project_id); if (pr) bits.push(pr.name);
+    const names = t.person_ids.map(id => (people.find(p => p.id === id) || {}).name).filter(Boolean); if (names.length) bits.push(names.join(', '));
+    if (t.priority !== 'mittel') bits.push(t.priority);
+    const li = document.createElement('li');
+    li.innerHTML = esc(t.title) + (bits.length ? `<small>${esc(bits.join(' · '))}</small>` : '');
+    $('done').prepend(li); $('done-wrap').classList.remove('hidden');
+  }
+
+  // ---------- Siri-Kurzbefehl ----------
+  function showToken(token) {
+    $('siri-url').textContent = location.origin + '/api/diktat/siri';
+    $('siri-auth').textContent = 'Bearer ' + token;
+    $('token-box').classList.remove('hidden');
+    $('token-btn').textContent = 'Neuen Schlüssel erzeugen';
+  }
+  $('siri').addEventListener('toggle', async () => {
+    if (!$('siri').open || !$('token-box').classList.contains('hidden')) return;
+    try { const d = await api('/api/diktat/token'); if (d.token) showToken(d.token); } catch (e) {}
+  });
+  $('token-btn').addEventListener('click', async () => {
+    try { const d = await api('/api/diktat/token', { method: 'POST' }); showToken(d.token); } catch (err) { msg(err.message); }
+  });
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-copy]'); if (!b) return;
+    try { await navigator.clipboard.writeText($(b.dataset.copy).textContent); b.textContent = 'Kopiert ✓'; setTimeout(() => (b.textContent = 'Kopieren'), 1500); } catch (err) {}
+  });
+
+  // ---------- Start ----------
+  (async () => {
+    try {
+      const [m, pr, pe] = await Promise.all([api('/api/me'), api('/api/projects'), api('/api/people')]);
+      me = m; projects = pr;
+      people = pe.filter(p => p.active !== 0 && p.active !== false);
+      $('hello').textContent = 'Hallo ' + (me.display_name || me.username) + ' – sprich deine Aufgabe, ich trage sie ein.';
+      if (!(me.tabs || []).includes('tasks')) msg('Dein Konto hat keinen Zugriff auf den Reiter „Aufgaben“.');
+    } catch (err) { msg(err.message); }
+  })();
+})();
+</script>
+</body>
+</html>

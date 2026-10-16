@@ -27,6 +27,7 @@ const nkContacts = require('./nk-contacts');
 const nkEvening = require('./nk-evening');
 const nkShare = require('./nk-share');
 const nkReport = require('./nk-report');
+const diktat = require('./diktat');
 const finder = require('./finder');
 const marketing = require('./marketing');
 const PDFDocument = require('pdfkit');
@@ -66,7 +67,7 @@ const PUBLIC_PATHS = new Set([
   '/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics',
   '/manifest.json', '/favicon.png',
   '/icons/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png',
-  '/nk/login', '/nk-manifest.json', '/sw.js', '/icons/nk-apple-touch-icon.png', '/icons/nk-icon-192.png', '/icons/nk-icon-512.png',
+  '/nk/login', '/nk-manifest.json', '/api/diktat/siri', '/diktat-manifest.json', '/icons/diktat-icon-192.png', '/icons/diktat-icon-512.png', '/icons/diktat-apple-touch-icon.png', '/sw.js', '/icons/nk-apple-touch-icon.png', '/icons/nk-icon-192.png', '/icons/nk-icon-512.png',
 ]);
 app.use((req, res, next) => {
   if (PUBLIC_PATHS.has(req.path)) return next();
@@ -89,6 +90,7 @@ app.use((req, res, next) => {
     req.session.userId = null;
   }
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Nicht angemeldet' });
+  if (req.path === '/diktat') return res.redirect('/login.html?next=/diktat');
   // Eigener Einstieg fuer Neckarsulmer Konzerte: eigene Login-Seite, Ziel (z.B. ?concert=3) bleibt erhalten
   if (req.path === '/nk' || req.path === '/nk/') {
     const q = req.originalUrl.indexOf('?');
@@ -111,6 +113,7 @@ const API_TAB_RULES = [
   ['/api/nk/', ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts']],
   ['/api/push/', ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts']],
   ['/api/tasks', ['tasks', 'calendar', 'contracts']],
+  ['/api/diktat', ['tasks']],
   ['/api/calendar', ['tasks', 'calendar']],
   ['/api/time-entries', ['timetracking', 'tasks']],
   ['/api/reports', ['timetracking']],
@@ -1990,6 +1993,7 @@ nkContacts.register(app);
 nkEvening.register(app);
 nkShare.register(app);
 nkReport.register(app);
+diktat.register(app);
 nk.backfillFileText();
 finder.register(app);
 marketing.register(app);

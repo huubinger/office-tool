@@ -834,6 +834,112 @@
     });
   }
 
+  // Aufgaben in andere Bereiche ziehen (Maus: einfach ziehen, Handy: lange antippen und ziehen).
+  // Eigene Umsetzung statt HTML5-Drag&Drop, weil das auf Touch-Geraeten nicht funktioniert.
+  // items: Selektor der ziehbaren Elemente (mit data-task-row), zones: Selektor der Ablageflaechen
+  // (mit data-drop-zone); onDrop(taskId, zoneKey) wird nur bei Wechsel des Bereichs aufgerufen.
+  function enableTaskDrag(container, { items, zones, onDrop }) {
+    container.querySelectorAll(items).forEach(item => {
+      const begin = (startX, startY, isTouch) => {
+        const fromZone = item.closest('[data-drop-zone]');
+        const rect = item.getBoundingClientRect();
+        const ghost = document.createElement('div');
+        ghost.className = 'task-drag-ghost';
+        ghost.textContent = (item.querySelector('.focus-title, td:nth-child(2)') || item).textContent.trim();
+        ghost.style.width = Math.min(rect.width, 360) + 'px';
+        document.body.appendChild(ghost);
+        document.body.classList.add('task-dragging');
+        item.classList.add('drag-source');
+        if (isTouch && navigator.vibrate) navigator.vibrate(15);
+        const fromKey = fromZone ? fromZone.dataset.dropZone : null;
+        let current = null; // Schluessel des Bereichs unter dem Zeiger
+        // Ein Bereich kann aus mehreren Elementen bestehen (z.B. alle Tabellenzeilen einer Projekt-Gruppe)
+        const highlight = (key, on) => document.querySelectorAll(zones).forEach(z => {
+          if (z.dataset.dropZone === key) z.classList.toggle('drop-hover', on);
+        });
+        const move = (x, y) => {
+          ghost.style.transform = `translate(${x + 12}px, ${y + 12}px)`;
+          const under = document.elementFromPoint(x, y);
+          const zone = under && under.closest(zones);
+          const key = zone ? zone.dataset.dropZone : null;
+          if (key !== current) {
+            if (current) highlight(current, false);
+            current = key;
+            if (current && current !== fromKey) highlight(current, true);
+          }
+        };
+        move(startX, startY);
+        const end = async (cancelled) => {
+          ghost.remove();
+          document.body.classList.remove('task-dragging');
+          item.classList.remove('drag-source');
+          if (current) highlight(current, false);
+          // Den Klick nach dem Loslassen schlucken, damit nicht das Formular aufgeht
+          const swallow = (e) => { e.stopPropagation(); e.preventDefault(); };
+          window.addEventListener('click', swallow, true);
+          setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+          if (!cancelled && current && current !== fromKey) {
+            try { await onDrop(+item.dataset.taskRow, current); }
+            catch (err) { toast('Verschieben fehlgeschlagen'); }
+          }
+        };
+        return { move, end };
+      };
+
+      item.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || e.target.closest('input, button, a')) return;
+        const sx = e.clientX, sy = e.clientY;
+        let drag = null;
+        const onMove = (ev) => {
+          if (!drag && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+          if (!drag) drag = begin(ev.clientX, ev.clientY, false);
+          ev.preventDefault();
+          drag.move(ev.clientX, ev.clientY);
+        };
+        const onUp = () => {
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          if (drag) drag.end(false);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      item.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1 || e.target.closest('input, button, a')) return;
+        const t0 = e.touches[0];
+        let lx = t0.clientX, ly = t0.clientY;
+        let drag = null;
+        const timer = setTimeout(() => { drag = begin(lx, ly, true); }, 400);
+        const onMove = (ev) => {
+          const t = ev.touches[0];
+          lx = t.clientX; ly = t.clientY;
+          if (!drag) {
+            // Vor dem langen Antippen bewegt = normales Scrollen
+            if (Math.hypot(lx - t0.clientX, ly - t0.clientY) > 8) cleanup();
+            return;
+          }
+          ev.preventDefault();
+          drag.move(lx, ly);
+        };
+        const cleanup = (cancelled = true) => {
+          clearTimeout(timer);
+          item.removeEventListener('touchmove', onMove);
+          item.removeEventListener('touchend', onEnd);
+          item.removeEventListener('touchcancel', onCancel);
+          if (drag) drag.end(cancelled);
+          drag = null;
+        };
+        const onEnd = (ev) => { if (drag) ev.preventDefault(); cleanup(false); };
+        const onCancel = () => cleanup(true);
+        item.addEventListener('touchmove', onMove, { passive: false });
+        item.addEventListener('touchend', onEnd);
+        item.addEventListener('touchcancel', onCancel);
+      }, { passive: true });
+      item.addEventListener('contextmenu', (e) => { if (document.body.classList.contains('task-dragging')) e.preventDefault(); });
+    });
+  }
+
   async function toggleTaskDone(id, done) {
     await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify({ status: done ? 'erledigt' : 'offen' }) });
     await loadTasks();
@@ -870,10 +976,11 @@
       const collapsed = collapsedProjectGroups.has(key);
       const color = group.project ? group.project.color : '#5b6472';
       const name = group.project ? group.project.name : 'Ohne Projekt';
-      const rows = collapsed ? '' : sortTasks(group.tasks).map(taskTableRowHtml).join('');
+      const rows = collapsed ? '' : sortTasks(group.tasks).map(taskTableRowHtml).join('')
+        .replaceAll('<tr class="task-table-row', `<tr data-drop-zone="${key}" class="task-table-row`);
       return `
         <tbody data-group="${key}">
-          <tr class="task-group-header ${collapsed ? 'collapsed' : ''}" data-group-toggle="${key}" style="background:${color}33">
+          <tr class="task-group-header ${collapsed ? 'collapsed' : ''}" data-group-toggle="${key}" data-drop-zone="${key}" style="background:${color}33">
             <td colspan="8">
               <div class="tgh-inner">
                 <span>${escapeHtml(name)}</span>
@@ -894,6 +1001,23 @@
       renderTaskList();
     }));
     wireTaskRowClicks(container);
+    // In eine andere Projekt-Gruppe ziehen = Projekt wechseln, auf "Erledigt" ziehen = erledigt
+    enableTaskDrag(container, {
+      items: 'tr.task-table-row',
+      zones: '#task-list [data-drop-zone], #done-tasks-card[data-drop-zone]',
+      onDrop: async (id, zone) => {
+        if (zone === 'done') {
+          await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'erledigt' }) });
+          toast('Als erledigt markiert');
+        } else {
+          const body = zone === 'none' ? { clear_project: true } : { project_id: +zone };
+          await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+          const p = projects.find(p => p.id === +zone);
+          toast(p ? `Verschoben nach „${p.name}“` : 'Projekt entfernt');
+        }
+        await loadTasks();
+      },
+    });
   }
 
   // Eigenes, standardmaessig eingeklapptes Feld fuer erledigte Aufgaben - unabhaengig
@@ -2700,21 +2824,23 @@
     if (!mine.length) {
       container.innerHTML = '<div class="focus-empty">Keine offenen Aufgaben – alles erledigt. 🎉</div>';
     } else {
+      // Leere Bereiche bleiben im DOM (versteckt), damit sie beim Ziehen als Ziel auftauchen
       const section = (key, label, list, big) => {
-        if (!list.length) return '';
         const collapsible = key !== 'today';
         const open = !collapsible || focusOpen[key];
+        const cards = key === 'today' && !list.length
+          ? '<div class="focus-empty small">Heute ist nichts fällig. Wenn du magst, nimm dir etwas aus „Demnächst“ vor.</div>'
+          : (open && list.length ? `<div class="focus-cards">${list.map(t => focusCardHtml(t, todayIso, big)).join('')}</div>` : '');
         return `
-          <div class="focus-section">
+          <div class="focus-section ${list.length || key === 'today' ? '' : 'focus-section-empty'}" data-drop-zone="${key}">
             ${collapsible
               ? `<button type="button" class="focus-section-head" data-focus-toggle="${key}" aria-expanded="${open}"><span>${label}</span><span class="focus-count">${list.length}</span><span class="focus-chevron ${open ? 'open' : ''}">▾</span></button>`
               : ''}
-            ${open ? `<div class="focus-cards">${list.map(t => focusCardHtml(t, todayIso, big)).join('')}</div>` : ''}
+            ${cards}
           </div>`;
       };
       container.innerHTML =
-        ([...overdue, ...today].length ? section('today', 'Heute', [...overdue, ...today], true)
-          : '<div class="focus-empty small">Heute ist nichts fällig. Wenn du magst, nimm dir etwas aus „Demnächst“ vor.</div>')
+        section('today', 'Heute', [...overdue, ...today], true)
         + section('soon', 'Demnächst', soon, false)
         + section('later', 'Später', later, false)
         + section('nodate', 'Ohne Datum', nodate, false);
@@ -2723,7 +2849,32 @@
         renderFocusList();
       }));
       wireTaskRowClicks(container);
+      enableTaskDrag(container, { items: '.focus-card', zones: '#mytasks-list [data-drop-zone]', onDrop: moveFocusTask });
     }
+  }
+
+  // Ziehen zwischen den Fokus-Bereichen setzt die Faelligkeit neu:
+  // Heute = heute, Demnaechst = morgen, Spaeter = in zwei Wochen, Ohne Datum = Datum weg.
+  async function moveFocusTask(id, zone) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    const now = new Date();
+    const target = { today: now, soon: addDays(now, 1), later: addDays(now, 14) }[zone];
+    const body = {};
+    if (zone === 'nodate') body.clear_due_date = true;
+    else {
+      body.due_date = isoDate(target);
+      if (t.start_date && t.start_date > body.due_date) body.start_date = body.due_date;
+    }
+    // "in Arbeit" haelt eine Aufgabe sonst in "Heute" fest
+    if (zone !== 'today' && t.status === 'in Arbeit') body.status = 'offen';
+    await api(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+    if (zone !== 'today' && zone !== 'nodate') focusOpen[zone] = true;
+    toast(zone === 'nodate' ? 'Fälligkeit entfernt'
+      : zone === 'today' ? 'Fällig heute'
+      : `Fällig ${zone === 'soon' ? 'morgen' : 'am'} ${fmtDateDE(body.due_date).slice(0, 6)}`);
+    await loadTasks();
+    if (zone !== 'today' && focusScheduledIds.has(id)) toast('Verschoben – steht aber heute noch im Tagesplan');
   }
 
   // Tagesplan rechts: heutige Termine der eingeloggten Person aus der Wochenplanung

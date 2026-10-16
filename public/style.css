@@ -2708,3 +2708,22 @@ button.finance-row:hover { background: var(--panel-alt); filter: none; }
   .file-preview-actions .button-like { padding: 6px 8px; font-size: 12px; }
   .check-step .link-btn { display: none; }
 }
+
+/* ---------- Aufgaben in andere Bereiche ziehen ---------- */
+.focus-card, .task-table-row { -webkit-touch-callout: none; }
+body.task-dragging, body.task-dragging * { user-select: none; -webkit-user-select: none; cursor: grabbing !important; }
+.task-drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none;
+  padding: 10px 14px; border-radius: var(--radius); background: var(--panel); color: var(--ink);
+  border: 1px solid var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.95;
+}
+.drag-source { opacity: 0.4; }
+.focus-section-empty { display: none; }
+body.task-dragging .focus-section-empty { display: flex; }
+.focus-section, .done-tasks-card { transition: background 0.12s ease, outline-color 0.12s ease; border-radius: var(--radius); outline: 2px dashed transparent; outline-offset: 4px; }
+body.task-dragging #mytasks-list .focus-section { outline-color: var(--line-strong); }
+body.task-dragging #done-tasks-card.hidden { display: block !important; }
+body.task-dragging #done-tasks-card { outline-color: var(--line-strong); }
+.drop-hover, body.task-dragging .drop-hover { outline-color: var(--accent) !important; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent); }

@@ -145,7 +145,7 @@
 
   // ---------- Spracherkennung ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, recording = false, starting = false, ended = Promise.resolve(), watchdog = null, baseText = '', silenceTimer = null, parsing = false;
+  let rec = null, usedRec = false, recording = false, starting = false, ended = Promise.resolve(), watchdog = null, baseText = '', silenceTimer = null, parsing = false;
   const SILENCE_MS = 2200; // nach so langer Sprechpause endet die Aufnahme von selbst
   // Aufnahme endgueltig beenden: Ergebnisse ab jetzt ignorieren, Mikrofon freigeben
   function stopRec() {
@@ -181,6 +181,7 @@
     startRec(true);
   });
   function startRec(retry) {
+    usedRec = true;
     const r = new SR();
     rec = r;
     let gotResult = false;
@@ -277,8 +278,27 @@
     render();
   });
 
-  function reset() { tasks = []; render(); $('text').value = ''; $('mic-label').textContent = 'Tippen und Aufgabe sprechen'; }
-  $('discard').addEventListener('click', () => { reset(); msg(''); });
+  // iOS liefert nach der ersten Erkennung auf derselben Seite oft keinen Text mehr –
+  // deshalb nach jeder Aufgabe frisch laden (Liste und Meldung ueberleben das)
+  function reset(okText) {
+    if (usedRec) {
+      try {
+        sessionStorage.setItem('dk-done', $('done').innerHTML);
+        if (okText) sessionStorage.setItem('dk-msg', okText);
+      } catch (e) {}
+      location.reload();
+      return;
+    }
+    tasks = []; render(); $('text').value = ''; $('mic-label').textContent = 'Tippen und Aufgabe sprechen';
+    if (okText) { msg(okText, 'ok'); setTimeout(() => msg(''), 3500); } else msg('');
+  }
+  try {
+    const d = sessionStorage.getItem('dk-done'), m = sessionStorage.getItem('dk-msg');
+    sessionStorage.removeItem('dk-done'); sessionStorage.removeItem('dk-msg');
+    if (d) { $('done').innerHTML = d; $('done-wrap').classList.remove('hidden'); }
+    if (m) { msg(m, 'ok'); setTimeout(() => msg(''), 3500); }
+  } catch (e) {}
+  $('discard').addEventListener('click', () => reset());
 
   $('save').addEventListener('click', async () => {
     if (tasks.some(t => !String(t.title || '').trim())) { msg('Jede Aufgabe braucht einen Titel.'); return; }
@@ -293,8 +313,7 @@
         addDone(t);
       }
       const n = tasks.length;
-      reset(); msg(n > 1 ? `${n} Aufgaben übernommen ✓` : 'Aufgabe übernommen ✓', 'ok');
-      setTimeout(() => msg(''), 3500);
+      reset(n > 1 ? `${n} Aufgaben übernommen ✓` : 'Aufgabe übernommen ✓');
     } catch (err) { msg(err.message); }
     $('save').disabled = false;
   });

@@ -8,8 +8,6 @@
 <link rel="icon" href="icons/diktat-icon-192.png">
 <link rel="apple-touch-icon" href="icons/diktat-apple-touch-icon.png">
 <meta name="theme-color" content="#0d1015">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Diktat">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -147,11 +145,11 @@
 
   // ---------- Spracherkennung ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, recording = false, baseText = '', silenceTimer = null, parsing = false;
+  let rec = null, recording = false, starting = false, ended = Promise.resolve(), watchdog = null, baseText = '', silenceTimer = null, parsing = false;
   const SILENCE_MS = 2200; // nach so langer Sprechpause endet die Aufnahme von selbst
   // Aufnahme endgueltig beenden: Ergebnisse ab jetzt ignorieren, Mikrofon freigeben
   function stopRec() {
-    clearTimeout(silenceTimer);
+    clearTimeout(silenceTimer); clearTimeout(watchdog);
     if (!rec) return;
     const r = rec; rec = null;
     r.onresult = null;
@@ -164,22 +162,44 @@
     stopRec();
     if ($('text').value.trim() && !tasks.length) parse();
   }
-  $('mic').addEventListener('click', () => {
+  $('mic').addEventListener('click', async () => {
     if (!SR) {
       // Fallback: Tastatur-Diktat von iOS (Mikrofon-Taste unten rechts)
       $('text').focus();
       $('mic-label').textContent = 'Jetzt die 🎤-Taste auf der Tastatur tippen';
       return;
     }
+    if (starting) { starting = false; return; }
     if (recording) return finishRec();
     if (tasks.length || parsing) return; // erst übernehmen oder verwerfen
+    starting = true;
+    // iOS liefert keinen Text, solange die vorige Erkennung das Mikrofon noch haelt
+    await Promise.race([ended, new Promise(res => setTimeout(res, 1500))]);
+    if (!starting) return;
+    starting = false;
+    baseText = $('text').value.trim();
+    startRec(true);
+  });
+  function startRec(retry) {
     const r = new SR();
     rec = r;
+    let gotResult = false;
+    ended = new Promise(res => { r.onend = () => { res(); if (rec === r) finishRec(); }; });
     r.lang = 'de-DE'; r.continuous = true; r.interimResults = true;
-    baseText = $('text').value.trim();
-    r.onstart = () => { recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen'; };
+    r.onstart = () => {
+      recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen';
+      // Kommt trotz Aufnahme nichts an, Erkennung einmal frisch starten
+      clearTimeout(watchdog);
+      if (retry) watchdog = setTimeout(() => {
+        if (rec !== r || gotResult) return;
+        r.onend = null; r.onresult = null; rec = null;
+        try { r.abort(); } catch (e) {}
+        setTimeout(() => startRec(false), 300);
+      }, 3500);
+    };
     r.onresult = e => {
       if (rec !== r) return;
+      gotResult = true;
       let finalT = '', interim = '';
       for (let i = 0; i < e.results.length; i++) {
         if (e.results[i].isFinal) finalT += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
@@ -194,9 +214,8 @@
         $('text').focus();
       }
     };
-    r.onend = () => { if (rec === r) finishRec(); };
-    try { r.start(); } catch (e) { rec = null; $('text').focus(); }
-  });
+    try { r.start(); } catch (e) { rec = null; recording = false; $('mic').classList.remove('rec'); $('text').focus(); }
+  }
 
   // ---------- Auswerten ----------
   async function parse() {

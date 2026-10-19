@@ -4,7 +4,7 @@
   "description": "Aufgaben per Sprache ins Office-Tool diktieren",
   "start_url": "/diktat",
   "scope": "/diktat",
-  "display": "standalone",
+  "display": "browser",
   "orientation": "portrait-primary",
   "background_color": "#0d1015",
   "theme_color": "#0d1015",

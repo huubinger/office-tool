@@ -191,11 +191,18 @@
       recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen';
       // Kommt trotz Aufnahme nichts an, Erkennung einmal frisch starten
       clearTimeout(watchdog);
-      if (retry) watchdog = setTimeout(() => {
+      watchdog = setTimeout(() => {
         if (rec !== r || gotResult) return;
         r.onend = null; r.onresult = null; rec = null;
         try { r.abort(); } catch (e) {}
-        setTimeout(() => startRec(false), 300);
+        if (retry) { setTimeout(() => startRec(false), 300); return; }
+        // Auch der Neustart liefert nichts: Seite frisch laden, dann geht der naechste Tipp wieder
+        try {
+          sessionStorage.setItem('dk-done', $('done').innerHTML);
+          sessionStorage.setItem('dk-text', $('text').value);
+          sessionStorage.setItem('dk-hint', '1');
+        } catch (e) {}
+        location.reload();
       }, 3500);
     };
     r.onresult = e => {
@@ -297,6 +304,10 @@
     sessionStorage.removeItem('dk-done'); sessionStorage.removeItem('dk-msg');
     if (d) { $('done').innerHTML = d; $('done-wrap').classList.remove('hidden'); }
     if (m) { msg(m, 'ok'); setTimeout(() => msg(''), 3500); }
+    const t = sessionStorage.getItem('dk-text'), h = sessionStorage.getItem('dk-hint');
+    sessionStorage.removeItem('dk-text'); sessionStorage.removeItem('dk-hint');
+    if (t) $('text').value = t;
+    if (h) $('mic-label').textContent = 'Mikrofon neu gestartet – bitte nochmal tippen';
   } catch (e) {}
   $('discard').addEventListener('click', () => reset());
 

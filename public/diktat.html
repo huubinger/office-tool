@@ -8,6 +8,8 @@
 <link rel="icon" href="icons/diktat-icon-192.png">
 <link rel="apple-touch-icon" href="icons/diktat-apple-touch-icon.png">
 <meta name="theme-color" content="#0d1015">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Diktat">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -90,7 +92,7 @@
     <button id="mic" type="button" aria-label="Diktat starten">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/><path d="M8 22h8"/></svg>
     </button>
-    <div class="dk-mic-label" id="mic-label">Tippen und Aufgabe sprechen</div>
+    <div class="dk-mic-label" id="mic-label">Tippen, dann 🎤 auf der Tastatur</div>
   </div>
 
   <textarea class="dk-text" id="text" placeholder="z. B. „Bis Freitag Plakatierungsantrag für den Weihnachtsmarkt abgeben, Projekt Kreatief, dringend“"></textarea>
@@ -143,91 +145,28 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   function msg(text, kind) { const m = $('msg'); m.textContent = text || ''; m.className = 'dk-msg ' + (kind || 'err') + (text ? '' : ' hidden'); }
 
-  // ---------- Spracherkennung ----------
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, usedRec = false, recording = false, starting = false, ended = Promise.resolve(), watchdog = null, baseText = '', silenceTimer = null, parsing = false;
-  const SILENCE_MS = 2200; // nach so langer Sprechpause endet die Aufnahme von selbst
-  // Aufnahme endgueltig beenden: Ergebnisse ab jetzt ignorieren, Mikrofon freigeben
-  function stopRec() {
-    clearTimeout(silenceTimer); clearTimeout(watchdog);
-    if (!rec) return;
-    const r = rec; rec = null;
-    r.onresult = null;
-    try { r.stop(); } catch (e) {}
-    setTimeout(() => { try { r.abort(); } catch (e) {} }, 400);
-    recording = false; $('mic').classList.remove('rec');
-    if ($('mic-label').textContent.startsWith('Ich höre')) $('mic-label').textContent = 'Tippen und Aufgabe sprechen';
-  }
-  function finishRec() {
-    stopRec();
-    if ($('text').value.trim() && !tasks.length) parse();
-  }
-  $('mic').addEventListener('click', async () => {
-    if (!SR) {
-      // Fallback: Tastatur-Diktat von iOS (Mikrofon-Taste unten rechts)
-      $('text').focus();
-      $('mic-label').textContent = 'Jetzt die 🎤-Taste auf der Tastatur tippen';
-      return;
-    }
-    if (starting) { starting = false; return; }
-    if (recording) return finishRec();
+  // ---------- Diktat ueber die iOS-Tastatur ----------
+  // Die Browser-Spracherkennung liefert auf dem iPhone ab der zweiten Aufnahme oft keinen Text
+  // und fragt staendig nach dem Mikrofon – das Tastatur-Diktat von iOS ist zuverlaessig.
+  let parsing = false;
+  const HINT = 'Tippen, dann 🎤 auf der Tastatur';
+  $('mic').addEventListener('click', () => {
     if (tasks.length || parsing) return; // erst übernehmen oder verwerfen
-    starting = true;
-    // iOS liefert keinen Text, solange die vorige Erkennung das Mikrofon noch haelt
-    await Promise.race([ended, new Promise(res => setTimeout(res, 1500))]);
-    if (!starting) return;
-    starting = false;
-    baseText = $('text').value.trim();
-    startRec(true);
+    const ta = $('text');
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    $('mic-label').textContent = 'Jetzt 🎤 unten rechts auf der Tastatur tippen';
   });
-  function startRec(retry) {
-    usedRec = true;
-    const r = new SR();
-    rec = r;
-    let gotResult = false;
-    ended = new Promise(res => { r.onend = () => { res(); if (rec === r) finishRec(); }; });
-    r.lang = 'de-DE'; r.continuous = true; r.interimResults = true;
-    r.onstart = () => {
-      recording = true; $('mic').classList.add('rec'); $('mic-label').textContent = 'Ich höre zu … zum Beenden tippen';
-      // Kommt trotz Aufnahme nichts an, Erkennung einmal frisch starten
-      clearTimeout(watchdog);
-      watchdog = setTimeout(() => {
-        if (rec !== r || gotResult) return;
-        r.onend = null; r.onresult = null; rec = null;
-        try { r.abort(); } catch (e) {}
-        if (retry) { setTimeout(() => startRec(false), 300); return; }
-        // Auch der Neustart liefert nichts: Seite frisch laden, dann geht der naechste Tipp wieder
-        try {
-          sessionStorage.setItem('dk-done', $('done').innerHTML);
-          sessionStorage.setItem('dk-text', $('text').value);
-          sessionStorage.setItem('dk-hint', '1');
-        } catch (e) {}
-        location.reload();
-      }, 3500);
-    };
-    r.onresult = e => {
-      if (rec !== r) return;
-      gotResult = true;
-      let finalT = '', interim = '';
-      for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalT += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
-      }
-      $('text').value = [baseText, (finalT + interim).trim()].filter(Boolean).join(' ');
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(finishRec, SILENCE_MS);
-    };
-    r.onerror = e => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        $('mic-label').textContent = 'Kein Mikrofon-Zugriff – 🎤-Taste der Tastatur nutzen';
-        $('text').focus();
-      }
-    };
-    try { r.start(); } catch (e) { rec = null; recording = false; $('mic').classList.remove('rec'); $('text').focus(); }
-  }
+  // Tastatur zu („Fertig“) = Diktat fertig → automatisch auswerten
+  $('text').addEventListener('blur', () => {
+    setTimeout(() => {
+      if ($('text').value.trim() && !tasks.length && !parsing) parse();
+      else if (!tasks.length && !parsing) $('mic-label').textContent = HINT;
+    }, 150);
+  });
 
   // ---------- Auswerten ----------
   async function parse() {
-    stopRec();
     if (parsing) return;
     const text = $('text').value.trim();
     if (!text) { msg('Bitte erst etwas diktieren.'); return; }
@@ -239,7 +178,7 @@
     } catch (err) { msg(err.message); }
     parsing = false;
     $('parse').disabled = false; $('parse').textContent = 'Auswerten';
-    $('mic-label').textContent = tasks.length ? 'Erst übernehmen oder verwerfen' : 'Tippen und Aufgabe sprechen';
+    $('mic-label').textContent = tasks.length ? 'Erst übernehmen oder verwerfen' : HINT;
   }
   $('parse').addEventListener('click', parse);
 
@@ -288,27 +227,9 @@
   // iOS liefert nach der ersten Erkennung auf derselben Seite oft keinen Text mehr –
   // deshalb nach jeder Aufgabe frisch laden (Liste und Meldung ueberleben das)
   function reset(okText) {
-    if (usedRec) {
-      try {
-        sessionStorage.setItem('dk-done', $('done').innerHTML);
-        if (okText) sessionStorage.setItem('dk-msg', okText);
-      } catch (e) {}
-      location.reload();
-      return;
-    }
-    tasks = []; render(); $('text').value = ''; $('mic-label').textContent = 'Tippen und Aufgabe sprechen';
+    tasks = []; render(); $('text').value = ''; $('mic-label').textContent = HINT;
     if (okText) { msg(okText, 'ok'); setTimeout(() => msg(''), 3500); } else msg('');
   }
-  try {
-    const d = sessionStorage.getItem('dk-done'), m = sessionStorage.getItem('dk-msg');
-    sessionStorage.removeItem('dk-done'); sessionStorage.removeItem('dk-msg');
-    if (d) { $('done').innerHTML = d; $('done-wrap').classList.remove('hidden'); }
-    if (m) { msg(m, 'ok'); setTimeout(() => msg(''), 3500); }
-    const t = sessionStorage.getItem('dk-text'), h = sessionStorage.getItem('dk-hint');
-    sessionStorage.removeItem('dk-text'); sessionStorage.removeItem('dk-hint');
-    if (t) $('text').value = t;
-    if (h) $('mic-label').textContent = 'Mikrofon neu gestartet – bitte nochmal tippen';
-  } catch (e) {}
   $('discard').addEventListener('click', () => reset());
 
   $('save').addEventListener('click', async () => {

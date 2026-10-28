@@ -40,6 +40,13 @@
   .sv-closed { background: var(--warn-soft); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
   .sv-error { color: var(--danger); font-size: 13px; margin: 8px 0 0; }
   .sv-submit { width: 100%; margin-top: 14px; padding: 12px; font-size: 15px; }
+  .sv-page:has(.sv-me) { max-width: 1100px; }
+  .sv-join { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 8px; }
+  .sv-join input { flex: 1 1 180px; margin: 0; }
+  .sv-join select { flex: 1 1 160px; width: auto; margin: 0; }
+  .sv-me details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 13px; }
+  .sv-me textarea { width: 100%; margin-bottom: 8px; }
+  .sv-legend b { padding: 0 5px; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -47,7 +54,7 @@
 <script src="/umfrage-table.js"></script>
 <script>
 (function () {
-  const { esc, fmtDate, weekday, sections, render } = window.SurveyTable;
+  const { esc, fmtDate, weekday, sections, render, nextValue } = window.SurveyTable;
   const token = location.pathname.split('/').pop();
   const storeKey = 'umfrage_' + token;
   const params = new URLSearchParams(location.search);
@@ -74,6 +81,7 @@
   }
 
   function renderPage() {
+    if (data.layout === 'table') return renderTablePage();
     const open = data.status === 'offen';
     const own = data.own;
     const values = data.allow_maybe ? ['yes', 'maybe', 'no'] : ['yes', 'no'];
@@ -140,6 +148,136 @@
       justSaved = true;
       renderPage();
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  // ---- Tabellen-Modus: alle tragen sich direkt in die Tabelle ein ----
+  const pendingRows = new Map(); // rid -> Timer
+  let tableMsg = '';
+
+  async function saveOwn(extra = {}) {
+    const own = data.own;
+    const res = await fetch(`/api/public/umfrage/${token}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: extra.name ?? own.name, role: extra.role !== undefined ? extra.role : own.role,
+        comment: extra.comment !== undefined ? extra.comment : own.comment,
+        answers: extra.answers || own.answers, edit_token: editToken,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+    editToken = body.edit_token;
+    try { localStorage.setItem(storeKey, editToken); } catch (ex) { /* egal */ }
+    return body;
+  }
+
+  function saveRowSoon(r) {
+    clearTimeout(pendingRows.get(r.id));
+    pendingRows.set(r.id, setTimeout(async () => {
+      try {
+        let body;
+        if (data.own && data.own.id === r.id) body = await saveOwn({ answers: r.answers });
+        else {
+          const res = await fetch(`/api/public/umfrage/${token}/${r.id}` + (editToken ? `?e=${encodeURIComponent(editToken)}` : ''), {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers: r.answers }),
+          });
+          body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+        }
+        pendingRows.delete(r.id);
+        if (!pendingRows.size) { data = body; renderTablePage(); }
+      } catch (err) {
+        pendingRows.delete(r.id);
+        tableMsg = err.message;
+        load();
+      }
+    }, 500));
+  }
+
+  async function join(name, role) {
+    if (!name) { tableMsg = 'Bitte zuerst deinen Namen eingeben.'; renderTablePage(); document.getElementById('sv-name').focus(); return; }
+    if (data.roles.length && !role) { tableMsg = 'Bitte deine Rolle / Aufgabe wählen.'; renderTablePage(); return; }
+    try {
+      const res = await fetch(`/api/public/umfrage/${token}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role: role || null, answers: data.own ? data.own.answers : {}, comment: data.own ? data.own.comment : null, edit_token: editToken }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Eintragen fehlgeschlagen.');
+      editToken = body.edit_token;
+      try { localStorage.setItem(storeKey, editToken); } catch (ex) { /* egal */ }
+      data = body;
+      tableMsg = '';
+      renderTablePage();
+    } catch (err) { tableMsg = err.message; renderTablePage(); }
+  }
+
+  function renderTablePage() {
+    const open = data.status === 'offen';
+    const own = data.own;
+    const editLink = editToken ? `${location.origin}/u/${token}?e=${editToken}` : '';
+    const typedName = (document.getElementById('sv-name') || {}).value;
+    const roleSelect = (selected) => data.roles.length ? `<select id="sv-role"><option value="">— Rolle / Aufgabe —</option>${data.roles.map(r => `<option ${selected === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>` : '';
+    app.innerHTML = `
+      <h1>${esc(data.title)}</h1>
+      ${data.description ? `<p class="sv-desc">${esc(data.description)}</p>` : ''}
+      <div class="sv-meta">${data.deadline ? `Bitte eintragen bis ${fmtDate(data.deadline)}` : ''}</div>
+      ${!open ? '<div class="sv-closed">Die Umfrage ist geschlossen – Änderungen sind nicht mehr möglich.</div>' : ''}
+      ${open ? `<div class="card sv-me">
+        ${own ? `<p style="margin:0 0 8px">Du bist eingetragen als <strong>${esc(own.name)}</strong>${own.role ? ` (${esc(own.role)})` : ''}. Klicke in deiner Zeile auf die Termine: <span class="sv-legend">leer → <b class="sv-yes">✓</b> → ${data.allow_maybe ? '<b class="sv-maybe">?</b> → ' : ''}<b class="sv-no">✗</b> → leer</span></p>
+          <details><summary>Name, Rolle oder Kommentar ändern</summary>
+            <div class="sv-join">
+              <input type="text" id="sv-name" maxlength="100" value="${esc(own.name)}" aria-label="Name">${roleSelect(own.role)}
+            </div>
+            <textarea id="sv-comment" rows="2" maxlength="1000" placeholder="Kommentar (optional)">${esc(own.comment || '')}</textarea>
+            <button type="button" id="sv-own-save">Speichern</button>
+            <p class="hint" style="margin-top:8px">Dein persönlicher Link für andere Geräte:<br><code>${esc(editLink)}</code></p>
+          </details>`
+        : `<p style="margin:0 0 8px"><strong>Trag dich ein:</strong> Name${data.roles.length ? ' und Rolle' : ''} eingeben, dann in deiner Zeile die Termine anklicken.</p>
+          <div class="sv-join">
+            <input type="text" id="sv-name" maxlength="100" placeholder="Dein Name" value="${esc(typedName || '')}" autocomplete="name" aria-label="Name">${roleSelect('')}
+            <button type="button" id="sv-join">Eintragen</button>
+          </div>`}
+        ${data.open_edit ? '<p class="hint" style="margin:8px 0 0">In dieser Tabelle dürfen alle alle Zeilen ändern.</p>' : ''}
+        ${tableMsg ? `<p class="sv-error">${esc(tableMsg)}</p>` : ''}
+      </div>` : ''}
+      <div class="card">
+        <h3 style="margin-top:0">Tabelle <span class="count-chip">${data.responses.length}</span></h3>
+        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit), claim: open && data.roles.length > 0 })}
+      </div>`;
+    tableMsg = '';
+    if (!open) return;
+
+    const joinBtn = document.getElementById('sv-join');
+    if (joinBtn) joinBtn.addEventListener('click', () => join(document.getElementById('sv-name').value.trim(), (document.getElementById('sv-role') || {}).value));
+    const ownSave = document.getElementById('sv-own-save');
+    if (ownSave) ownSave.addEventListener('click', async () => {
+      try {
+        data = await saveOwn({ name: document.getElementById('sv-name').value.trim(), role: (document.getElementById('sv-role') || {}).value || null, comment: document.getElementById('sv-comment').value });
+        renderTablePage();
+      } catch (err) { tableMsg = err.message; renderTablePage(); }
+    });
+    // "eintragen" in einer freien Rollen-Zeile: mit eingegebenem Namen eintragen bzw. eigene Zeile dorthin verschieben
+    app.querySelectorAll('[data-sv-claim]').forEach(b => b.addEventListener('click', () => {
+      const name = own ? own.name : (document.getElementById('sv-name') || {}).value.trim();
+      join(name, b.dataset.svClaim);
+    }));
+    app.querySelectorAll('[data-sv-cell]').forEach(td => {
+      const toggle = () => {
+        const [rid, oid] = td.dataset.svCell.split(':').map(Number);
+        const r = data.responses.find(x => x.id === rid);
+        if (!r) return;
+        const v = nextValue(r.answers[oid], data.allow_maybe);
+        if (v) r.answers[oid] = v; else delete r.answers[oid];
+        if (data.own && data.own.id === rid) data.own.answers = r.answers;
+        renderTablePage();
+        const again = app.querySelector(`[data-sv-cell="${rid}:${oid}"]`);
+        if (again) again.focus();
+        saveRowSoon(r);
+      };
+      td.addEventListener('click', toggle);
+      td.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
     });
   }
 

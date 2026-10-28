@@ -77,7 +77,7 @@ app.use((req, res, next) => {
   if (/^\/m\/[a-f0-9]{32}\.jpg$/.test(req.path)) return next();
   // Neckarsulmer Konzerte: Kalender-Abo und Lese-Links fuer Externe (geheimer Token statt Login)
   // Umfragen: oeffentlicher Link zum Zu-/Absagen (geheimer Token statt Login)
-  if (/^\/u\/[A-Za-z0-9_-]{20,40}$/.test(req.path) || /^\/api\/public\/umfrage\/[A-Za-z0-9_-]{20,40}$/.test(req.path)) return next();
+  if (/^\/u\/[A-Za-z0-9_-]{20,40}$/.test(req.path) || /^\/api\/public\/umfrage\/[A-Za-z0-9_-]{20,40}(\/\d+)?$/.test(req.path)) return next();
   if (/^\/nk\/kalender\/[a-f0-9]{48}\.ics$/.test(req.path)) return next();
   if (/^\/nk\/s\/[A-Za-z0-9_-]{20,64}(\/datei\/\d+)?$/.test(req.path)) return next();
   if (req.session && req.session.userId) {

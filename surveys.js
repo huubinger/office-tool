@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS sv_answers (
 CREATE INDEX IF NOT EXISTS idx_sv_options_survey ON sv_options(survey_id);
 CREATE INDEX IF NOT EXISTS idx_sv_responses_survey ON sv_responses(survey_id);
 `);
+// Darstellung: 'form' (Termine untereinander) oder 'table' (alle tragen sich direkt in die Tabelle ein);
+// open_edit: in der Tabelle duerfen alle alle Zeilen aendern (wie eine offene Tabellenkalkulation)
+const svCols = new Set(db.prepare('PRAGMA table_info(sv_surveys)').all().map(c => c.name));
+if (!svCols.has('layout')) db.exec("ALTER TABLE sv_surveys ADD COLUMN layout TEXT DEFAULT 'form'");
+if (!svCols.has('open_edit')) db.exec('ALTER TABLE sv_surveys ADD COLUMN open_edit INTEGER DEFAULT 0');
 
 // Einmalig: wer die Vertraege sieht, bekommt auch den neuen Reiter Umfragen
 if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'migr_surveys_tab'").get()) {
@@ -109,9 +114,10 @@ function publicData(s, ownToken) {
   const strip = ({ edit_token, ...r }) => r;
   return {
     title: full.title, description: full.description, status: full.status, deadline: full.deadline,
-    allow_maybe: !!full.allow_maybe, show_results: !!full.show_results, roles: full.roles,
+    allow_maybe: !!full.allow_maybe, show_results: !!full.show_results || full.layout === 'table', roles: full.roles,
+    layout: full.layout || 'form', open_edit: full.layout === 'table' && !!full.open_edit,
     options: full.options.map(({ id, section, label, date, time, note }) => ({ id, section, label, date, time, note })),
-    responses: full.show_results ? full.responses.map(strip) : [],
+    responses: full.show_results || full.layout === 'table' ? full.responses.map(strip) : [],
     own: own ? strip(own) : null,
   };
 }
@@ -205,7 +211,7 @@ function register(app) {
   // ---- Verwaltung (Reiter "Umfragen") ----
   app.get('/api/surveys', (req, res) => {
     const list = db.prepare('SELECT * FROM sv_surveys ORDER BY created_at DESC, id DESC').all().map(s => ({
-      id: s.id, title: s.title, status: s.status, token: s.token, deadline: s.deadline, created_at: s.created_at,
+      id: s.id, title: s.title, status: s.status, layout: s.layout, token: s.token, deadline: s.deadline, created_at: s.created_at,
       options: db.prepare('SELECT COUNT(*) AS n FROM sv_options WHERE survey_id = ?').get(s.id).n,
       responses: db.prepare('SELECT COUNT(*) AS n FROM sv_responses WHERE survey_id = ?').get(s.id).n,
     }));
@@ -230,6 +236,8 @@ function register(app) {
       show_results: val('show_results', v => (v === false || v === 0 ? 0 : 1)),
       roles: val('roles', v => clean(v, 4000)),
       deadline: val('deadline', cleanDate),
+      layout: val('layout', v => (v === 'table' ? 'table' : 'form')),
+      open_edit: val('open_edit', v => (v === true || v === 1 ? 1 : 0)),
     };
     const keys = Object.keys(fields);
     if (id) {
@@ -340,6 +348,21 @@ function register(app) {
       saveAnswers(r.id, s.id, b.answers, !!s.allow_maybe);
     })();
     res.json({ ...publicData(s, token), edit_token: token });
+  });
+
+  // Offene Tabelle: fremde Zeile aendern (nur wenn die Umfrage das erlaubt)
+  app.put('/api/public/umfrage/:token/:rid', (req, res) => {
+    const s = bySurveyToken(req.params.token);
+    if (!s) return res.status(404).json({ error: 'Diese Umfrage gibt es nicht (mehr).' });
+    if (s.status !== 'offen') return res.status(403).json({ error: 'Die Umfrage ist geschlossen.' });
+    if (s.layout !== 'table' || !s.open_edit) return res.status(403).json({ error: 'Nur die eigene Zeile darf geändert werden.' });
+    const r = db.prepare('SELECT * FROM sv_responses WHERE id = ? AND survey_id = ?').get(req.params.rid, s.id);
+    if (!r) return res.status(404).json({ error: 'Zeile nicht gefunden' });
+    db.transaction(() => {
+      db.prepare("UPDATE sv_responses SET updated_at = datetime('now') WHERE id = ?").run(r.id);
+      saveAnswers(r.id, s.id, (req.body || {}).answers, !!s.allow_maybe);
+    })();
+    res.json(publicData(s, req.query.e));
   });
 }
 

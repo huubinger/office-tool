@@ -2825,8 +2825,6 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .sv-yes { background: var(--ok-soft); color: var(--ok); }
 .sv-maybe { background: var(--warn-soft); color: var(--warn); }
 .sv-no { background: var(--danger-soft); color: var(--danger); }
-.sv-table tr.sv-click { cursor: pointer; }
-.sv-table tr.sv-click:hover .sv-name { background: var(--panel-alt); }
 .sv-table tfoot td, .sv-table tfoot th { font-weight: 700; border-bottom: none; border-top: 1.5px solid var(--line-strong); }
 .sv-table tfoot small { display: block; font-size: 10.5px; font-weight: 500; color: var(--warn); }
 
@@ -2879,3 +2877,9 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .evt-swatch.evt-c-blue { background: #4f8ef0 !important; } .evt-swatch.evt-c-red { background: #e2605a !important; }
 .evt-swatch.evt-c-violet { background: #9a6cf0 !important; } .evt-swatch.evt-c-grey { background: #a0a0a0 !important; }
 .evt-hint { margin: 8px 0 0; }
+.sv-table td.sv-editable { cursor: pointer; outline: none; }
+.sv-table tr.sv-row-edit td.sv-editable:not(.sv-yes):not(.sv-maybe):not(.sv-no) { background: var(--panel-alt); }
+.sv-table td.sv-editable:hover, .sv-table td.sv-editable:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.sv-table .sv-claim { margin-left: 6px; padding: 1px 8px; font-size: 11px; border-radius: 999px; box-shadow: none; }
+.sv-table th.sv-click { cursor: pointer; }
+.sv-table th.sv-click:hover { background: var(--panel-alt); }

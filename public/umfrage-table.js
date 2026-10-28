@@ -42,13 +42,16 @@
         ${hasTime ? `<tr class="sv-h-time"><th class="sv-name"></th>${sec.options.map(o => `<th>${esc(o.time || '')}</th>`).join('')}</tr>` : ''}`;
       const body = people.length ? people.map(p => {
         const r = p.response;
-        const attrs = r && opts.clickable ? ` class="sv-click" data-sv-response="${r.id}" tabindex="0"` : '';
+        // opts.clickable: Name oeffnet die Antwort; opts.canEdit(r): Zellen per Klick umschalten;
+        // opts.claim: leere Rollen-Zeilen bekommen einen "eintragen"-Knopf
+        const nameAttrs = r && opts.clickable ? ` data-sv-response="${r.id}" tabindex="0"` : '';
         const own = r && opts.ownId === r.id ? ' sv-own' : '';
-        return `<tr${attrs}>
-          <th class="sv-name${r ? '' : ' sv-open'}${own}">${p.role ? `<strong>${esc(p.role)}</strong>` : ''}${p.role && p.name ? ' ' : ''}${p.name ? `<span>${esc(p.name)}</span>` : ''}${r && r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}</th>
+        const editable = r && opts.canEdit && opts.canEdit(r);
+        return `<tr class="${editable ? 'sv-row-edit' : ''}">
+          <th class="sv-name${r ? '' : ' sv-open'}${own}${nameAttrs ? ' sv-click' : ''}"${nameAttrs}>${p.role ? `<strong>${esc(p.role)}</strong>` : ''}${p.role && p.name ? ' ' : ''}${p.name ? `<span>${esc(p.name)}</span>` : ''}${r && r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}${!r && opts.claim ? ` <button type="button" class="sv-claim" data-sv-claim="${esc(p.role)}">eintragen</button>` : ''}</th>
           ${sec.options.map(o => {
             const v = r ? r.answers[o.id] : null;
-            return `<td class="sv-cell ${v ? 'sv-' + v : ''}">${v ? SYMBOL[v] : ''}</td>`;
+            return `<td class="sv-cell ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
           }).join('')}
         </tr>`;
       }).join('') : `<tr><th class="sv-name sv-open">Noch keine Antworten</th>${sec.options.map(() => '<td></td>').join('')}</tr>`;
@@ -61,5 +64,11 @@
     }).join('');
   }
 
-  window.SurveyTable = { render, sections, fmtDate, weekday, esc };
+  // Klick auf eine Zelle: leer → ✓ → ? → ✗ → leer
+  function nextValue(v, allowMaybe) {
+    const order = allowMaybe ? ['', 'yes', 'maybe', 'no'] : ['', 'yes', 'no'];
+    return order[(order.indexOf(v || '') + 1) % order.length] || undefined;
+  }
+
+  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL };
 })();

@@ -9266,6 +9266,7 @@
   let svDetail = null;
   const svModal = document.getElementById('sv-modal-overlay');
   let svModalCfg = null;
+  const svCellTimers = {};
   const svLink = (s) => `${location.origin}/u/${s.token}`;
 
   function showSvList() {
@@ -9283,7 +9284,7 @@
       <button type="button" class="nk-card ${s.status !== 'offen' ? 'is-closed' : ''}" data-sv-card="${s.id}">
         <div class="nk-card-top"><span class="pill pill-xs ${s.status === 'offen' ? 'pill-ok' : 'pill-muted'}">${s.status === 'offen' ? 'offen' : 'geschlossen'}</span></div>
         <div class="nk-card-title">${escapeHtml(s.title)}</div>
-        <div class="nk-card-meta">${s.options} Termin${s.options === 1 ? '' : 'e'} · ${s.responses} Antwort${s.responses === 1 ? '' : 'en'}${s.deadline ? ` · bis ${fmtDateDE(s.deadline)}` : ''}</div>
+        <div class="nk-card-meta">${s.layout === 'table' ? 'Tabelle · ' : ''}${s.options} Termin${s.options === 1 ? '' : 'e'} · ${s.responses} Antwort${s.responses === 1 ? '' : 'en'}${s.deadline ? ` · bis ${fmtDateDE(s.deadline)}` : ''}</div>
       </button>`).join('') : `
       <div class="empty-card"><div class="empty-card-icon">🗳️</div><strong>Noch keine Umfragen</strong>
         <span>Mit „+ Neue Umfrage“ Termine anlegen und den Link verschicken.</span></div>`;
@@ -9338,8 +9339,8 @@
       <div class="card">
         <div class="section-card-head"><h3>📋 Ergebnis</h3>
           <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Antwort eintragen</button></div></div>
-        <p class="hint">Zeile anklicken, um eine Antwort zu ändern. ✓ Zusage · ? Vielleicht · ✗ Absage</p>
-        ${SurveyTable.render(s, { clickable: true })}
+        <p class="hint">Zelle anklicken schaltet um (leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗). Namen anklicken, um Name, Rolle oder Kommentar zu ändern.</p>
+        ${SurveyTable.render(s, { clickable: true, canEdit: () => true })}
       </div>
       ${comments.length ? `<div class="card"><div class="section-card-head"><h3>💬 Kommentare</h3></div><div class="sponsor-info">
         ${comments.map(r => `<div><span>${escapeHtml([r.role, r.name].filter(Boolean).join(' · '))}</span><p>${escapeHtml(r.comment)}</p></div>`).join('')}</div></div>` : ''}`;
@@ -9361,6 +9362,27 @@
       loadSurveys();
     });
     document.getElementById('sv-add-response').addEventListener('click', () => openSvResponseModal(null));
+    view.querySelectorAll('[data-sv-cell]').forEach(td => {
+      const toggle = () => {
+        const [rid, oid] = td.dataset.svCell.split(':').map(Number);
+        const r = s.responses.find(x => x.id === rid);
+        const v = SurveyTable.nextValue(r.answers[oid], s.allow_maybe);
+        if (v) r.answers[oid] = v; else delete r.answers[oid];
+        renderSvDetail();
+        const again = document.querySelector(`#sv-detail-view [data-sv-cell="${rid}:${oid}"]`);
+        if (again) again.focus();
+        clearTimeout(svCellTimers[rid]);
+        svCellTimers[rid] = setTimeout(async () => {
+          delete svCellTimers[rid];
+          try {
+            const fresh = await api(`/api/surveys/${s.id}/responses/${rid}`, { method: 'PUT', body: JSON.stringify({ name: r.name, role: r.role, comment: r.comment, answers: r.answers }) });
+            if (!Object.keys(svCellTimers).length && svDetail && svDetail.id === s.id) { svDetail = fresh; renderSvDetail(); }
+          } catch (err) { toast(err.message); }
+        }, 500);
+      };
+      td.addEventListener('click', toggle);
+      td.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+    });
     view.querySelectorAll('[data-sv-response]').forEach(el => {
       const go = () => openSvResponseModal(s.responses.find(r => r.id === +el.dataset.svResponse));
       el.addEventListener('click', go);
@@ -9434,6 +9456,10 @@
       html: `
         <label>Titel <input type="text" id="svf-title" required value="${escapeHtml(s ? s.title : '')}" placeholder="z.B. Verfügbarkeit Musical 2027"></label>
         <label>Beschreibung (steht oben auf der Umfrageseite) <textarea id="svf-description" rows="2">${escapeHtml(s ? s.description || '' : '')}</textarea></label>
+        <label>Darstellung für die Teilnehmer <select id="svf-layout">
+          <option value="form" ${!s || s.layout !== 'table' ? 'selected' : ''}>Formular – Termine untereinander, darunter die Tabelle</option>
+          <option value="table" ${s && s.layout === 'table' ? 'selected' : ''}>Tabelle – alle tragen sich direkt in die Tabelle ein (wie Excel)</option></select></label>
+        <label class="ev-check sv-open-edit"><input type="checkbox" id="svf-open_edit" ${s && s.open_edit ? 'checked' : ''}><span>Tabelle: alle dürfen alle Zeilen ändern (sonst nur die eigene)</span></label>
         <div class="time-row">
           <label>Antworten bis <input type="date" id="svf-deadline" value="${escapeHtml(s ? s.deadline || '' : '')}"></label>
           <div class="sv-flags">
@@ -9470,6 +9496,10 @@
           document.getElementById('sv-paste-text').value = '';
           toast(`${parsed.length} Termine übernommen`);
         });
+        const layoutSel = document.getElementById('svf-layout');
+        const syncLayout = () => document.querySelector('.sv-open-edit').classList.toggle('hidden', layoutSel.value !== 'table');
+        layoutSel.addEventListener('change', syncLayout);
+        syncLayout();
         if (isNew) setTimeout(() => document.getElementById('svf-title').focus(), 0);
       },
       onSave: async () => {
@@ -9479,6 +9509,8 @@
           deadline: document.getElementById('svf-deadline').value,
           allow_maybe: document.getElementById('svf-allow_maybe').checked,
           show_results: document.getElementById('svf-show_results').checked,
+          layout: document.getElementById('svf-layout').value,
+          open_edit: document.getElementById('svf-open_edit').checked,
           roles: document.getElementById('svf-roles').value,
           options: [...document.querySelectorAll('#sv-opt-rows .sv-opt-row')].map(r => ({
             id: r.dataset.id ? +r.dataset.id : null,

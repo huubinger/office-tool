@@ -10,7 +10,7 @@ const path = require('path');
 const XLSX = require('xlsx');
 const db = require('./db');
 
-const VALUES = ['yes', 'maybe', 'no'];
+const VALUES = ['yes', 'no']; // kein "vielleicht" - nur Zu- oder Absage
 const MAX_RESPONSES = 500;
 const MAX_OPTIONS = 200;
 
@@ -62,6 +62,11 @@ CREATE INDEX IF NOT EXISTS idx_sv_responses_survey ON sv_responses(survey_id);
 const svCols = new Set(db.prepare('PRAGMA table_info(sv_surveys)').all().map(c => c.name));
 if (!svCols.has('layout')) db.exec("ALTER TABLE sv_surveys ADD COLUMN layout TEXT DEFAULT 'form'");
 if (!svCols.has('open_edit')) db.exec('ALTER TABLE sv_surveys ADD COLUMN open_edit INTEGER DEFAULT 0');
+// "Vielleicht" gibt es nicht mehr: einmalig ausschalten und vorhandene ?-Antworten entfernen
+if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'migr_surveys_no_maybe'").get()) {
+  db.exec("UPDATE sv_surveys SET allow_maybe = 0; DELETE FROM sv_answers WHERE value = 'maybe';");
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('migr_surveys_no_maybe', '1')").run();
+}
 // time_inherit: Uhrzeit folgt dem ersten Termin des Abschnitts (z.B. alle Shows wie die Premiere)
 if (!db.prepare('PRAGMA table_info(sv_options)').all().some(c => c.name === 'time_inherit')) db.exec('ALTER TABLE sv_options ADD COLUMN time_inherit INTEGER DEFAULT 0');
 
@@ -236,7 +241,7 @@ function register(app) {
       title,
       description: val('description', v => clean(v, 4000)),
       status: val('status', v => (v === 'geschlossen' ? 'geschlossen' : 'offen')),
-      allow_maybe: val('allow_maybe', v => (v === false || v === 0 ? 0 : 1)),
+      allow_maybe: 0,
       show_results: val('show_results', v => (v === false || v === 0 ? 0 : 1)),
       roles: val('roles', v => clean(v, 4000)),
       deadline: val('deadline', cleanDate),

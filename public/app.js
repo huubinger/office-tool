@@ -9468,7 +9468,6 @@
         <div class="time-row">
           <label>Antworten bis <input type="date" id="svf-deadline" value="${escapeHtml(s ? s.deadline || '' : '')}"></label>
           <div class="sv-flags">
-            <label class="ev-check"><input type="checkbox" id="svf-allow_maybe" ${!s || s.allow_maybe ? 'checked' : ''}><span>„Vielleicht“ erlauben</span></label>
             <label class="ev-check"><input type="checkbox" id="svf-show_results" ${!s || s.show_results ? 'checked' : ''}><span>Teilnehmer sehen die Tabelle</span></label>
           </div>
         </div>
@@ -9512,7 +9511,6 @@
           title: document.getElementById('svf-title').value.trim(),
           description: document.getElementById('svf-description').value.trim(),
           deadline: document.getElementById('svf-deadline').value,
-          allow_maybe: document.getElementById('svf-allow_maybe').checked,
           show_results: document.getElementById('svf-show_results').checked,
           layout: document.getElementById('svf-layout').value,
           open_edit: document.getElementById('svf-open_edit').checked,
@@ -9737,7 +9735,7 @@
         });
         svDetail = await api('/api/surveys', { method: 'POST', body: JSON.stringify({
           title: document.getElementById('svq-title').value.trim(), roles: document.getElementById('svq-roles').value,
-          layout: 'table', allow_maybe: true, show_results: true, options,
+          layout: 'table', show_results: true, options,
         }) });
         svList = await api('/api/surveys');
         renderSvDetail();
@@ -9748,7 +9746,7 @@
 
   function openSvResponseModal(r, presetRole) {
     const s = svDetail;
-    const values = [['', '–'], ['yes', '✓ Zusage'], ['maybe', '? Vielleicht'], ['no', '✗ Absage']];
+    const values = [['', '–'], ['yes', '✓ Zusage'], ['no', '✗ Absage']];
     openSvModal({
       heading: r ? `Antwort von ${r.name}` : 'Antwort eintragen',
       submitLabel: r ? 'Speichern' : 'Eintragen',

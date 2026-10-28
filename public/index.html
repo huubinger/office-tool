@@ -73,6 +73,10 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 16.5V5.5M4 5.5h9.5l-1.8 3 1.8 3H4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 14.5l1 1 2-2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Events
       </button>
+      <button class="tab-btn" data-tab="surveys" data-title="Umfragen">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="3" y="3.5" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M8 8v8.5" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 12l1.2 1.2 2.4-2.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Umfragen
+      </button>
     </nav>
     <div class="sidebar-section-label" id="nk-section-label">Neckarsulmer Konzerte</div>
     <nav class="tabs" id="nk-tabs">
@@ -732,6 +736,18 @@
       </div>
     </div>
     <div id="ev-detail-view" class="hidden"></div>
+  </section>
+
+  <!-- ===================== UMFRAGEN ===================== -->
+  <section id="tab-surveys" class="tab-panel">
+    <div id="sv-list-view">
+      <div class="section-head">
+        <p class="section-intro">Umfragen mit öffentlichem Link: Teilnehmer tragen sich ohne Login ein und sagen je Termin zu oder ab. Ergebnis als Tabelle nach Rollen – z.B. Besetzung und Technik für die Musical-Termine.</p>
+        <button type="button" id="sv-new-btn">+ Neue Umfrage</button>
+      </div>
+      <div id="sv-list" class="nk-card-grid"></div>
+    </div>
+    <div id="sv-detail-view" class="hidden"></div>
   </section>
 
   <!-- ===================== NK: TERMINFINDUNG ===================== -->
@@ -1527,6 +1543,21 @@
   </div>
 </div>
 
+<!-- Umfragen: Umfrage bzw. Antwort bearbeiten (Inhalt per JS) -->
+<div id="sv-modal-overlay" class="modal-overlay hidden">
+  <div class="modal modal-wide sv-modal">
+    <h3 id="sv-modal-heading">Umfrage</h3>
+    <form id="sv-modal-form">
+      <div id="sv-modal-fields"></div>
+      <div class="form-actions">
+        <button type="submit" id="sv-modal-submit">Speichern</button>
+        <button type="button" id="sv-modal-cancel" class="secondary">Abbrechen</button>
+        <button type="button" id="sv-modal-delete" class="danger hidden">Löschen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Kontakt anlegen/bearbeiten -->
 <div id="nk-contact-modal-overlay" class="modal-overlay hidden">
   <div class="modal modal-wide">
@@ -1640,6 +1671,7 @@
   </div>
 </div>
 
+<script src="umfrage-table.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

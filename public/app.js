@@ -87,10 +87,10 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'surveys', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', events: 'Events', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
+    yearcalendar: 'Jahr', contracts: 'Verträge', events: 'Events', surveys: 'Umfragen', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
   // Eigener Einstieg /nk ("NK Konzerte" als App auf dem Home-Bildschirm): nur die NK-Reiter
@@ -131,6 +131,7 @@
     if (tab === 'yearcalendar') { renderYearCalendar(); if (!opts.restore) maybeAutoOpenSecondHalf(); }
     if (tab === 'contracts') { loadContractEvents(); }
     if (tab === 'events') { if (!opts.keepEvent) showEvList(); loadEvents(); }
+    if (tab === 'surveys') { showSvList(); loadSurveys(); }
     if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
     if (tab === 'nk_sponsors') { showNkSponsorList(); loadNkSponsors(); }
@@ -175,7 +176,7 @@
     if (moreBtn) moreBtn.addEventListener('click', () => openMoreSheet(allowed));
   }
 
-  const LEGACY_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events'];
+  const LEGACY_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events', 'surveys'];
 
   const moreSheet = document.getElementById('more-sheet-overlay');
   function openMoreSheet(allowed) {
@@ -3561,13 +3562,13 @@
   const usersError = document.getElementById('users-error');
   const TAB_LABELS = [
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
-    ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'], ['events', 'Events'],
+    ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'], ['events', 'Events'], ['surveys', 'Umfragen'],
     ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_contacts', 'NK · Kontakte'],
     ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
     nk: ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts'],
-    office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events'],
+    office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events', 'surveys'],
     all: TAB_LABELS.map(t => t[0]),
   };
 
@@ -8978,6 +8979,275 @@
       <script>window.onload = function () { window.print(); };<\/script>
       </body></html>`);
     w.document.close();
+  }
+
+  // ================= UMFRAGEN =================
+  // Verwaltung der Umfragen mit oeffentlichem Link (/u/<token>). Ergebnistabelle aus
+  // umfrage-table.js (dieselbe wie auf der oeffentlichen Seite).
+  let svList = [];
+  let svDetail = null;
+  const svModal = document.getElementById('sv-modal-overlay');
+  let svModalCfg = null;
+  const svLink = (s) => `${location.origin}/u/${s.token}`;
+
+  function showSvList() {
+    svDetail = null;
+    document.getElementById('sv-list-view').classList.remove('hidden');
+    document.getElementById('sv-detail-view').classList.add('hidden');
+  }
+  async function loadSurveys() {
+    try { svList = await api('/api/surveys'); } catch (err) { toast(err.message); return; }
+    if (svDetail) return openSurvey(svDetail.id);
+    renderSvList();
+  }
+  function renderSvList() {
+    document.getElementById('sv-list').innerHTML = svList.length ? svList.map(s => `
+      <button type="button" class="nk-card ${s.status !== 'offen' ? 'is-closed' : ''}" data-sv-card="${s.id}">
+        <div class="nk-card-top"><span class="pill pill-xs ${s.status === 'offen' ? 'pill-ok' : 'pill-muted'}">${s.status === 'offen' ? 'offen' : 'geschlossen'}</span></div>
+        <div class="nk-card-title">${escapeHtml(s.title)}</div>
+        <div class="nk-card-meta">${s.options} Termin${s.options === 1 ? '' : 'e'} · ${s.responses} Antwort${s.responses === 1 ? '' : 'en'}${s.deadline ? ` · bis ${fmtDateDE(s.deadline)}` : ''}</div>
+      </button>`).join('') : `
+      <div class="empty-card"><div class="empty-card-icon">🗳️</div><strong>Noch keine Umfragen</strong>
+        <span>Mit „+ Neue Umfrage“ Termine anlegen und den Link verschicken.</span></div>`;
+    document.querySelectorAll('[data-sv-card]').forEach(el => el.addEventListener('click', () => openSurvey(+el.dataset.svCard)));
+  }
+  async function openSurvey(id) {
+    try {
+      const s = await api(`/api/surveys/${id}`);
+      const isNew = !svDetail || svDetail.id !== s.id;
+      svDetail = s;
+      renderSvDetail();
+      if (isNew) window.scrollTo({ top: 0 });
+    } catch (err) { toast(err.message); showSvList(); renderSvList(); }
+  }
+
+  function renderSvDetail() {
+    const s = svDetail;
+    document.getElementById('sv-list-view').classList.add('hidden');
+    const view = document.getElementById('sv-detail-view');
+    view.classList.remove('hidden');
+    const comments = s.responses.filter(r => r.comment);
+    const missing = s.roles.filter(role => !s.responses.some(r => r.role === role));
+    view.innerHTML = `
+      <nav class="folder-path">
+        <button type="button" class="link-btn" id="sv-back">🗳️ Umfragen</button>
+        <span>›</span><strong>${escapeHtml(s.title)}</strong>
+      </nav>
+      <div class="card detail-hero">
+        <div class="detail-hero-main">
+          <div class="detail-hero-kicker"><select id="sv-status" class="status-select">
+            <option value="offen" ${s.status === 'offen' ? 'selected' : ''}>offen</option>
+            <option value="geschlossen" ${s.status !== 'offen' ? 'selected' : ''}>geschlossen</option></select></div>
+          <h2 class="detail-title">${escapeHtml(s.title)}</h2>
+          <div class="detail-meta">
+            <span>${s.options.length} Termine</span><span>${s.responses.length} Antworten</span>
+            ${s.deadline ? `<span>Antworten bis ${fmtDateDE(s.deadline)}</span>` : ''}
+            ${missing.length ? `<span class="finance-missing">Noch offen: ${escapeHtml(missing.join(', '))}</span>` : ''}
+          </div>
+          <div class="sv-linkbox">
+            <input type="text" readonly value="${escapeHtml(svLink(s))}" id="sv-link-input">
+            <button type="button" id="sv-copy">Link kopieren</button>
+            <a class="ghost-link" href="${escapeHtml(svLink(s))}" target="_blank" rel="noopener">Öffnen</a>
+          </div>
+          ${s.description ? `<div class="detail-notes">${escapeHtml(s.description)}</div>` : ''}
+        </div>
+        <div class="detail-actions ev-hero-actions">
+          <button type="button" class="ghost" id="sv-edit">Bearbeiten</button>
+          <a class="ghost-link" href="/api/surveys/${s.id}/export.xlsx">Excel</a>
+          <button type="button" class="danger" id="sv-delete">Löschen</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-card-head"><h3>📋 Ergebnis</h3>
+          <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Antwort eintragen</button></div></div>
+        <p class="hint">Zeile anklicken, um eine Antwort zu ändern. ✓ Zusage · ? Vielleicht · ✗ Absage</p>
+        ${SurveyTable.render(s, { clickable: true })}
+      </div>
+      ${comments.length ? `<div class="card"><div class="section-card-head"><h3>💬 Kommentare</h3></div><div class="sponsor-info">
+        ${comments.map(r => `<div><span>${escapeHtml([r.role, r.name].filter(Boolean).join(' · '))}</span><p>${escapeHtml(r.comment)}</p></div>`).join('')}</div></div>` : ''}`;
+
+    document.getElementById('sv-back').addEventListener('click', () => { showSvList(); loadSurveys(); });
+    document.getElementById('sv-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(svLink(s)); toast('Link kopiert'); }
+      catch (e) { document.getElementById('sv-link-input').select(); }
+    });
+    document.getElementById('sv-status').addEventListener('change', async (ev) => {
+      try { svDetail = await api(`/api/surveys/${s.id}`, { method: 'PUT', body: JSON.stringify({ status: ev.target.value }) }); renderSvDetail(); }
+      catch (err) { alert(err.message); }
+    });
+    document.getElementById('sv-edit').addEventListener('click', () => openSvSurveyModal(s));
+    document.getElementById('sv-delete').addEventListener('click', async () => {
+      if (!confirm(`Umfrage „${s.title}“ mit allen ${s.responses.length} Antworten löschen? Der Link funktioniert danach nicht mehr.`)) return;
+      await api(`/api/surveys/${s.id}`, { method: 'DELETE' });
+      showSvList();
+      loadSurveys();
+    });
+    document.getElementById('sv-add-response').addEventListener('click', () => openSvResponseModal(null));
+    view.querySelectorAll('[data-sv-response]').forEach(el => {
+      const go = () => openSvResponseModal(s.responses.find(r => r.id === +el.dataset.svResponse));
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') go(); });
+    });
+  }
+
+  // ---- Dialog ----
+  function openSvModal(cfg) {
+    svModalCfg = cfg;
+    document.getElementById('sv-modal-heading').textContent = cfg.heading;
+    document.getElementById('sv-modal-submit').textContent = cfg.submitLabel || 'Speichern';
+    document.getElementById('sv-modal-delete').classList.toggle('hidden', !cfg.onDelete);
+    document.getElementById('sv-modal-fields').innerHTML = cfg.html;
+    if (cfg.init) cfg.init();
+    svModal.classList.remove('hidden');
+  }
+  const closeSvModal = () => { svModal.classList.add('hidden'); svModalCfg = null; };
+  document.getElementById('sv-modal-cancel').addEventListener('click', closeSvModal);
+  svModal.addEventListener('click', (e) => { if (e.target === svModal) closeSvModal(); });
+  document.getElementById('sv-modal-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!svModalCfg) return;
+    try { await svModalCfg.onSave(); closeSvModal(); } catch (err) { alert(err.message); }
+  });
+  document.getElementById('sv-modal-delete').addEventListener('click', async () => {
+    if (!svModalCfg || !svModalCfg.onDelete || !confirm(svModalCfg.deleteConfirm)) return;
+    try { await svModalCfg.onDelete(); closeSvModal(); } catch (err) { alert(err.message); }
+  });
+
+  // Termine-Zeile im Editor
+  function svOptionRowHtml(o = {}) {
+    return `<div class="sv-opt-row" data-id="${o.id || ''}">
+      <input type="text" class="sv-o-section" placeholder="Abschnitt" value="${escapeHtml(o.section || '')}" list="sv-sections">
+      <input type="text" class="sv-o-label" placeholder="Bezeichnung" value="${escapeHtml(o.label || '')}">
+      <input type="date" class="sv-o-date" value="${escapeHtml(o.date || '')}">
+      <input type="text" class="sv-o-time" placeholder="Uhrzeit" value="${escapeHtml(o.time || '')}">
+      <button type="button" class="ghost sv-o-del" title="Termin entfernen" aria-label="Termin entfernen">✕</button>
+    </div>`;
+  }
+  // "11.06.26 19 Uhr Generalprobe" → Datum, Uhrzeit, Bezeichnung; "# Abschnitt" setzt den Abschnitt
+  function svParseLines(text) {
+    let section = '';
+    const out = [];
+    text.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+      if (line.startsWith('#')) { section = line.replace(/^#+/, '').trim(); return; }
+      let rest = line;
+      let date = '';
+      const dm = rest.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})?/);
+      if (dm) {
+        let y = dm[3] ? +dm[3] : new Date().getFullYear();
+        if (y < 100) y += 2000;
+        date = `${y}-${pad2(+dm[2])}-${pad2(+dm[1])}`;
+        rest = rest.replace(dm[0], ' ');
+      }
+      let time = '';
+      const tm = rest.match(/\b\d{1,2}(:\d{2})?\s*Uhr\b|\b\d{1,2}:\d{2}\b/i);
+      if (tm) { time = tm[0].replace(/\s+/g, ' ').trim(); rest = rest.replace(tm[0], ' '); }
+      rest = rest.replace(/\b(Mo|Di|Mi|Do|Fr|Sa|So|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b,?/gi, ' ').replace(/\s+/g, ' ').replace(/^[-–,:\s]+|[-–,:\s]+$/g, '');
+      if (date || rest) out.push({ section, label: rest, date, time });
+    });
+    return out;
+  }
+
+  function openSvSurveyModal(s) {
+    const isNew = !s;
+    const sectionNames = s ? [...new Set(s.options.map(o => o.section).filter(Boolean))] : [];
+    openSvModal({
+      heading: isNew ? 'Neue Umfrage' : 'Umfrage bearbeiten',
+      submitLabel: isNew ? 'Anlegen' : 'Speichern',
+      html: `
+        <label>Titel <input type="text" id="svf-title" required value="${escapeHtml(s ? s.title : '')}" placeholder="z.B. Verfügbarkeit Musical 2027"></label>
+        <label>Beschreibung (steht oben auf der Umfrageseite) <textarea id="svf-description" rows="2">${escapeHtml(s ? s.description || '' : '')}</textarea></label>
+        <div class="time-row">
+          <label>Antworten bis <input type="date" id="svf-deadline" value="${escapeHtml(s ? s.deadline || '' : '')}"></label>
+          <div class="sv-flags">
+            <label class="ev-check"><input type="checkbox" id="svf-allow_maybe" ${!s || s.allow_maybe ? 'checked' : ''}><span>„Vielleicht“ erlauben</span></label>
+            <label class="ev-check"><input type="checkbox" id="svf-show_results" ${!s || s.show_results ? 'checked' : ''}><span>Teilnehmer sehen die Tabelle</span></label>
+          </div>
+        </div>
+        <label>Rollen / Aufgaben (eine pro Zeile, optional – werden die Zeilen der Tabelle)
+          <textarea id="svf-roles" rows="5" placeholder="SONJA&#10;BARBARA&#10;…&#10;Tontechnik&#10;Lichttechnik">${escapeHtml(s ? s.roles_text : '')}</textarea></label>
+        <div class="ev-subhead">Termine</div>
+        <datalist id="sv-sections">${sectionNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}<option value="Aufführungen"><option value="Proben"></datalist>
+        <div id="sv-opt-rows">${(s ? s.options : []).map(svOptionRowHtml).join('')}</div>
+        <button type="button" class="ghost" id="sv-opt-add">+ Termin</button>
+        <details class="sv-paste">
+          <summary>Mehrere Termine auf einmal einfügen</summary>
+          <p class="hint">Eine Zeile pro Termin, z.B. „11.06.26 19 Uhr Generalprobe“. Eine Zeile „# Probenwochenenden“ setzt den Abschnitt für die folgenden Termine.</p>
+          <textarea id="sv-paste-text" rows="5" placeholder="# Aufführungen&#10;11.06.26 Generalprobe&#10;12.06.26 1&#10;# Probenwochenenden&#10;22.05.26 19 Uhr"></textarea>
+          <button type="button" class="ghost" id="sv-paste-apply">Übernehmen</button>
+        </details>`,
+      init: () => {
+        const rows = document.getElementById('sv-opt-rows');
+        const bindDel = () => rows.querySelectorAll('.sv-o-del').forEach(b => { b.onclick = () => b.closest('.sv-opt-row').remove(); });
+        const append = (opts) => { rows.insertAdjacentHTML('beforeend', opts.map(svOptionRowHtml).join('')); bindDel(); };
+        bindDel();
+        document.getElementById('sv-opt-add').addEventListener('click', () => {
+          const last = rows.querySelector('.sv-opt-row:last-child .sv-o-section');
+          append([{ section: last ? last.value : '' }]);
+          rows.querySelector('.sv-opt-row:last-child .sv-o-label').focus();
+        });
+        document.getElementById('sv-paste-apply').addEventListener('click', () => {
+          const parsed = svParseLines(document.getElementById('sv-paste-text').value);
+          if (!parsed.length) { toast('Keine Termine erkannt'); return; }
+          append(parsed);
+          document.getElementById('sv-paste-text').value = '';
+          toast(`${parsed.length} Termine übernommen`);
+        });
+        if (isNew) setTimeout(() => document.getElementById('svf-title').focus(), 0);
+      },
+      onSave: async () => {
+        const payload = {
+          title: document.getElementById('svf-title').value.trim(),
+          description: document.getElementById('svf-description').value.trim(),
+          deadline: document.getElementById('svf-deadline').value,
+          allow_maybe: document.getElementById('svf-allow_maybe').checked,
+          show_results: document.getElementById('svf-show_results').checked,
+          roles: document.getElementById('svf-roles').value,
+          options: [...document.querySelectorAll('#sv-opt-rows .sv-opt-row')].map(r => ({
+            id: r.dataset.id ? +r.dataset.id : null,
+            section: r.querySelector('.sv-o-section').value, label: r.querySelector('.sv-o-label').value,
+            date: r.querySelector('.sv-o-date').value, time: r.querySelector('.sv-o-time').value,
+          })),
+        };
+        const removed = s ? s.options.filter(o => !payload.options.some(p => p.id === o.id)) : [];
+        if (removed.length && s.responses.length && !confirm(`${removed.length} Termin(e) entfernt – die Antworten dazu gehen verloren. Trotzdem speichern?`)) throw new Error('Abgebrochen');
+        svDetail = isNew
+          ? await api('/api/surveys', { method: 'POST', body: JSON.stringify(payload) })
+          : await api(`/api/surveys/${s.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        svList = await api('/api/surveys');
+        renderSvDetail();
+      },
+    });
+  }
+  document.getElementById('sv-new-btn').addEventListener('click', () => openSvSurveyModal(null));
+
+  function openSvResponseModal(r) {
+    const s = svDetail;
+    const values = [['', '–'], ['yes', '✓ Zusage'], ['maybe', '? Vielleicht'], ['no', '✗ Absage']];
+    openSvModal({
+      heading: r ? `Antwort von ${r.name}` : 'Antwort eintragen',
+      submitLabel: r ? 'Speichern' : 'Eintragen',
+      html: `
+        <div class="${s.roles.length ? 'time-row' : ''}">
+          <label>Name <input type="text" id="svr-name" required value="${escapeHtml(r ? r.name : '')}"></label>
+          ${s.roles.length ? `<label>Rolle / Aufgabe <select id="svr-role"><option value="">—</option>${s.roles.map(x => `<option ${r && r.role === x ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')}</select></label>` : ''}
+        </div>
+        <div class="sv-resp-opts">${s.options.map(o => `
+          <label class="sv-resp-opt"><span>${escapeHtml([o.section, o.label, o.date && fmtDateDE(o.date), o.time].filter(Boolean).join(' · '))}</span>
+            <select data-svr-opt="${o.id}">${values.map(([v, l]) => `<option value="${v}" ${(r && r.answers[o.id] || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('')}</div>
+        <label>Kommentar <textarea id="svr-comment" rows="2">${escapeHtml(r ? r.comment || '' : '')}</textarea></label>`,
+      onSave: async () => {
+        const answers = {};
+        document.querySelectorAll('[data-svr-opt]').forEach(sel => { if (sel.value) answers[sel.dataset.svrOpt] = sel.value; });
+        const roleSel = document.getElementById('svr-role');
+        const payload = { name: document.getElementById('svr-name').value, role: roleSel ? roleSel.value : null, comment: document.getElementById('svr-comment').value, answers };
+        svDetail = r
+          ? await api(`/api/surveys/${s.id}/responses/${r.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+          : await api(`/api/surveys/${s.id}/responses`, { method: 'POST', body: JSON.stringify(payload) });
+        renderSvDetail();
+      },
+      onDelete: r ? async () => { svDetail = await api(`/api/surveys/${s.id}/responses/${r.id}`, { method: 'DELETE' }); renderSvDetail(); } : null,
+      deleteConfirm: r ? `Antwort von ${r.name} löschen?` : '',
+    });
   }
 
   init();

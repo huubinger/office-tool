@@ -31,6 +31,7 @@ const diktat = require('./diktat');
 const finder = require('./finder');
 const marketing = require('./marketing');
 const events = require('./events');
+const surveys = require('./surveys');
 const PDFDocument = require('pdfkit');
 
 const app = express();
@@ -66,7 +67,7 @@ app.use(session({
 
 const PUBLIC_PATHS = new Set([
   '/login.html', '/login.js', '/style.css', '/api/login', '/api/year-calendar.ics',
-  '/manifest.json', '/favicon.png',
+  '/manifest.json', '/favicon.png', '/umfrage-table.js',
   '/icons/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png',
   '/nk/login', '/nk-manifest.json', '/api/diktat/siri', '/diktat-manifest.json', '/icons/diktat-icon-192.png', '/icons/diktat-icon-512.png', '/icons/diktat-apple-touch-icon.png', '/sw.js', '/icons/nk-apple-touch-icon.png', '/icons/nk-icon-192.png', '/icons/nk-icon-512.png',
 ]);
@@ -75,6 +76,8 @@ app.use((req, res, next) => {
   // Freigegebene Social-Media-Bilder muessen fuer Instagram/Facebook ohne Login abrufbar sein
   if (/^\/m\/[a-f0-9]{32}\.jpg$/.test(req.path)) return next();
   // Neckarsulmer Konzerte: Kalender-Abo und Lese-Links fuer Externe (geheimer Token statt Login)
+  // Umfragen: oeffentlicher Link zum Zu-/Absagen (geheimer Token statt Login)
+  if (/^\/u\/[A-Za-z0-9_-]{20,40}$/.test(req.path) || /^\/api\/public\/umfrage\/[A-Za-z0-9_-]{20,40}$/.test(req.path)) return next();
   if (/^\/nk\/kalender\/[a-f0-9]{48}\.ics$/.test(req.path)) return next();
   if (/^\/nk\/s\/[A-Za-z0-9_-]{20,64}(\/datei\/\d+)?$/.test(req.path)) return next();
   if (req.session && req.session.userId) {
@@ -129,6 +132,7 @@ const API_TAB_RULES = [
   ['/api/year-calendar/', ['yearcalendar']],
   ['/api/contract-events', ['contracts', 'yearcalendar']],
   ['/api/events', ['events']],
+  ['/api/surveys', ['surveys']],
   ['/api/bfd-defaults', ['people']],
   ['/api/settings', ['people', 'timetracking']],
   ['/api/projects', ['tasks', 'calendar', 'people', 'yearcalendar']],
@@ -2000,6 +2004,7 @@ nk.backfillFileText();
 finder.register(app);
 marketing.register(app);
 events.register(app);
+surveys.register(app);
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

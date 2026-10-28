@@ -44,6 +44,9 @@
   const castPeople = (s, role, oid) => castCell(s, role, oid).split('/').filter(Boolean);
   // Shows je Person - Ersatztermine zaehlen nicht mit
   const castCount = (s, role, name, ersatz = false) => s.options.filter(o => isErsatz(o) === ersatz && castPeople(s, role, o.id).includes(name)).length;
+  // Darsteller einer Besetzung haben eine eigene Zeile: dort steht, wann sie koennen (✓) und wann nicht (✗)
+  const isCastMember = (s, r) => !!r && (castOf(s, r.role) || []).includes(r.name);
+  const memberOf = (s, role, name) => s.responses.find(r => r.role === role && r.name === name);
   const castFilled = (s, oid) => Object.keys(s.cast_cells || {}).reduce((n, role) => n + castPeople(s, role, oid).length, 0);
   // Kurzform fuer schmale Spalten: kuerzester eindeutiger Anfang, mindestens zwei Buchstaben
   function castShort(names, n) {
@@ -53,6 +56,11 @@
       if (!names.some(x => x !== n && x.toLowerCase().startsWith(pre))) return n.slice(0, k);
     }
     return n;
+  }
+  // Darsteller-Zeile: Farbpunkt, Name, Anzahl Shows (+ Ersatztermine)
+  function memberLabelHtml(s, role, n, mi, extra = '') {
+    const e = castCount(s, role, n, true);
+    return `<div class="sv-member sv-cast-i${mi % 4}"><i></i><span>${esc(n)}</span>${extra}<b title="${castCount(s, role, n)} Shows">${castCount(s, role, n)}</b>${e ? `<em title="dazu ${e} Ersatztermin${e === 1 ? '' : 'e'}">+${e}</em>` : ''}</div>`;
   }
   // Legende in der Rollen-Zelle: Farbe, Name, Anzahl Shows (+ Ersatztermine)
   const castLegendHtml = (s, role) => `<ul class="sv-legend">${castOf(s, role).map((n, i) => {
@@ -68,16 +76,21 @@
     const all = people.length > 1 && people.length === names.length;
     const full = people.length > 1 ? (all ? (names.length === 2 ? 'beide' : 'alle') : people.join(' + ')) : v;
     const short = people.length > 1 ? people.map(n => n[0]).join('+') : (v ? castShort(names, v) : '');
+    // Verfuegbarkeit der Darsteller fuer diesen Termin
+    const avail = (n) => { const m = memberOf(s, role, n); return m ? m.answers[o.id] : null; };
+    const conflict = people.some(n => avail(n) === 'no');
+    const gap = !people.length && names.every(n => avail(n) === 'no');
     let select = '';
     if (editable && o.id) {
-      const choices = names.map(n => [n, n]);
+      const mark = { yes: ' ✓ kann', no: ' ✗ kann nicht' };
+      const choices = names.map(n => [n, n + (mark[avail(n)] || '')]);
       if (isErsatz(o) && names.length > 1) choices.push([names.join('/'), names.length === 2 ? 'beide' : 'alle']);
       if (v && !choices.some(([val]) => val === v)) choices.push([v, people.join(' + ')]);
       select = `<select data-sv-cast="${ri}:${o.id}" aria-label="${esc(role)}, ${esc(o.label || fmtDate(o.date))}: wer spielt?">
         <option value="">–</option>${choices.map(([val, label]) => `<option value="${esc(val)}" ${v === val ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
     }
-    const tip = people.length ? people.join(' + ') : (select ? 'Auswählen, wer spielt' : '');
-    return `<td class="sv-cell sv-cast${castClass(s, role, people)}${select ? ' sv-cast-edit' : ''} ${colCls}" title="${esc(tip)}"><div class="sv-cc">${v
+    const tip = conflict ? `${people.join(' + ')} – hat hier „kann nicht“ eingetragen` : gap ? 'Keiner kann an diesem Termin' : people.length ? people.join(' + ') : (select ? 'Auswählen, wer spielt' : '');
+    return `<td class="sv-cell sv-cast${castClass(s, role, people)}${select ? ' sv-cast-edit' : ''}${conflict ? ' sv-cast-conflict' : ''}${gap ? ' sv-cast-gap' : ''} ${colCls}" title="${esc(tip)}"><div class="sv-cc">${v
       ? `<span class="sv-cc-full">${esc(full)}</span><span class="sv-cc-short">${esc(short)}</span>` : '<span class="sv-cc-empty"></span>'}${select}</div></td>`;
   }
 
@@ -129,8 +142,15 @@
     const out = [];
     (s.roles || []).forEach((role, ri) => {
       const rs = s.responses.filter(r => r.role === role);
-      if (castOf(s, role)) out.push({ role, ri, cast: true });
-      else if (!rs.length) out.push({ role, name: '', response: null });
+      const cast = castOf(s, role);
+      if (cast) {
+        // Rollenzeile (wer spielt), darunter je Darsteller die Zeile mit ✓/✗
+        out.push({ role, ri, cast: true });
+        cast.forEach((n, mi) => { const r = memberOf(s, role, n); if (r) out.push({ role, name: n, response: r, member: true, mi }); });
+        rs.filter(r => !cast.includes(r.name)).forEach(r => out.push({ role, name: r.name, response: r }));
+        return;
+      }
+      if (!rs.length) out.push({ role, name: '', response: null });
       rs.forEach(r => out.push({ role, name: r.name, response: r }));
     });
     s.responses.filter(r => !r.role || !(s.roles || []).includes(r.role)).forEach(r => out.push({ role: '', name: r.name, response: r }));
@@ -153,10 +173,20 @@
         ${timeRow ? `<tr class="sv-h-time">${os.map(o => `<th class="${cc.get(o)}">${esc(o.time || '')}</th>`).join('')}</tr>` : ''}`;
       const body = people.length ? people.map(p => {
         if (p.cast) {
-          return `<tr class="sv-cast-row"><th class="sv-name"><div class="sv-role">${esc(p.role)}</div>${castLegendHtml(s, p.role)}</th>
-            ${os.map(o => castCellHtml(s, p.role, p.ri, o, opts.canEditCast, cc.get(o))).join('')}</tr>`;
+          const canCast = typeof opts.canEditCast === 'function' ? opts.canEditCast(p.role) : !!opts.canEditCast;
+          return `<tr class="sv-cast-row"><th class="sv-name"><div class="sv-role">${esc(p.role)}</div><div class="sv-role-sub">wer spielt?</div></th>
+            ${os.map(o => castCellHtml(s, p.role, p.ri, o, canCast, cc.get(o))).join('')}</tr>`;
         }
         const r = p.response;
+        if (p.member) {
+          const own = opts.ownId === r.id ? ' sv-own' : '';
+          const editable = opts.canEdit && opts.canEdit(r);
+          return `<tr class="sv-member-row${editable ? ' sv-row-edit' : ''}"><th class="sv-name${own}">${memberLabelHtml(s, p.role, p.name, p.mi)}${r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}</th>
+            ${os.map(o => {
+              const v = r.answers[o.id];
+              return `<td class="sv-cell sv-avail ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''} ${cc.get(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
+            }).join('')}</tr>`;
+        }
         // opts.clickable: Name oeffnet die Antwort; opts.canEdit(r): Zellen per Klick umschalten;
         // opts.claim: leere Rollen-Zeilen bekommen einen "eintragen"-Knopf
         const nameAttrs = r && opts.clickable ? ` data-sv-response="${r.id}" tabindex="0"` : '';
@@ -170,7 +200,7 @@
           }).join('')}
         </tr>`;
       }).join('') : `<tr><th class="sv-name sv-open">Noch keine Antworten</th>${os.map(o => `<td class="${cc.get(o)}"></td>`).join('')}</tr>`;
-      const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
+      const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v && !isCastMember(s, r)).length;
       const foot = `<tr class="sv-sum"><th class="sv-name">Zusagen</th>${os.map(o => {
         const maybe = count(o, 'maybe');
         return `<td class="${cc.get(o)}">${count(o, 'yes') + castFilled(s, o.id)}${maybe ? `<small>+${maybe}?</small>` : ''}</td>`;
@@ -202,7 +232,7 @@
   const DAY_ORDER = [4, 5, 6, 0, 1, 2, 3]; // Do, Fr, Sa, So zuerst
   // Alle Personen: Teilnehmer (Zusagen) und Besetzung (eingetragen in der Rollen-Zeile)
   function people(s) {
-    const out = s.responses.map(r => ({ key: 'r' + r.id, name: r.name, role: r.role, plays: (o) => r.answers[o.id] === 'yes', maybe: (o) => r.answers[o.id] === 'maybe' }));
+    const out = s.responses.filter(r => !isCastMember(s, r)).map(r => ({ key: 'r' + r.id, name: r.name, role: r.role, plays: (o) => r.answers[o.id] === 'yes', maybe: (o) => r.answers[o.id] === 'maybe' }));
     (s.roles || []).forEach(role => (castOf(s, role) || []).forEach(n => out.push({
       key: `c:${role}:${n}`, name: n, role, plays: (o) => castPeople(s, role, o.id).includes(n), maybe: () => false,
     })));
@@ -259,5 +289,5 @@
     });
   }
 
-  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats, hasPerson, castOf, castCellHtml, castLegendHtml, castFilled, isErsatz, ordered, colClasses, monthCells, commonTime, fmtTime, noteHtml, dateHtml, fit };
+  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats, hasPerson, castOf, castCellHtml, castLegendHtml, castFilled, isErsatz, ordered, isCastMember, memberLabelHtml, colClasses, monthCells, commonTime, fmtTime, noteHtml, dateHtml, fit };
 })();

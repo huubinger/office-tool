@@ -9346,7 +9346,8 @@
       </div>
       <div class="card">
         <div class="section-card-head"><h3>📋 Tabelle</h3>
-          <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Person eintragen</button></div></div>
+          <div class="section-head-actions">${svAdmin() && Object.keys(s.cast).length ? '<button type="button" class="ghost" id="sv-member-links" title="Persönliche Links aller Darsteller kopieren, z.B. für WhatsApp">🔗 Darsteller-Links</button>' : ''}
+            <button type="button" class="ghost" id="sv-add-response">+ Person eintragen</button></div></div>
         <p class="hint">${svAdmin() ? `Termine oben direkt eintragen (Abschnitt, Bezeichnung, Datum, Uhrzeit), Rollen/Aufgaben links. Zellen anklicken schaltet um: leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗. Namen anklicken für Name, Rolle, Kommentar.
           Doppelbesetzung: Rolle als „SONJA: Anna / Berta“ eintragen – dann wählt man je Termin aus, wer spielt.`
           : `Namen eintragen: bei Rollen mit Besetzung je Termin auswählen, wer spielt; sonst Zellen anklicken (leer → ✓ → ✗). Termine und Rollen ändert der Admin.`}</p>
@@ -9381,6 +9382,24 @@
       loadSurveys();
     });
     document.getElementById('sv-add-response').addEventListener('click', () => openSvResponseModal(null));
+    // Persoenliche Links der Darsteller: nur damit koennen sie ihre Zeile ausfuellen und festlegen, wer spielt
+    const memberLink = (r) => `${svLink(s)}?e=${r.edit_token}`;
+    const copyText = async (text, msg) => {
+      try { await navigator.clipboard.writeText(text); toast(msg); } catch (e) { prompt('Kopieren:', text); }
+    };
+    view.querySelectorAll('[data-svg-member-link]').forEach(b => b.addEventListener('click', () => {
+      const r = s.responses.find(x => x.id === +b.dataset.svgMemberLink);
+      copyText(memberLink(r), `Link für ${r.name} kopiert`);
+    }));
+    const allLinks = document.getElementById('sv-member-links');
+    if (allLinks) allLinks.addEventListener('click', () => {
+      const lines = [`${s.title} – eure persönlichen Links (bitte nicht weitergeben):`, ''];
+      s.roles.filter(role => s.cast[role]).forEach(role => s.cast[role].forEach(n => {
+        const r = s.responses.find(x => x.role === role && x.name === n);
+        if (r && r.edit_token) lines.push(`${role} – ${n}: ${memberLink(r)}`);
+      }));
+      copyText(lines.join('\n'), 'Alle Darsteller-Links kopiert');
+    });
     svBindGrid(view);
     SurveyTable.fit(view);
     SurveyTable.bindStats(view, s, (key) => { svStatsPick = key; });
@@ -9608,13 +9627,22 @@
         ${first ? `<span class="svg-row-tools">${cast ? '' : `<button type="button" class="svg-mini" data-svg-add-person="${escapeHtml(role)}" title="Person für ${escapeHtml(role)} eintragen">+ Person</button>`}
         ${adm ? `<button type="button" class="svg-mini svg-del" data-svg-del-role="${ri}" title="Zeile ${escapeHtml(role)} löschen" aria-label="Zeile löschen">✕</button>` : ''}</span>` : ''}</div>`;
       if (cast) {
-        rows.push(`<tr class="sv-cast-row"><th class="sv-name">${roleCell(true)}${SurveyTable.castLegendHtml(s, role)}</th>
-          ${opts.map(o => SurveyTable.castCellHtml(s, role, ri, o, true, cc.get(o))).join('')}<td class="svg-pad"></td></tr>`);
+        // Rollenzeile (wer spielt), darunter die Darsteller mit ✓/✗ und persoenlichem Link
+        rows.push(`<tr class="sv-cast-row"><th class="sv-name">${roleCell(true)}<div class="sv-role-sub">wer spielt?</div></th>
+          ${opts.map(o => SurveyTable.castCellHtml(s, role, ri, o, adm, cc.get(o))).join('')}<td class="svg-pad"></td></tr>`);
+        cast.forEach((n, mi) => {
+          const r = rs.find(x => x.name === n);
+          if (!r) return;
+          const link = adm && r.edit_token ? `<button type="button" class="svg-mini svg-link" data-svg-member-link="${r.id}" title="Persönlichen Link für ${escapeHtml(n)} kopieren" aria-label="Link kopieren">🔗</button>` : '';
+          rows.push(`<tr class="sv-member-row"><th class="sv-name">${SurveyTable.memberLabelHtml(s, role, n, mi, link)}${r.comment ? ` <span class="sv-comment" title="${escapeHtml(r.comment)}">💬</span>` : ''}</th>
+            ${opts.map(o => { const v = o.id ? r.answers[o.id] : null; return `<td class="sv-cell sv-avail ${v ? 'sv-' + v : ''}${adm ? ' sv-editable' : ''} ${cc.get(o)}"${adm && o.id ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SurveyTable.SYMBOL[v] : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr>`);
+        });
       } else if (!rs.length) rows.push(`<tr><th class="sv-name sv-open">${roleCell(true)}</th>${opts.map(o => `<td class="sv-cell svg-empty ${cc.get(o)}" data-svg-add-person="${escapeHtml(role)}" title="Person für ${escapeHtml(role)} eintragen"></td>`).join('')}<td class="svg-pad"></td></tr>`);
-      rs.forEach((r, i) => rows.push(svRespRow(s, r, roleCell(i === 0 && !cast), cc)));
+      rs.filter(r => !cast || !cast.includes(r.name)).forEach((r, i) => rows.push(svRespRow(s, r, roleCell(i === 0 && !cast), cc)));
     });
     s.responses.filter(r => !r.role || !s.roles.includes(r.role)).forEach(r => rows.push(svRespRow(s, r, '', cc)));
-    const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
+    // Verfuegbarkeit der Darsteller ist keine Zusage - gezaehlt wird, wer laut Besetzung spielt
+    const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v && !SurveyTable.isCastMember(s, r)).length;
     const rowhead = (label) => `<th class="sv-name svg-rowhead">${label}</th>`;
     return `<div class="evt-wrap svg-wrap"><table class="sv-table svg sv-fit" style="--sv-cols:${colCount}">
       <thead>

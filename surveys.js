@@ -121,6 +121,7 @@ const parseCast = (raw) => {
 function surveyData(id, { withTokens = false } = {}) {
   const s = db.prepare('SELECT * FROM sv_surveys WHERE id = ?').get(id);
   if (!s) return null;
+  ensureCastResponses(s.id, parseCast(s.roles)); // auch fuer Umfragen von vor den persoenlichen Links
   const options = db.prepare('SELECT * FROM sv_options WHERE survey_id = ? ORDER BY sort, id').all(id);
   const responses = db.prepare('SELECT * FROM sv_responses WHERE survey_id = ? ORDER BY created_at, id').all(id);
   const answers = db.prepare(`
@@ -213,13 +214,35 @@ function syncCast(id, oldRaw, newRaw, renames) {
     if (!people.length) del.run(id, c.role, c.option_id);
     else if (people.join('/') !== c.person) upd.run(names.filter(n => people.includes(n)).join('/'), id, c.role, c.option_id);
   });
+  // Zeilen der Darsteller (Verfuegbarkeit + persoenlicher Link) mitnehmen: umbenennen bzw. entfernte loeschen
+  const updName = db.prepare('UPDATE sv_responses SET name = ? WHERE survey_id = ? AND role = ? AND name = ?');
+  const delResp = db.prepare('DELETE FROM sv_responses WHERE survey_id = ? AND role = ? AND name = ?');
+  Object.entries(oldCast).forEach(([oldRole, before]) => {
+    const role = renames[oldRole] || oldRole;
+    const names = newCast[role] || [];
+    before.forEach(n => {
+      const to = (renamed[role] || {})[n];
+      if (to) updName.run(to, id, role, n);
+      else if (!names.includes(n)) delResp.run(id, role, n);
+    });
+  });
+  ensureCastResponses(id, newCast);
 }
+
+// Jede Person einer Besetzung bekommt eine eigene Zeile (Verfuegbarkeit) mit eigenem Schluessel fuer den persoenlichen Link
+function ensureCastResponses(id, cast) {
+  const has = db.prepare('SELECT 1 FROM sv_responses WHERE survey_id = ? AND role = ? AND name = ?');
+  const ins = db.prepare('INSERT INTO sv_responses (survey_id, name, role, edit_token) VALUES (?, ?, ?, ?)');
+  Object.entries(cast).forEach(([role, names]) => names.forEach(n => { if (!has.get(id, role, n)) ins.run(id, n, role, newToken()); }));
+}
+const isCastMember = (s, r) => !!r && castPeople(r.name).length === 1 && (parseCast(s.roles)[r.role] || []).includes(r.name);
 
 function responseInput(b, s) {
   const name = clean(b.name, 100);
   if (!name) return { error: 'Bitte einen Namen eingeben' };
   const roles = parseRoles(s.roles);
   const role = clean(b.role, 100);
+  if (b._public && role && parseCast(s.roles)[role]) return { error: 'Für diese Rolle gibt es persönliche Links – bitte über deinen Link öffnen.' };
   return { name, role: role && (roles.length === 0 || roles.includes(role)) ? role : null, comment: clean(b.comment, 1000) };
 }
 
@@ -276,7 +299,7 @@ function exportWorkbook(s) {
     if (sec.options.some(o => o.time)) rows.push(['', ...sec.options.map(o => o.time || '')]);
     people.forEach(p => rows.push([p.label, ...sec.options.map(o => (p.castRole ? castPeople((s.cast_cells[p.castRole] || {})[o.id]).join(' + ')
       : p.response ? SYMBOL[p.response.answers[o.id]] || '' : ''))]));
-    rows.push(['Zusagen', ...sec.options.map(o => s.responses.filter(r => r.answers[o.id] === 'yes').length
+    rows.push(['Zusagen', ...sec.options.map(o => s.responses.filter(r => r.answers[o.id] === 'yes' && !(s.cast[r.role] || []).includes(r.name)).length
       + Object.values(s.cast_cells).reduce((n, c) => n + castPeople(c[o.id]).length, 0))]);
     rows.push([], []);
   });
@@ -324,7 +347,8 @@ function register(app) {
   });
 
   app.get('/api/surveys/:id', (req, res) => {
-    const s = surveyData(req.params.id);
+    // Admins bekommen die Schluessel, um die persoenlichen Links der Darsteller zu verschicken
+    const s = surveyData(req.params.id, { withTokens: req.isAdmin });
     if (!s) return res.status(404).json({ error: 'Umfrage nicht gefunden' });
     res.json(s);
   });
@@ -416,7 +440,7 @@ function register(app) {
     res.json(surveyData(s.id));
   });
 
-  app.put('/api/surveys/:id/cast', (req, res) => {
+  app.put('/api/surveys/:id/cast', adminOnly, (req, res) => {
     const s = db.prepare('SELECT * FROM sv_surveys WHERE id = ?').get(req.params.id);
     if (!s) return res.status(404).json({ error: 'Umfrage nicht gefunden' });
     const err = saveCastCell(s, req.body || {});
@@ -468,9 +492,10 @@ function register(app) {
     if (!s) return res.status(404).json({ error: 'Diese Umfrage gibt es nicht (mehr).' });
     if (s.status !== 'offen') return res.status(403).json({ error: 'Die Umfrage ist geschlossen.' });
     const b = req.body || {};
-    const input = responseInput(b, s);
-    if (input.error) return res.status(400).json(input);
     let r = b.edit_token ? db.prepare('SELECT * FROM sv_responses WHERE edit_token = ? AND survey_id = ?').get(String(b.edit_token), s.id) : null;
+    // Darsteller behalten Name und Rolle (sie gehoeren zur Besetzung), nur Kommentar und Verfuegbarkeit aendern sich
+    const input = isCastMember(s, r) ? { name: r.name, role: r.role, comment: clean(b.comment, 1000) } : responseInput({ ...b, _public: true }, s);
+    if (input.error) return res.status(400).json(input);
     if (!r && db.prepare('SELECT COUNT(*) AS n FROM sv_responses WHERE survey_id = ?').get(s.id).n >= MAX_RESPONSES) {
       return res.status(400).json({ error: 'Die Umfrage hat bereits die maximale Anzahl an Antworten.' });
     }
@@ -493,6 +518,11 @@ function register(app) {
     if (!s) return res.status(404).json({ error: 'Diese Umfrage gibt es nicht (mehr).' });
     if (s.status !== 'offen') return res.status(403).json({ error: 'Die Umfrage ist geschlossen.' });
     if (s.layout !== 'table') return res.status(403).json({ error: 'Nur in der Tabellen-Ansicht möglich.' });
+    // nur die Darsteller dieser Rolle (erkannt am persoenlichen Schluessel) legen fest, wer spielt
+    const me = req.query.e ? db.prepare('SELECT * FROM sv_responses WHERE edit_token = ? AND survey_id = ?').get(String(req.query.e), s.id) : null;
+    if (!isCastMember(s, me) || me.role !== String((req.body || {}).role || '')) {
+      return res.status(403).json({ error: 'Das können nur die Darsteller dieser Rolle festlegen – bitte über deinen persönlichen Link öffnen.' });
+    }
     const err = saveCastCell(s, req.body || {});
     if (err) return res.status(400).json({ error: err });
     res.json(publicData(s, req.query.e));
@@ -506,6 +536,7 @@ function register(app) {
     if (s.layout !== 'table' || !s.open_edit) return res.status(403).json({ error: 'Nur die eigene Zeile darf geändert werden.' });
     const r = db.prepare('SELECT * FROM sv_responses WHERE id = ? AND survey_id = ?').get(req.params.rid, s.id);
     if (!r) return res.status(404).json({ error: 'Zeile nicht gefunden' });
+    if (isCastMember(s, r) && r.edit_token !== String(req.query.e || '')) return res.status(403).json({ error: 'Die Zeilen der Darsteller ändern nur sie selbst.' });
     db.transaction(() => {
       db.prepare("UPDATE sv_responses SET updated_at = datetime('now') WHERE id = ?").run(r.id);
       saveAnswers(r.id, s.id, (req.body || {}).answers, !!s.allow_maybe);

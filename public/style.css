@@ -2922,6 +2922,25 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .sv-table .sv-cast-i1 { --sv-c: var(--sv-p1); --sv-cs: var(--sv-p1-soft); }
 .sv-table .sv-cast-i2 { --sv-c: var(--sv-p2); --sv-cs: var(--sv-p2-soft); }
 .sv-table .sv-cast-i3 { --sv-c: var(--sv-p3); --sv-cs: var(--sv-p3-soft); }
+/* Rollenzeile ("wer spielt?") und darunter die Darsteller mit ihrer Verfuegbarkeit */
+.sv-table .sv-role-sub { font-size: 10.5px; color: var(--ink-faint); font-weight: 500; }
+.sv-table .sv-member { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto auto; align-items: center; column-gap: 6px; font-size: 11.5px; padding-left: 2px; }
+.sv-table .sv-member i { width: 8px; height: 8px; border-radius: 50%; background: var(--sv-c); }
+.sv-table .sv-member span { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-table .sv-member b { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; min-width: 1.4em; }
+.sv-table .sv-member em { font-style: normal; font-size: 10.5px; color: var(--warn); font-weight: 600; }
+.sv-table .sv-member .svg-link { padding: 0 3px; border: none; font-size: 11px; opacity: 0.55; }
+.sv-table .sv-member .svg-link:hover { opacity: 1; }
+.sv-table tr.sv-cast-row > * { border-bottom-color: transparent; }
+.sv-table tr.sv-member-row > * { padding-top: 1px; padding-bottom: 1px; border-bottom-color: transparent; }
+.sv-table tr.sv-member-row + tr:not(.sv-member-row) > * { border-top: 1px solid var(--line); }
+.sv-table td.sv-avail { font-size: 11px; height: 20px; }
+.sv-table tr.sv-member-row td.sv-avail:not(.sv-yes):not(.sv-no) { background-color: transparent; }
+.sv-table th.sv-own .sv-member span { font-weight: 700; }
+/* Warnung: eingetragen, obwohl "kann nicht" – bzw. keiner kann */
+.sv-table td.sv-cast-conflict .sv-cc { box-shadow: inset 0 0 0 1.5px var(--danger); }
+.sv-table td.sv-cast-gap .sv-cc-empty::before { content: '!'; color: var(--danger); font-weight: 800; font-size: 12px; }
+
 /* Besetzungs-Zellen: farbige Kachel je Person, bei schmalen Spalten Kurzform */
 .sv-table td.sv-cast { padding: 3px 2px; }
 .sv-table .sv-cc {

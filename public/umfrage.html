@@ -55,7 +55,7 @@
 <script src="/umfrage-table.js"></script>
 <script>
 (function () {
-  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats, hasPerson } = window.SurveyTable;
+  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats, hasPerson, isCastMember } = window.SurveyTable;
   let statsPick = null;
   const statsId = () => (hasPerson(data, statsPick) ? statsPick : (data.own ? 'r' + data.own.id : null));
   const token = location.pathname.split('/').pop();
@@ -203,7 +203,7 @@
 
   async function join(name, role) {
     if (!name) { tableMsg = 'Bitte zuerst deinen Namen eingeben.'; renderTablePage(); document.getElementById('sv-name').focus(); return; }
-    if (data.roles.length && !role) { tableMsg = 'Bitte deine Rolle / Aufgabe wählen.'; renderTablePage(); return; }
+    if (data.roles.some(r => !(data.cast || {})[r]) && !role) { tableMsg = 'Bitte deine Rolle / Aufgabe wählen.'; renderTablePage(); return; }
     try {
       const res = await fetch(`/api/public/umfrage/${token}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -224,14 +224,24 @@
     const own = data.own;
     const editLink = editToken ? `${location.origin}/u/${token}?e=${editToken}` : '';
     const typedName = (document.getElementById('sv-name') || {}).value;
-    const roleSelect = (selected) => data.roles.length ? `<select id="sv-role"><option value="">— Rolle / Aufgabe —</option>${data.roles.map(r => `<option ${selected === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>` : '';
+    // Rollen mit Besetzung haben persoenliche Links und stehen hier nicht zur Wahl
+    const freeRoles = data.roles.filter(r => !(data.cast || {})[r]);
+    const hasCast = freeRoles.length < data.roles.length;
+    const member = own && isCastMember(data, own);
+    const roleSelect = (selected) => freeRoles.length ? `<select id="sv-role"><option value="">— Rolle / Aufgabe —</option>${freeRoles.map(r => `<option ${selected === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>` : '';
     app.innerHTML = `
       <h1>${esc(data.title)}</h1>
       ${data.description ? `<p class="sv-desc">${esc(data.description)}</p>` : ''}
       <div class="sv-meta">${data.deadline ? `Bitte eintragen bis ${fmtDate(data.deadline)}` : ''}</div>
       ${!open ? '<div class="sv-closed">Die Umfrage ist geschlossen – Änderungen sind nicht mehr möglich.</div>' : ''}
       ${open ? `<div class="card sv-me">
-        ${own ? `<p style="margin:0 0 8px">Du bist eingetragen als <strong>${esc(own.name)}</strong>${own.role ? ` (${esc(own.role)})` : ''}. Klicke in deiner Zeile auf die Termine: <span class="sv-legend">leer → <b class="sv-yes">✓</b> → ${data.allow_maybe ? '<b class="sv-maybe">?</b> → ' : ''}<b class="sv-no">✗</b> → leer</span></p>
+        ${member ? `<p style="margin:0 0 8px">Hallo <strong>${esc(own.name)}</strong> (${esc(own.role)})! Trag in deiner Zeile ein, wann du kannst <b class="sv-yes">✓</b> und wann nicht <b class="sv-no">✗</b>. In der Zeile <strong>${esc(own.role)}</strong> legt ihr dann gemeinsam fest, wer spielt – das können nur ${esc(data.cast[own.role].join(' und '))}.</p>
+          <p class="hint" style="margin:0">Auf diesem Gerät erkennt dich die Seite wieder. Für ein anderes Gerät deinen persönlichen Link aufheben:<br><code>${esc(editLink)}</code></p>
+          <details style="margin-top:8px"><summary>Kommentar</summary>
+            <textarea id="sv-comment" rows="2" maxlength="1000" placeholder="Kommentar (optional)">${esc(own.comment || '')}</textarea>
+            <button type="button" id="sv-own-save">Speichern</button>
+          </details>`
+        : own ? `<p style="margin:0 0 8px">Du bist eingetragen als <strong>${esc(own.name)}</strong>${own.role ? ` (${esc(own.role)})` : ''}. Klicke in deiner Zeile auf die Termine: <span class="sv-legend">leer → <b class="sv-yes">✓</b> → ${data.allow_maybe ? '<b class="sv-maybe">?</b> → ' : ''}<b class="sv-no">✗</b> → leer</span></p>
           <details><summary>Name, Rolle oder Kommentar ändern</summary>
             <div class="sv-join">
               <input type="text" id="sv-name" maxlength="100" value="${esc(own.name)}" aria-label="Name">${roleSelect(own.role)}
@@ -240,7 +250,8 @@
             <button type="button" id="sv-own-save">Speichern</button>
             <p class="hint" style="margin-top:8px">Dein persönlicher Link für andere Geräte:<br><code>${esc(editLink)}</code></p>
           </details>`
-        : `<p style="margin:0 0 8px"><strong>Trag dich ein:</strong> Name${data.roles.length ? ' und Rolle' : ''} eingeben, dann in deiner Zeile die Termine anklicken.</p>
+        : `<p style="margin:0 0 8px"><strong>Trag dich ein:</strong> Name${freeRoles.length ? ' und Rolle' : ''} eingeben, dann in deiner Zeile die Termine anklicken.</p>
+          ${hasCast ? '<p class="hint" style="margin:0 0 8px">Darsteller: bitte über euren persönlichen Link öffnen – dann könnt ihr eure Zeile ausfüllen und festlegen, wer spielt.</p>' : ''}
           <div class="sv-join">
             <input type="text" id="sv-name" maxlength="100" placeholder="Dein Name" value="${esc(typedName || '')}" autocomplete="name" aria-label="Name">${roleSelect('')}
             <button type="button" id="sv-join">Eintragen</button>
@@ -250,7 +261,8 @@
       </div>` : ''}
       <div class="card">
         <h3 style="margin-top:0">Tabelle <span class="count-chip">${data.responses.length}</span></h3>
-        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit), canEditCast: open, claim: open && data.roles.length > 0 })}
+        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || (data.open_edit && !isCastMember(data, r))),
+          canEditCast: (role) => open && member && own.role === role, claim: open && freeRoles.length > 0 })}
       </div>
       ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
     SurveyTable.fit(app);
@@ -263,7 +275,10 @@
     const ownSave = document.getElementById('sv-own-save');
     if (ownSave) ownSave.addEventListener('click', async () => {
       try {
-        data = await saveOwn({ name: document.getElementById('sv-name').value.trim(), role: (document.getElementById('sv-role') || {}).value || null, comment: document.getElementById('sv-comment').value });
+        const nameEl = document.getElementById('sv-name');
+        data = await saveOwn(nameEl
+          ? { name: nameEl.value.trim(), role: (document.getElementById('sv-role') || {}).value || null, comment: document.getElementById('sv-comment').value }
+          : { comment: document.getElementById('sv-comment').value });
         renderTablePage();
       } catch (err) { tableMsg = err.message; renderTablePage(); }
     });

@@ -45,25 +45,83 @@
   // Shows je Person - Ersatztermine zaehlen nicht mit
   const castCount = (s, role, name, ersatz = false) => s.options.filter(o => isErsatz(o) === ersatz && castPeople(s, role, o.id).includes(name)).length;
   const castFilled = (s, oid) => Object.keys(s.cast_cells || {}).reduce((n, role) => n + castPeople(s, role, oid).length, 0);
-  // Namen mit Zaehler, z.B. "Anna 9 · Berta 8"; Farbe je Person wie in den Zellen
-  const castNamesHtml = (s, role) => castOf(s, role).map((n, i) => {
+  // Kurzform fuer schmale Spalten: kuerzester eindeutiger Anfang, mindestens zwei Buchstaben
+  function castShort(names, n) {
+    if (n.length <= 4) return n;
+    for (let k = 2; k < n.length; k++) {
+      const pre = n.slice(0, k).toLowerCase();
+      if (!names.some(x => x !== n && x.toLowerCase().startsWith(pre))) return n.slice(0, k);
+    }
+    return n;
+  }
+  // Legende in der Rollen-Zelle: Farbe, Name, Anzahl Shows (+ Ersatztermine)
+  const castLegendHtml = (s, role) => `<ul class="sv-legend">${castOf(s, role).map((n, i) => {
     const e = castCount(s, role, n, true);
-    return `<span class="sv-cast-p sv-cast-i${i % 4}">${esc(n)} <small class="sv-cast-n">${castCount(s, role, n)}</small>${e ? `<small class="sv-cast-e">+${e} Ersatz</small>` : ''}</span>`;
-  }).join(' ');
+    return `<li class="sv-cast-i${i % 4}"><i></i><span>${esc(n)}</span><b title="${castCount(s, role, n)} Shows">${castCount(s, role, n)}</b>${e ? `<em title="dazu ${e} Ersatztermin${e === 1 ? '' : 'e'}">+${e}</em>` : ''}</li>`;
+  }).join('')}</ul>`;
   const castClass = (s, role, people) => (people.length > 1 ? ' sv-cast-set sv-cast-both' : people.length ? ` sv-cast-set sv-cast-i${castOf(s, role).indexOf(people[0]) % 4}` : '');
-  // Zelle der Besetzung: Auswahl der Namen (bearbeitbar) oder nur der Name
-  function castCellHtml(s, role, ri, o, editable) {
+  // Zelle der Besetzung: Name (lang/kurz je nach Spaltenbreite), bearbeitbar ueber eine unsichtbare Auswahl darueber
+  function castCellHtml(s, role, ri, o, editable, colCls = '') {
     const names = castOf(s, role);
     const people = castPeople(s, role, o.id);
     const v = people.join('/');
-    const text = people.length > 1 ? (people.length === names.length ? (names.length === 2 ? 'beide' : 'alle') : people.join(' + ')) : v;
-    const cls = `sv-cell sv-cast${castClass(s, role, people)}${isErsatz(o) ? ' sv-ersatz' : ''}`;
-    if (!editable || !o.id) return `<td class="${cls}" title="${esc(people.join(' + '))}">${esc(text)}</td>`;
-    const choices = names.map(n => [n, n]);
-    if (isErsatz(o) && names.length > 1) choices.push([names.join('/'), names.length === 2 ? 'beide' : 'alle']);
-    if (v && !choices.some(([val]) => val === v)) choices.push([v, people.join(' + ')]);
-    return `<td class="${cls}" title="${esc(people.join(' + '))}"><select data-sv-cast="${ri}:${o.id}" aria-label="${esc(role)}: wer spielt?">
-      <option value="">–</option>${choices.map(([val, label]) => `<option value="${esc(val)}" ${v === val ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></td>`;
+    const all = people.length > 1 && people.length === names.length;
+    const full = people.length > 1 ? (all ? (names.length === 2 ? 'beide' : 'alle') : people.join(' + ')) : v;
+    const short = people.length > 1 ? people.map(n => n[0]).join('+') : (v ? castShort(names, v) : '');
+    let select = '';
+    if (editable && o.id) {
+      const choices = names.map(n => [n, n]);
+      if (isErsatz(o) && names.length > 1) choices.push([names.join('/'), names.length === 2 ? 'beide' : 'alle']);
+      if (v && !choices.some(([val]) => val === v)) choices.push([v, people.join(' + ')]);
+      select = `<select data-sv-cast="${ri}:${o.id}" aria-label="${esc(role)}, ${esc(o.label || fmtDate(o.date))}: wer spielt?">
+        <option value="">–</option>${choices.map(([val, label]) => `<option value="${esc(val)}" ${v === val ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+    }
+    const tip = people.length ? people.join(' + ') : (select ? 'Auswählen, wer spielt' : '');
+    return `<td class="sv-cell sv-cast${castClass(s, role, people)}${select ? ' sv-cast-edit' : ''} ${colCls}" title="${esc(tip)}"><div class="sv-cc">${v
+      ? `<span class="sv-cc-full">${esc(full)}</span><span class="sv-cc-short">${esc(short)}</span>` : '<span class="sv-cc-empty"></span>'}${select}</div></td>`;
+  }
+
+  // Spalten-Klassen: Ersatztermin, Beginn eines neuen Monats (Trennlinie)
+  const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  const monthKey = (o) => (o.date || '').slice(0, 7);
+  function colClasses(opts) {
+    const m = new Map();
+    opts.forEach((o, i) => m.set(o, [isErsatz(o) && 'sv-ersatz', i > 0 && monthKey(o) !== monthKey(opts[i - 1]) && 'sv-mstart'].filter(Boolean).join(' ')));
+    return m;
+  }
+  // Monatszeile: aufeinanderfolgende Termine eines Monats zusammengefasst ("März 2027")
+  function monthCells(opts, tag = 'th') {
+    const groups = [];
+    opts.forEach(o => {
+      const k = monthKey(o);
+      if (groups.length && groups[groups.length - 1].k === k) groups[groups.length - 1].n++;
+      else groups.push({ k, n: 1 });
+    });
+    return groups.map((g, i) => {
+      const label = g.k ? `${MONTHS[+g.k.slice(5, 7) - 1]} ${g.k.slice(0, 4)}` : 'ohne Datum';
+      const short = g.k ? `${MONTHS[+g.k.slice(5, 7) - 1].slice(0, 3)} ${g.k.slice(2, 4)}` : 'o. D.';
+      return `<${tag} class="sv-month${i > 0 ? ' sv-mstart' : ''}" colspan="${g.n}" data-n="${Math.min(g.n, 3)}" title="${esc(label)}"><span class="sv-ml">${esc(label)}</span><span class="sv-ms">${esc(short)}</span></${tag}>`;
+    }).join('');
+  }
+  // Datum im Spaltenkopf: Tag und Monat getrennt, damit in schmalen Spalten nur der Tag stehen kann
+  const dateHtml = (iso) => (iso ? `<span class="sv-dd">${iso.slice(8, 10)}.</span><span class="sv-dm">${iso.slice(5, 7)}.</span>` : '');
+  // Dichte je nach tatsaechlicher Spaltenbreite (wide / mid / narrow) fuer kompaktere Koepfe
+  function fit(root) {
+    (root || document).querySelectorAll('table.sv-fit').forEach(t => {
+      const cell = t.querySelector('.sv-h-date th, .svg-dates th.svg-date');
+      if (!cell) return;
+      const w = cell.getBoundingClientRect().width;
+      t.dataset.density = w < 50 ? 'narrow' : w < 72 ? 'mid' : 'wide';
+    });
+  }
+  let fitTimer = null;
+  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => fit(document), 120); });
+
+  // Gleiche Uhrzeit fuer alle Termine eines Abschnitts: einmal vorne statt in jeder Spalte
+  const fmtTime = (t) => (/^\d{1,2}([:.]\d{2})?$/.test(t) ? `${t} Uhr` : t);
+  function commonTime(opts) {
+    const times = [...new Set(opts.map(o => o.time).filter(Boolean))];
+    return times.length === 1 ? times[0] : null;
   }
 
   // Zeilen in Rollen-Reihenfolge; Rollen ohne Antwort bleiben als leere Zeile sichtbar
@@ -79,21 +137,24 @@
     return out;
   }
 
-  const ec = (o) => (isErsatz(o) ? 'sv-ersatz' : '');
   function render(s, opts = {}) {
     if (!s.options.length) return '<p class="empty-state">Noch keine Termine angelegt.</p>';
     const people = rows(s);
-    return sections(s.options).map(sec => {
-      const hasTime = sec.options.some(o => o.time);
+    const tables = sections(s.options).map(sec => {
+      const os = sec.options;
+      const cc = colClasses(os);
+      const one = commonTime(os);
+      const timeRow = !one && os.some(o => o.time);
       const head = `
-        <tr class="sv-h-label"><th class="sv-name">${esc(sec.name)}</th>${sec.options.map(o => `<th class="${ec(o)}" title="${esc([o.section, o.label, o.note].filter(Boolean).join(' · '))}">${esc(o.label || '')}</th>`).join('')}</tr>
-        <tr class="sv-h-date"><th class="sv-name"></th>${sec.options.map(o => `<th class="${ec(o)}">${fmtDate(o.date).slice(0, 6)}</th>`).join('')}</tr>
-        <tr class="sv-h-day"><th class="sv-name"></th>${sec.options.map(o => `<th class="${ec(o)}">${esc(weekday(o.date).slice(0, 2))}</th>`).join('')}</tr>
-        ${hasTime ? `<tr class="sv-h-time"><th class="sv-name"></th>${sec.options.map(o => `<th class="${ec(o)}">${esc(o.time || '')}</th>`).join('')}</tr>` : ''}`;
+        <tr class="sv-h-month"><th class="sv-name sv-sec" rowspan="${timeRow ? 5 : 4}"><span>${esc(sec.name || 'Termine')}</span>${one ? `<small>jeweils ${esc(fmtTime(one))}</small>` : ''}</th>${monthCells(os)}</tr>
+        <tr class="sv-h-label">${os.map(o => `<th class="${cc.get(o)}" title="${esc([o.label, o.note].filter(Boolean).join(' · '))}">${esc(o.label || '')}</th>`).join('')}</tr>
+        <tr class="sv-h-date">${os.map(o => `<th class="${cc.get(o)}" title="${esc(o.date ? `${weekday(o.date)}, ${fmtDate(o.date)}` : '')}">${dateHtml(o.date)}</th>`).join('')}</tr>
+        <tr class="sv-h-day">${os.map(o => `<th class="${cc.get(o)}">${esc(weekday(o.date).slice(0, 2))}</th>`).join('')}</tr>
+        ${timeRow ? `<tr class="sv-h-time">${os.map(o => `<th class="${cc.get(o)}">${esc(o.time || '')}</th>`).join('')}</tr>` : ''}`;
       const body = people.length ? people.map(p => {
         if (p.cast) {
-          return `<tr class="sv-cast-row"><th class="sv-name"><strong>${esc(p.role)}</strong> <span class="sv-cast-names">${castNamesHtml(s, p.role)}</span></th>
-            ${sec.options.map(o => castCellHtml(s, p.role, p.ri, o, opts.canEditCast)).join('')}</tr>`;
+          return `<tr class="sv-cast-row"><th class="sv-name"><div class="sv-role">${esc(p.role)}</div>${castLegendHtml(s, p.role)}</th>
+            ${os.map(o => castCellHtml(s, p.role, p.ri, o, opts.canEditCast, cc.get(o))).join('')}</tr>`;
         }
         const r = p.response;
         // opts.clickable: Name oeffnet die Antwort; opts.canEdit(r): Zellen per Klick umschalten;
@@ -102,20 +163,27 @@
         const own = r && opts.ownId === r.id ? ' sv-own' : '';
         const editable = r && opts.canEdit && opts.canEdit(r);
         return `<tr class="${editable ? 'sv-row-edit' : ''}">
-          <th class="sv-name${r ? '' : ' sv-open'}${own}${nameAttrs ? ' sv-click' : ''}"${nameAttrs}>${p.role ? `<strong>${esc(p.role)}</strong>` : ''}${p.role && p.name ? ' ' : ''}${p.name ? `<span>${esc(p.name)}</span>` : ''}${r && r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}${!r && opts.claim ? ` <button type="button" class="sv-claim" data-sv-claim="${esc(p.role)}">eintragen</button>` : ''}</th>
-          ${sec.options.map(o => {
+          <th class="sv-name${r ? '' : ' sv-open'}${own}${nameAttrs ? ' sv-click' : ''}"${nameAttrs}>${p.role ? `<div class="sv-role">${esc(p.role)}</div>` : ''}${p.name ? `<span class="sv-person">${esc(p.name)}</span>` : ''}${r && r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}${!r && opts.claim ? ` <button type="button" class="sv-claim" data-sv-claim="${esc(p.role)}">eintragen</button>` : ''}</th>
+          ${os.map(o => {
             const v = r ? r.answers[o.id] : null;
-            return `<td class="sv-cell ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''} ${ec(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
+            return `<td class="sv-cell ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''} ${cc.get(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
           }).join('')}
         </tr>`;
-      }).join('') : `<tr><th class="sv-name sv-open">Noch keine Antworten</th>${sec.options.map(() => '<td></td>').join('')}</tr>`;
+      }).join('') : `<tr><th class="sv-name sv-open">Noch keine Antworten</th>${os.map(o => `<td class="${cc.get(o)}"></td>`).join('')}</tr>`;
       const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
-      const foot = `<tr class="sv-sum"><th class="sv-name">Zusagen</th>${sec.options.map(o => {
+      const foot = `<tr class="sv-sum"><th class="sv-name">Zusagen</th>${os.map(o => {
         const maybe = count(o, 'maybe');
-        return `<td>${count(o, 'yes') + castFilled(s, o.id)}${maybe ? `<small>+${maybe}?</small>` : ''}</td>`;
+        return `<td class="${cc.get(o)}">${count(o, 'yes') + castFilled(s, o.id)}${maybe ? `<small>+${maybe}?</small>` : ''}</td>`;
       }).join('')}</tr>`;
-      return `<div class="sv-table-wrap"><table class="sv-table sv-fit" style="--sv-cols:${sec.options.length}"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>`;
+      return `<div class="sv-table-wrap"><table class="sv-table sv-fit" style="--sv-cols:${os.length}"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>`;
     }).join('');
+    return tables + noteHtml(s);
+  }
+  // Erklaerung unter der Tabelle (nur wenn es Ersatztermine gibt)
+  function noteHtml(s) {
+    if (!s.options.some(isErsatz)) return '';
+    const cast = Object.keys(s.cast || {}).length;
+    return `<p class="sv-note"><span class="sv-swatch"></span>Ersatztermin – zählt nicht zur Showzahl${cast ? '; hier dürfen auch beide eingetragen sein, wenn beide Zeit haben' : ''}.</p>`;
   }
 
   // Klick auf eine Zelle: leer → ✓ → ? → ✗ → leer
@@ -191,5 +259,5 @@
     });
   }
 
-  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats, hasPerson, castOf, castCellHtml, castNamesHtml, castFilled, isErsatz, ordered };
+  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats, hasPerson, castOf, castCellHtml, castLegendHtml, castFilled, isErsatz, ordered, colClasses, monthCells, commonTime, fmtTime, noteHtml, dateHtml, fit };
 })();

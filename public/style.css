@@ -2884,91 +2884,155 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .sv-table th.sv-click { cursor: pointer; }
 .sv-table th.sv-click:hover { background: var(--panel-alt); }
 
+/* ---------- Umfragen: Tabelle (gemeinsam fuer Verwaltung und oeffentliche Seite) ---------- */
+.sv-table {
+  --sv-p0: var(--ok); --sv-p0-soft: var(--ok-soft);
+  --sv-p1: var(--violet-ink); --sv-p1-soft: var(--violet-soft);
+  --sv-p2: var(--warn); --sv-p2-soft: var(--warn-soft);
+  --sv-p3: var(--ink-soft); --sv-p3-soft: var(--panel-alt);
+  --sv-stripe: color-mix(in srgb, var(--warn) 26%, transparent);
+}
+/* Kopf: Monat · Bezeichnung · Datum · Wochentag (· Uhrzeit) */
+.sv-table .sv-h-month th { padding: 8px 6px 5px; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+.sv-table th.sv-month { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--accent); }
+.sv-table th.sv-month span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-table th.sv-sec { vertical-align: bottom; padding-bottom: 8px; border-bottom: 1.5px solid var(--line-strong); }
+.sv-table th.sv-sec span { display: block; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); }
+.sv-table th.sv-sec small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 500; color: var(--ink-faint); }
+.sv-table .sv-h-label th { padding-top: 7px; font-size: 11px; font-weight: 600; line-height: 1.15; color: var(--ink-soft); vertical-align: bottom; }
+.sv-table .sv-h-date th { font-size: 12.5px; font-weight: 700; color: var(--ink); padding-top: 3px; }
+.sv-table .sv-h-day th { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint); }
+.sv-table .sv-h-time th { font-size: 11px; color: var(--ink-faint); }
+/* Monatswechsel als Trennlinie */
+.sv-table .sv-mstart { border-left: 1.5px solid var(--line-strong); }
+/* Ersatztermine: schraffiert, Bezeichnung in Warnfarbe */
+.sv-table .sv-ersatz { background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--sv-stripe) 5px 6.5px); }
+.sv-table .sv-h-label th.sv-ersatz { color: var(--warn); }
+/* Zeilenkoepfe: Rolle, darunter Person bzw. Legende der Besetzung */
+.sv-table tbody .sv-name { vertical-align: middle; white-space: normal; }
+.sv-table .sv-role { font-weight: 700; color: var(--ink); line-height: 1.25; overflow-wrap: anywhere; }
+.sv-table .sv-name .sv-person { color: var(--ink-soft); }
+.sv-table .sv-legend { list-style: none; margin: 4px 0 1px; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.sv-table .sv-legend li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; column-gap: 6px; font-size: 11.5px; line-height: 1.45; }
+.sv-table .sv-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--sv-c); }
+.sv-table .sv-legend span { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-table .sv-legend b { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; min-width: 1.4em; }
+.sv-table .sv-legend em { font-style: normal; font-size: 10.5px; color: var(--warn); font-weight: 600; }
+.sv-table .sv-cast-i0 { --sv-c: var(--sv-p0); --sv-cs: var(--sv-p0-soft); }
+.sv-table .sv-cast-i1 { --sv-c: var(--sv-p1); --sv-cs: var(--sv-p1-soft); }
+.sv-table .sv-cast-i2 { --sv-c: var(--sv-p2); --sv-cs: var(--sv-p2-soft); }
+.sv-table .sv-cast-i3 { --sv-c: var(--sv-p3); --sv-cs: var(--sv-p3-soft); }
+/* Besetzungs-Zellen: farbige Kachel je Person, bei schmalen Spalten Kurzform */
+.sv-table td.sv-cast { padding: 3px 2px; }
+.sv-table .sv-cc {
+  container-type: inline-size; position: relative; height: 24px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  font-size: 11.5px; font-weight: 650; white-space: nowrap; color: var(--sv-c, var(--ink-faint));
+  background: var(--sv-cs, transparent);
+}
+.sv-table td.sv-cast-both .sv-cc { background: linear-gradient(135deg, var(--sv-p0-soft) 50%, var(--sv-p1-soft) 50%); color: var(--ink); }
+.sv-table .sv-cc-full { overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
+.sv-table .sv-cc-short { display: none; }
+.sv-table .sv-cc-empty::before { content: '·'; color: var(--ink-faint); font-size: 16px; }
+@container (max-width: 58px) {
+  .sv-table .sv-cc-full { display: none; }
+  .sv-table .sv-cc-short { display: inline; }
+}
+.sv-table .sv-cc select { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+.sv-table td.sv-cast-edit .sv-cc:hover { box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.sv-table td.sv-cast-edit:not(.sv-cast-set) .sv-cc:hover { background: var(--panel-alt); }
+.sv-table .sv-cc:has(select:focus-visible) { box-shadow: inset 0 0 0 2px var(--accent); }
+/* Fusszeile und Erklaerung */
+.sv-table .sv-sum td { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+.sv-table .sv-sum th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); }
+.sv-note { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 12px; color: var(--ink-soft); }
+.sv-note .sv-swatch { flex-shrink: 0; width: 18px; height: 12px; border-radius: 3px; border: 1px solid var(--line-strong);
+  background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--warn) 40%, transparent) 4px 5.5px); }
+
 /* Umfragen: Tabellen-Editor in der Verwaltung */
 .svg-wrap { max-height: none; }
 .svg th, .svg td { min-width: 92px; }
 .svg .sv-name { min-width: 190px; max-width: 280px; white-space: normal; }
-.svg .svg-rowhead { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 700; }
-.svg thead th[contenteditable] { outline: none; cursor: text; font-weight: 600; color: var(--ink); min-height: 1.4em; }
+.svg .svg-rowhead { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); font-weight: 700; }
+.svg thead th[contenteditable] { outline: none; cursor: text; min-height: 1.4em; border-radius: 4px; }
 .svg thead th[contenteditable]:empty::before { content: '…'; color: var(--ink-faint); }
-.svg thead th[contenteditable]:focus, .svg .svg-role:focus { box-shadow: inset 0 0 0 2px var(--accent); background: var(--panel); }
-.svg .svg-tools th { padding: 2px; border-bottom: none !important; }
+.svg thead th[contenteditable]:hover { background-color: var(--panel-alt); }
+.svg thead th[contenteditable]:focus, .svg .svg-role:focus { box-shadow: inset 0 0 0 2px var(--accent); background-color: var(--panel); }
+.svg .svg-sections th { font-size: 11px; font-weight: 700; color: var(--ink-soft); padding-top: 6px; }
 /* Datum: kompakter Knopf, das echte Datumsfeld liegt unsichtbar darunter (fuer die Auswahl) */
 .svg .svg-date { position: relative; }
 .svg .svg-date input { position: absolute; left: 0; bottom: 0; width: 100%; min-width: 0; height: 1px; padding: 0; margin: 0; border: 0; opacity: 0; pointer-events: none; }
-.svg .svg-date-btn { width: 100%; padding: 2px 1px; margin: 0; background: transparent; border: 1px solid transparent; box-shadow: none; color: var(--ink); font-size: 12px; font-weight: 600; line-height: 1.15; border-radius: 6px; }
+.svg .svg-date-btn { width: 100%; padding: 3px 1px; margin: 0; background: transparent; border: 1px solid transparent; box-shadow: none; color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.15; border-radius: 6px; }
 .svg .svg-date-btn:hover { border-color: var(--line-strong); filter: none; }
-.svg .svg-nodate { color: var(--ink-faint); font-weight: 500; }
-.svg .svg-date small { display: block; font-size: 10.5px; color: var(--ink-faint); text-transform: uppercase; font-weight: 600; margin-top: 2px; }
+.svg .svg-date-btn small { display: block; font-size: 10px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-top: 2px; }
+.svg .svg-nodate { color: var(--accent); font-weight: 600; font-size: 11px; }
+.svg .svg-col-del { position: absolute; top: -2px; right: 1px; padding: 0 4px; font-size: 10px; line-height: 16px; border-radius: 999px; border: none; box-shadow: none; background: var(--panel); color: var(--ink-faint); opacity: 0; }
+.svg .svg-date:hover .svg-col-del, .svg .svg-col-del:focus-visible { opacity: 1; }
+.svg .svg-col-del:hover { color: var(--danger); filter: none; }
 .svg .svg-add { vertical-align: middle; border-bottom: none; min-width: 110px; }
 .svg .svg-pad { border: none; min-width: 0; }
-.svg .svg-role { font-weight: 700; outline: none; padding: 1px 3px; border-radius: 4px; cursor: text; }
+.svg .svg-rolehead { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; }
+.svg .svg-role { font-weight: 700; color: var(--ink); outline: none; padding: 1px 3px; margin-left: -3px; border-radius: 4px; cursor: text; overflow-wrap: anywhere; }
 .svg .svg-role:hover { background: var(--panel-alt); }
 .svg .svg-person { color: var(--ink-soft); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
-.svg .svg-cast { display: block; color: var(--ink-soft); outline: none; padding: 1px 3px; border-radius: 4px; cursor: text; font-size: 12.5px; }
-.svg .svg-cast:hover { background: var(--panel-alt); }
-.svg .svg-cast:focus { box-shadow: inset 0 0 0 2px var(--accent); background: var(--panel); }
-.svg .sv-cast-row .sv-cast-names { display: block; padding: 0 3px; }
-/* Besetzung: je Termin steht der Name, wer spielt */
-.sv-table .sv-cast-p { white-space: nowrap; font-weight: 600; margin-right: 4px; }
-.sv-table .sv-cast-p.sv-cast-i0 { color: var(--ok); } .sv-table .sv-cast-p.sv-cast-i1 { color: var(--violet-ink); }
-.sv-table .sv-cast-p.sv-cast-i2 { color: var(--warn); } .sv-table .sv-cast-p.sv-cast-i3 { color: var(--ink-soft); }
-.sv-table .sv-cast-e { margin-left: 3px; font-size: 10.5px; color: var(--ink-faint); font-weight: 500; }
-.sv-table .sv-cast-names { font-size: 12px; color: var(--ink-soft); font-weight: 500; }
-.sv-table .sv-cast-n { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent-soft, var(--panel-alt)); color: var(--accent); font-weight: 700; font-size: 11px; text-align: center; }
-.sv-table td.sv-cast { font-weight: 600; font-size: 12px; padding: 2px; }
-.sv-table td.sv-cast-set { background: var(--ok-soft); color: var(--ok); }
-.sv-table td.sv-cast select { width: 100%; min-width: 74px; margin: 0; padding: 3px 4px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid transparent; color: inherit; box-shadow: none; }
-.sv-table td.sv-cast select:hover, .sv-table td.sv-cast select:focus { border-color: var(--line-strong); background: var(--panel); }
-/* je Person eine Farbe; "beide" (nur Ersatztermine) zweifarbig */
-.sv-table td.sv-cast-i1 { background: var(--violet-soft); color: var(--violet-ink); }
-.sv-table td.sv-cast-i2 { background: var(--warn-soft); color: var(--warn); }
-.sv-table td.sv-cast-i3 { background: var(--panel-alt); color: var(--ink-soft); }
-.sv-table td.sv-cast-both { background: linear-gradient(135deg, var(--ok-soft) 50%, var(--violet-soft) 50%); color: var(--ink); }
-/* Ersatztermine: gelblich hinterlegt */
-.sv-table th.sv-ersatz { background: var(--warn-soft); }
-.sv-table td.sv-ersatz:not(.sv-cast-set):not(.sv-yes):not(.sv-no):not(.sv-maybe) { background: var(--warn-soft); }
-.sv-table .sv-h-label th.sv-ersatz { color: var(--warn); }
+.svg .svg-row-tools { display: inline-flex; gap: 3px; opacity: 0; transition: opacity 0.12s; }
+.svg tr:hover .svg-row-tools, .svg .svg-row-tools:focus-within { opacity: 1; }
+.svg .svg-mini { padding: 0 7px; font-size: 11px; border-radius: 999px; box-shadow: none; background: transparent; border: 1px solid var(--line); color: var(--ink-soft); margin-left: 0; }
+.svg .svg-mini:hover { background: var(--panel-alt); filter: none; }
+.svg .svg-del { color: var(--ink-faint); }
+.svg .svg-del:hover { color: var(--danger); border-color: var(--danger); }
+.svg td.svg-empty { cursor: copy; }
+.svg td.svg-empty:hover { background-color: var(--accent-soft); }
+.svg .svg-addrow th, .svg .svg-addrow td { border-bottom: none; text-align: left; padding-top: 8px; }
+/* Uhrzeit: gekoppelte Zeiten blass, Knoepfe erst beim Draufzeigen */
+.svg .svg-time-cell { white-space: nowrap; font-size: 11.5px; }
+.svg .svg-time { outline: none; display: inline-block; min-width: 3em; padding: 1px 3px; border-radius: 4px; cursor: text; }
+.svg .svg-time:empty::before { content: '…'; color: var(--ink-faint); }
+.svg .svg-time:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.svg .svg-inherit { color: var(--ink-faint); font-weight: 500; font-style: italic; }
+.svg .svg-time-cell { position: relative; }
+.svg .svg-time-cell .svg-mini { position: absolute; top: 50%; right: 1px; transform: translateY(-50%); padding: 0 4px; border: none; font-size: 10px; line-height: 16px; background: var(--panel); opacity: 0; }
+.svg .svg-time-cell:hover .svg-mini, .svg .svg-time-cell .svg-mini:focus-visible { opacity: 1; }
+@media (hover: none) {
+  .svg .svg-row-tools, .svg .svg-col-del, .svg .svg-time-cell .svg-mini { opacity: 1; }
+}
 
-/* Desktop: alle Termine in Bildschirmbreite (Spalten schmaler, Texte gekuerzt); mobil wird gescrollt */
+/* Desktop: alle Termine in Bildschirmbreite (Spalten schmaler, Kurzformen); mobil wird seitlich gescrollt */
 @media (min-width: 821px) {
-  main:has(#sv-detail-view:not(.hidden)), .sv-page:has(.sv-fit) { max-width: none; }
-  .sv-table.sv-fit { table-layout: fixed; width: min(100%, calc(170px + var(--sv-cols) * 88px)); }
+  main:has(#sv-detail-view:not(.hidden)) { max-width: none; }
+  .sv-table.sv-fit { table-layout: fixed; width: min(100%, calc(180px + var(--sv-cols) * 84px)); }
   .sv-table.sv-fit th, .sv-table.sv-fit td { min-width: 0; padding-left: 2px; padding-right: 2px; overflow: hidden; text-overflow: ellipsis; }
-  .sv-table.sv-fit .sv-name { width: 170px; min-width: 0; max-width: none; padding-left: 6px; white-space: normal; }
-  .sv-table.sv-fit .sv-h-label th:not(.sv-name) { white-space: normal; hyphens: auto; -webkit-hyphens: auto; font-size: 11px; line-height: 1.2; }
+  .sv-table.sv-fit .sv-name { width: 180px; min-width: 0; max-width: none; padding-left: 8px; padding-right: 8px; }
+  .sv-table.sv-fit .sv-h-label th:not(.sv-name) { white-space: normal; hyphens: auto; -webkit-hyphens: auto; }
   .sv-table.sv-fit .sv-cell { font-size: 13px; }
-  .sv-table.sv-fit td.sv-cast { font-size: 11px; }
-  .sv-table.sv-fit td.sv-cast select { min-width: 0; padding: 3px 0; font-size: 11px; text-align: center; text-align-last: center; -webkit-appearance: none; appearance: none; background-image: none; text-overflow: ellipsis; }
-  .svg.sv-fit { width: min(100%, calc(200px + var(--sv-cols) * 100px + 64px)); }
-  .svg.sv-fit .sv-name { width: 200px; }
+  .svg.sv-fit { width: min(100%, calc(210px + var(--sv-cols) * 96px + 64px)); }
+  .svg.sv-fit .sv-name { width: 210px; }
   .svg.sv-fit .svg-add { width: 64px; }
   .svg.sv-fit .svg-add button { padding: 4px 2px; font-size: 11px; white-space: normal; }
   .svg.sv-fit .svg-pad { padding: 0; }
-  .svg.sv-fit thead th[contenteditable] { white-space: normal; hyphens: auto; -webkit-hyphens: auto; font-size: 11px; line-height: 1.2; }
+  .svg.sv-fit thead th[contenteditable] { white-space: normal; hyphens: auto; -webkit-hyphens: auto; line-height: 1.2; }
   /* Abschnitt nur am Anfang zeigen, die Wiederholungen erst beim Draufzeigen */
   .svg.sv-fit .svg-sections th[contenteditable] { white-space: nowrap; overflow: visible; text-align: left; }
   .svg.sv-fit .svg-sections th[data-same="1"]:not(:focus):not(:hover) { color: transparent; }
   .svg.sv-fit .svg-sections th[data-solo="1"] { overflow: hidden; text-overflow: ellipsis; }
   .svg.sv-fit .svg-sections th[data-same="1"]:empty::before { content: ''; }
-  .svg.sv-fit .svg-time-cell { white-space: normal; font-size: 11px; }
+  .svg.sv-fit .svg-time-cell { white-space: normal; }
   .svg.sv-fit .svg-time { min-width: 0; }
-  .svg.sv-fit .svg-mini { margin-left: 0; padding: 0 4px; }
+  .svg.sv-fit thead th[contenteditable] { overflow-wrap: normal; word-break: normal; }
+  /* Dichte nach Spaltenbreite (SurveyTable.fit): in schmalen Spalten nur der Tag, kleinere Koepfe */
+  .sv-fit[data-density="narrow"] .sv-dm { display: none; }
+  .sv-fit[data-density="narrow"] .sv-h-label th, .sv-fit[data-density="narrow"] thead th[contenteditable]:not(.sv-name) { font-size: 10px; letter-spacing: -0.01em; }
+  .sv-fit[data-density="narrow"] .sv-h-time th, .sv-fit[data-density="narrow"] .svg-time-cell { font-size: 10px; letter-spacing: -0.03em; }
+  .sv-fit[data-density="narrow"] th.sv-month[data-n="2"] .sv-ml { display: none; }
+  .sv-fit[data-density="narrow"] th.sv-month[data-n="2"] .sv-ms { display: block; }
 }
-.svg .svg-mini { padding: 0 7px; font-size: 11px; border-radius: 999px; box-shadow: none; background: transparent; border: 1px solid var(--line); color: var(--ink-soft); margin-left: 4px; }
-.svg .svg-mini:hover { background: var(--panel-alt); filter: none; }
-.svg .svg-del { color: var(--ink-faint); }
-.svg .svg-del:hover { color: var(--danger); border-color: var(--danger); }
-.svg td.svg-empty { cursor: copy; }
-.svg td.svg-empty:hover { background: var(--accent-soft); }
-.svg .svg-addrow th, .svg .svg-addrow td { border-bottom: none; text-align: left; padding-top: 8px; }
-
-/* Umfragen: Uhrzeit-Kopplung und Auswertung */
-.svg .svg-time-cell { white-space: nowrap; }
-.svg .svg-time { outline: none; display: inline-block; min-width: 3em; padding: 1px 3px; border-radius: 4px; cursor: text; }
-.svg .svg-time:empty::before { content: '…'; color: var(--ink-faint); }
-.svg .svg-time:focus { box-shadow: inset 0 0 0 2px var(--accent); }
-.svg .svg-inherit { color: var(--ink-faint); font-weight: 500; font-style: italic; }
+/* Monat: kurze Form nur fuer einzelne (bzw. in schmalen Tabellen zwei) Spalten */
+.sv-table th.sv-month .sv-ms { display: none; }
+.sv-table th.sv-month[data-n="1"] .sv-ml { display: none; }
+.sv-table th.sv-month[data-n="1"] .sv-ms { display: block; }
+@media (max-width: 820px) {
+  .sv-table td.sv-cast { min-width: 66px; }
+}
 .sv-stats-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .sv-stats-head h3 { margin: 0; font-size: 14.5px; }
 .sv-stats-head select { width: auto; min-width: 220px; margin: 0; }

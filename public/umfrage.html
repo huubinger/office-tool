@@ -117,6 +117,7 @@
       ${data.show_results ? `<div class="card"><h3 style="margin-top:0">Bisherige Antworten <span class="count-chip">${data.responses.length}</span></h3>
         ${render(data, { ownId: own && own.id })}</div>
         ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}` : ''}`;
+    SurveyTable.fit(app);
     bindStats(app, data, (rid) => { statsPick = rid; });
 
     if (!open) return;
@@ -252,6 +253,7 @@
         ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit), canEditCast: open, claim: open && data.roles.length > 0 })}
       </div>
       ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
+    SurveyTable.fit(app);
     bindStats(app, data, (rid) => { statsPick = rid; });
     tableMsg = '';
     if (!open) return;

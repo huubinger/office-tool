@@ -150,7 +150,7 @@ function saveOptions(surveyId, options) {
   const ins = db.prepare('INSERT INTO sv_options (survey_id, section, label, date, time, note, sort) VALUES (?, ?, ?, ?, ?, ?, ?)');
   options.slice(0, MAX_OPTIONS).forEach((o, i) => {
     const vals = [clean(o.section, 100), clean(o.label, 100), cleanDate(o.date), clean(o.time, 30), clean(o.note, 300), i];
-    if (!vals[1] && !vals[2]) return; // leere Zeile
+    if (!vals[1] && !vals[2] && !o.id && !o.keep) return; // leere Zeile (im Tabellen-Editor bleiben neue Spalten erhalten)
     if (o.id && existing.has(+o.id)) { upd.run(...vals, +o.id); keep.add(+o.id); }
     else ins.run(surveyId, ...vals);
   });
@@ -247,6 +247,11 @@ function register(app) {
         .run(...keys.map(k => fields[k]), newToken(), b._user).lastInsertRowid;
     }
     saveOptions(id, b.options);
+    // Umbenannte Rollen: bestehende Antworten mitnehmen
+    if (b.role_renames && typeof b.role_renames === 'object') {
+      const upd = db.prepare('UPDATE sv_responses SET role = ? WHERE survey_id = ? AND role = ?');
+      Object.entries(b.role_renames).slice(0, 100).forEach(([from, to]) => { if (clean(to, 100)) upd.run(clean(to, 100), id, from); });
+    }
     return id;
   }
 

@@ -2883,3 +2883,27 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .sv-table .sv-claim { margin-left: 6px; padding: 1px 8px; font-size: 11px; border-radius: 999px; box-shadow: none; }
 .sv-table th.sv-click { cursor: pointer; }
 .sv-table th.sv-click:hover { background: var(--panel-alt); }
+
+/* Umfragen: Tabellen-Editor in der Verwaltung */
+.svg-wrap { max-height: none; }
+.svg th, .svg td { min-width: 92px; }
+.svg .sv-name { min-width: 190px; max-width: 280px; white-space: normal; }
+.svg .svg-rowhead { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 700; }
+.svg thead th[contenteditable] { outline: none; cursor: text; font-weight: 600; color: var(--ink); min-height: 1.4em; }
+.svg thead th[contenteditable]:empty::before { content: '…'; color: var(--ink-faint); }
+.svg thead th[contenteditable]:focus, .svg .svg-role:focus { box-shadow: inset 0 0 0 2px var(--accent); background: var(--panel); }
+.svg .svg-tools th { padding: 2px; border-bottom: none !important; }
+.svg .svg-date input { width: 100%; min-width: 118px; padding: 3px 4px; font-size: 12px; margin: 0; }
+.svg .svg-date small { display: block; font-size: 10.5px; color: var(--ink-faint); text-transform: uppercase; font-weight: 600; margin-top: 2px; }
+.svg .svg-add { vertical-align: middle; border-bottom: none; min-width: 110px; }
+.svg .svg-pad { border: none; min-width: 0; }
+.svg .svg-role { font-weight: 700; outline: none; padding: 1px 3px; border-radius: 4px; cursor: text; }
+.svg .svg-role:hover { background: var(--panel-alt); }
+.svg .svg-person { color: var(--ink-soft); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.svg .svg-mini { padding: 0 7px; font-size: 11px; border-radius: 999px; box-shadow: none; background: transparent; border: 1px solid var(--line); color: var(--ink-soft); margin-left: 4px; }
+.svg .svg-mini:hover { background: var(--panel-alt); filter: none; }
+.svg .svg-del { color: var(--ink-faint); }
+.svg .svg-del:hover { color: var(--danger); border-color: var(--danger); }
+.svg td.svg-empty { cursor: copy; }
+.svg td.svg-empty:hover { background: var(--accent-soft); }
+.svg .svg-addrow th, .svg .svg-addrow td { border-bottom: none; text-align: left; padding-top: 8px; }

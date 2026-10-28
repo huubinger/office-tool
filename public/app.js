@@ -9331,16 +9331,16 @@
           ${s.description ? `<div class="detail-notes">${escapeHtml(s.description)}</div>` : ''}
         </div>
         <div class="detail-actions ev-hero-actions">
-          <button type="button" class="ghost" id="sv-edit">Bearbeiten</button>
+          <button type="button" class="ghost" id="sv-edit">Einstellungen</button>
           <a class="ghost-link" href="/api/surveys/${s.id}/export.xlsx">Excel</a>
           <button type="button" class="danger" id="sv-delete">Löschen</button>
         </div>
       </div>
       <div class="card">
-        <div class="section-card-head"><h3>📋 Ergebnis</h3>
-          <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Antwort eintragen</button></div></div>
-        <p class="hint">Zelle anklicken schaltet um (leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗). Namen anklicken, um Name, Rolle oder Kommentar zu ändern.</p>
-        ${SurveyTable.render(s, { clickable: true, canEdit: () => true })}
+        <div class="section-card-head"><h3>📋 Tabelle</h3>
+          <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Person eintragen</button></div></div>
+        <p class="hint">Termine oben direkt eintragen (Abschnitt, Bezeichnung, Datum, Uhrzeit), Rollen/Aufgaben links. Zellen anklicken schaltet um: leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗. Namen anklicken für Name, Rolle, Kommentar.</p>
+        ${svGridHtml(s)}
       </div>
       ${comments.length ? `<div class="card"><div class="section-card-head"><h3>💬 Kommentare</h3></div><div class="sponsor-info">
         ${comments.map(r => `<div><span>${escapeHtml([r.role, r.name].filter(Boolean).join(' · '))}</span><p>${escapeHtml(r.comment)}</p></div>`).join('')}</div></div>` : ''}`;
@@ -9362,6 +9362,7 @@
       loadSurveys();
     });
     document.getElementById('sv-add-response').addEventListener('click', () => openSvResponseModal(null));
+    svBindGrid(view);
     view.querySelectorAll('[data-sv-cell]').forEach(td => {
       const toggle = () => {
         const [rid, oid] = td.dataset.svCell.split(':').map(Number);
@@ -9376,7 +9377,7 @@
           delete svCellTimers[rid];
           try {
             const fresh = await api(`/api/surveys/${s.id}/responses/${rid}`, { method: 'PUT', body: JSON.stringify({ name: r.name, role: r.role, comment: r.comment, answers: r.answers }) });
-            if (!Object.keys(svCellTimers).length && svDetail && svDetail.id === s.id) { svDetail = fresh; renderSvDetail(); }
+            if (!Object.keys(svCellTimers).length && svDetail && svDetail.id === s.id) { svAdopt(fresh); renderSvDetail(); }
           } catch (err) { toast(err.message); }
         }, 500);
       };
@@ -9406,6 +9407,7 @@
   document.getElementById('sv-modal-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!svModalCfg) return;
+    if (svStructTimer) await svSaveStructure(false); // offene Tabellen-Aenderungen zuerst speichern
     try { await svModalCfg.onSave(); closeSvModal(); } catch (err) { alert(err.message); }
   });
   document.getElementById('sv-modal-delete').addEventListener('click', async () => {
@@ -9528,9 +9530,175 @@
       },
     });
   }
-  document.getElementById('sv-new-btn').addEventListener('click', () => openSvSurveyModal(null));
+  document.getElementById('sv-new-btn').addEventListener('click', openSvQuickCreate);
 
-  function openSvResponseModal(r) {
+  // ---- Tabellen-Editor: Termine (Spalten) und Rollen/Aufgaben (Zeilen) direkt in der Tabelle ----
+  let svStructTimer = null;
+  let svRenames = {};
+  // Antwort vom Server uebernehmen, ohne noch nicht gespeicherte Tabellen-Aenderungen zu verlieren
+  function svAdopt(fresh) {
+    if (svStructTimer && svDetail && svDetail.id === fresh.id) { fresh.options = svDetail.options; fresh.roles = svDetail.roles; }
+    svDetail = fresh;
+  }
+  async function svSaveStructure(rerender) {
+    clearTimeout(svStructTimer);
+    svStructTimer = null;
+    const s = svDetail;
+    const renames = svRenames;
+    svRenames = {};
+    try {
+      const fresh = await api(`/api/surveys/${s.id}`, { method: 'PUT', body: JSON.stringify({
+        options: s.options.map(o => ({ id: o.id || null, section: o.section, label: o.label, date: o.date, time: o.time, note: o.note, keep: true })),
+        roles: s.roles.join('\n'), role_renames: renames,
+      }) });
+      if (svDetail && svDetail.id === s.id) {
+        if (rerender) { svAdopt(fresh); renderSvDetail(); }
+        else if (!svStructTimer) { // nur neue IDs und Antworten uebernehmen, Fokus bleibt
+          s.options.forEach((o, i) => { if (!o.id && fresh.options[i]) o.id = fresh.options[i].id; });
+          svDetail.responses = fresh.responses;
+        }
+      }
+    } catch (err) { toast('Nicht gespeichert: ' + err.message); }
+  }
+  const svSaveSoon = () => { clearTimeout(svStructTimer); svStructTimer = setTimeout(() => svSaveStructure(false), 700); };
+
+  function svGridHtml(s) {
+    const opts = s.options;
+    const ed = (o, f, text) => `<th contenteditable="true" spellcheck="false" data-svg-o="${opts.indexOf(o)}" data-svg-f="${f}">${escapeHtml(text || '')}</th>`;
+    const colCount = opts.length;
+    const rows = [];
+    s.roles.forEach((role, ri) => {
+      const rs = s.responses.filter(r => r.role === role);
+      const roleCell = (first) => `<span class="svg-role" contenteditable="true" spellcheck="false" data-svg-role="${ri}">${escapeHtml(role)}</span>
+        ${first ? `<button type="button" class="svg-mini" data-svg-add-person="${escapeHtml(role)}" title="Person für ${escapeHtml(role)} eintragen">+ Person</button>
+        <button type="button" class="svg-mini svg-del" data-svg-del-role="${ri}" title="Zeile ${escapeHtml(role)} löschen" aria-label="Zeile löschen">✕</button>` : ''}`;
+      if (!rs.length) rows.push(`<tr><th class="sv-name sv-open">${roleCell(true)}</th>${opts.map(() => `<td class="sv-cell svg-empty" data-svg-add-person="${escapeHtml(role)}"></td>`).join('')}<td class="svg-pad"></td></tr>`);
+      rs.forEach((r, i) => rows.push(svRespRow(s, r, roleCell(i === 0))));
+    });
+    s.responses.filter(r => !r.role || !s.roles.includes(r.role)).forEach(r => rows.push(svRespRow(s, r, '')));
+    const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
+    return `<div class="evt-wrap svg-wrap"><table class="sv-table svg">
+      <thead>
+        <tr class="svg-tools"><th class="sv-name"></th>${opts.map((o, i) => `<th><button type="button" class="svg-mini svg-del" data-svg-del-col="${i}" title="Termin löschen" aria-label="Termin löschen">✕</button></th>`).join('')}
+          <th class="svg-add" rowspan="5"><button type="button" class="ghost" id="svg-add-col">+ Termin</button></th></tr>
+        <tr class="svg-h"><th class="sv-name svg-rowhead">Abschnitt</th>${opts.map(o => ed(o, 'section', o.section)).join('')}</tr>
+        <tr class="sv-h-label svg-h"><th class="sv-name svg-rowhead">Bezeichnung</th>${opts.map(o => ed(o, 'label', o.label)).join('')}</tr>
+        <tr class="svg-h"><th class="sv-name svg-rowhead">Datum</th>${opts.map((o, i) => `<th class="svg-date"><input type="date" data-svg-date="${i}" value="${escapeHtml(o.date || '')}" aria-label="Datum"><small>${escapeHtml(SurveyTable.weekday(o.date))}</small></th>`).join('')}</tr>
+        <tr class="svg-h"><th class="sv-name svg-rowhead">Uhrzeit</th>${opts.map(o => ed(o, 'time', o.time)).join('')}</tr>
+      </thead>
+      <tbody>${rows.join('') || `<tr><th class="sv-name sv-open">Noch keine Zeilen</th>${opts.map(() => '<td></td>').join('')}<td class="svg-pad"></td></tr>`}
+        <tr class="svg-addrow"><th class="sv-name"><button type="button" class="ghost" id="svg-add-role">+ Zeile (Rolle / Aufgabe)</button></th><td colspan="${colCount + 1}"><button type="button" class="ghost" id="svg-add-free">+ Person ohne Rolle</button></td></tr>
+      </tbody>
+      <tfoot><tr class="sv-sum"><th class="sv-name">Zusagen</th>${opts.map(o => { const m = count(o, 'maybe'); return `<td>${o.id ? count(o, 'yes') : ''}${m ? `<small>+${m}?</small>` : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr></tfoot>
+    </table></div>`;
+  }
+  function svRespRow(s, r, roleHtml) {
+    return `<tr class="sv-row-edit"><th class="sv-name">${roleHtml}${roleHtml ? ' ' : ''}<span class="svg-person sv-click" data-sv-response="${r.id}" tabindex="0" title="Name, Rolle, Kommentar ändern">${escapeHtml(r.name)}</span>${r.comment ? ` <span class="sv-comment" title="${escapeHtml(r.comment)}">💬</span>` : ''}</th>
+      ${s.options.map(o => { const v = o.id ? r.answers[o.id] : null; return `<td class="sv-cell sv-editable ${v ? 'sv-' + v : ''}"${o.id ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SurveyTable.SYMBOL[v] : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr>`;
+  }
+
+  function svBindGrid(view) {
+    const s = svDetail;
+    view.querySelectorAll('[data-svg-o]').forEach(el => {
+      el.addEventListener('input', () => { s.options[+el.dataset.svgO][el.dataset.svgF] = el.innerText.trim(); svSaveSoon(); });
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); } });
+    });
+    view.querySelectorAll('[data-svg-date]').forEach(inp => inp.addEventListener('change', () => {
+      s.options[+inp.dataset.svgDate].date = inp.value || null;
+      inp.nextElementSibling.textContent = SurveyTable.weekday(inp.value);
+      svSaveSoon();
+    }));
+    view.querySelectorAll('[data-svg-role]').forEach(el => {
+      let before = '';
+      el.addEventListener('focus', () => { before = el.innerText.trim(); });
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); } });
+      el.addEventListener('blur', () => {
+        const now = el.innerText.trim();
+        if (!now || now === before) { el.innerText = before; return; }
+        if (s.roles.includes(now)) { toast(`„${now}“ gibt es schon`); el.innerText = before; return; }
+        s.roles[+el.dataset.svgRole] = now;
+        svRenames[before] = now;
+        svSaveStructure(true);
+      });
+    });
+    view.querySelectorAll('[data-svg-del-col]').forEach(b => b.addEventListener('click', () => {
+      const i = +b.dataset.svgDelCol;
+      const o = s.options[i];
+      const n = s.responses.filter(r => o.id && r.answers[o.id]).length;
+      if (n && !confirm(`Termin „${[o.label, o.date && fmtDateDE(o.date)].filter(Boolean).join(' ')}“ mit ${n} Antwort${n === 1 ? '' : 'en'} löschen?`)) return;
+      s.options.splice(i, 1);
+      svSaveStructure(true);
+    }));
+    view.querySelectorAll('[data-svg-del-role]').forEach(b => b.addEventListener('click', () => {
+      const role = s.roles[+b.dataset.svgDelRole];
+      const n = s.responses.filter(r => r.role === role).length;
+      if (!confirm(n ? `Zeile „${role}“ löschen? Die ${n} eingetragene${n === 1 ? '' : 'n'} Person${n === 1 ? '' : 'en'} bleibt/bleiben ohne Rolle erhalten.` : `Zeile „${role}“ löschen?`)) return;
+      s.roles.splice(+b.dataset.svgDelRole, 1);
+      svSaveStructure(true);
+    }));
+    view.querySelectorAll('[data-svg-add-person]').forEach(b => b.addEventListener('click', () => openSvResponseModal(null, b.dataset.svgAddPerson)));
+    document.getElementById('svg-add-free').addEventListener('click', () => openSvResponseModal(null, ''));
+    document.getElementById('svg-add-col').addEventListener('click', async () => {
+      const last = s.options[s.options.length - 1];
+      s.options.push({ id: null, section: last ? last.section : '', label: '', date: null, time: last ? last.time : '' });
+      await svSaveStructure(true);
+      const cell = document.querySelector(`[data-svg-date="${s.options.length - 1}"]`);
+      if (cell) { cell.focus(); cell.closest('.svg-wrap').scrollLeft = 99999; }
+    });
+    document.getElementById('svg-add-role').addEventListener('click', async () => {
+      let name = 'Neue Zeile', n = 2;
+      while (s.roles.includes(name)) name = `Neue Zeile ${n++}`;
+      s.roles.push(name);
+      await svSaveStructure(true);
+      const el = document.querySelector(`[data-svg-role="${s.roles.length - 1}"]`);
+      if (el) { el.focus(); document.getSelection().selectAllChildren(el); }
+    });
+  }
+
+  // Vorlagen fuer neue Umfragen: gleich als Tabelle
+  const SV_TEMPLATES = {
+    musical: { roles: '', sections: ['Aufführungen', 'Probenwochenenden'], hint: 'Rollen eine pro Zeile, z.B. SONJA, BARBARA … Tontechnik, Lichttechnik' },
+    helpers: { roles: 'Kasse\nEinlass\nGarderobe\nBar / Getränke\nCatering\nAufbau\nAbbau', sections: ['Schichten'], hint: 'Aufgaben eine pro Zeile' },
+    blank: { roles: '', sections: [''], hint: 'Zeilen eine pro Zeile (optional)' },
+  };
+  function openSvQuickCreate() {
+    openSvModal({
+      heading: 'Neue Umfrage', submitLabel: 'Tabelle anlegen',
+      html: `
+        <label>Titel <input type="text" id="svq-title" required placeholder="z.B. Musical 2027 – Verfügbarkeit"></label>
+        <label>Vorlage <select id="svq-tpl">
+          <option value="musical">Musical: Rollen × Aufführungen und Proben</option>
+          <option value="helpers">Helfer: Aufgaben × Schichten/Termine</option>
+          <option value="blank">Leer</option></select></label>
+        <label>Zeilen (Rollen / Aufgaben) <textarea id="svq-roles" rows="7"></textarea></label>
+        <p class="hint" id="svq-hint"></p>
+        <p class="hint">Termine trägst du danach direkt in der Tabelle ein (+ Termin). Teilnehmer tragen sich über den Link selbst in die Tabelle ein.</p>`,
+      init: () => {
+        const tpl = document.getElementById('svq-tpl');
+        const apply = () => {
+          const t = SV_TEMPLATES[tpl.value];
+          document.getElementById('svq-roles').value = t.roles;
+          document.getElementById('svq-hint').textContent = t.hint;
+        };
+        tpl.addEventListener('change', apply);
+        apply();
+        setTimeout(() => document.getElementById('svq-title').focus(), 0);
+      },
+      onSave: async () => {
+        const t = SV_TEMPLATES[document.getElementById('svq-tpl').value];
+        const options = t.sections.flatMap(section => [1, 2, 3].map(() => ({ section, label: '', date: null, time: '', keep: true })));
+        svDetail = await api('/api/surveys', { method: 'POST', body: JSON.stringify({
+          title: document.getElementById('svq-title').value.trim(), roles: document.getElementById('svq-roles').value,
+          layout: 'table', allow_maybe: true, show_results: true, options,
+        }) });
+        svList = await api('/api/surveys');
+        renderSvDetail();
+        window.scrollTo({ top: 0 });
+      },
+    });
+  }
+
+  function openSvResponseModal(r, presetRole) {
     const s = svDetail;
     const values = [['', '–'], ['yes', '✓ Zusage'], ['maybe', '? Vielleicht'], ['no', '✗ Absage']];
     openSvModal({
@@ -9539,7 +9707,7 @@
       html: `
         <div class="${s.roles.length ? 'time-row' : ''}">
           <label>Name <input type="text" id="svr-name" required value="${escapeHtml(r ? r.name : '')}"></label>
-          ${s.roles.length ? `<label>Rolle / Aufgabe <select id="svr-role"><option value="">—</option>${s.roles.map(x => `<option ${r && r.role === x ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')}</select></label>` : ''}
+          ${s.roles.length ? `<label>Rolle / Aufgabe <select id="svr-role"><option value="">—</option>${s.roles.map(x => `<option ${(r ? r.role : presetRole) === x ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')}</select></label>` : ''}
         </div>
         <div class="sv-resp-opts">${s.options.map(o => `
           <label class="sv-resp-opt"><span>${escapeHtml([o.section, o.label, o.date && fmtDateDE(o.date), o.time].filter(Boolean).join(' · '))}</span>

@@ -8508,9 +8508,9 @@
     ],
     acts: () => [
       [evF('name', 'Band / Künstler', 'text', { req: true }), evF('genre', 'Genre / Besetzung')],
-      [evF('status', 'Status', 'select', { o: evMeta.act_statuses }), evF('members', 'Personen (inkl. Crew)', 'int')],
-      [evF('contact_person', 'Ansprechpartner'), evF('phone', 'Telefon', 'tel')],
-      evF('email', 'E-Mail', 'email'),
+      [evF('status', 'Status', 'select', { o: evMeta.act_statuses }), evF('stage', 'Bühne / Raum', 'text', { p: 'für die Übersicht' })],
+      [evF('contact_person', 'Ansprechpartner'), evF('members', 'Personen (inkl. Crew)', 'int')],
+      [evF('phone', 'Telefon', 'tel'), evF('email', 'E-Mail', 'email')],
       [evF('fee', 'Gage (€)', 'money'), evF('fee_type', 'Art der Gage', 'select', { o: evMeta.fee_types })],
       [evF('travel_costs', 'Fahrt-/Nebenkosten (€)', 'money'), evF('invoice', 'Vertrag / Rechnung (Notiz)')],
       evF('fee_paid', 'Gage bezahlt', 'checkbox'),
@@ -8676,6 +8676,11 @@
   }
   function showEvDetail(e) {
     const isNew = !evDetail || evDetail.id !== e.id;
+    if (isNew) evtActiveId = null;
+    if (evtPending && evtPending.eventId === e.id) {
+      const t = e.tables.find(x => x.id === evtPending.id);
+      if (t) t.data = evtPending.data;
+    }
     evDetail = e;
     renderEvDetail();
     if (isNew) window.scrollTo({ top: 0 });
@@ -8733,6 +8738,7 @@
 
   function renderEvDetail() {
     const e = evDetail;
+    if (!e.tables.some(t => t.id === evtActiveId)) { evtActiveId = e.tables.length ? e.tables[0].id : null; evtSel = null; }
     document.getElementById('ev-list-view').classList.add('hidden');
     const view = document.getElementById('ev-detail-view');
     view.classList.remove('hidden');
@@ -8782,7 +8788,7 @@
     const actsCard = evCard('🎤', `Bands &amp; Künstler <span class="count-chip">${liveActs.length}</span>`, e.acts.length ? e.acts.map(a => {
       const chips = [
         a.arrival_time && `Ankunft ${a.arrival_time}`, a.soundcheck_time && `Soundcheck ${a.soundcheck_time}`,
-        a.set_start && `Auftritt ${evRange(a.set_start, a.set_end)}`, a.channels && `${a.channels} Kanäle`, a.members && `${a.members} Personen`,
+        a.set_start && `Auftritt ${evRange(a.set_start, a.set_end)}`, a.stage && `📍 ${a.stage}`, a.channels && `${a.channels} Kanäle`, a.members && `${a.members} Personen`,
       ].filter(Boolean);
       const info = evInfoHtml([
         ['Ansprechpartner', a.contact_person], ['Telefon', evTel(a.phone), true], ['E-Mail', evMail(a.email), true],
@@ -8885,13 +8891,14 @@
         `<div><span>${escapeHtml(a.name)}${a.members ? ` · ${a.members} Pers.` : ''}</span><p>${escapeHtml([a.hospitality, a.accommodation && 'Übernachtung: ' + a.accommodation].filter(Boolean).join('\n') || '–')}</p></div>`).join('')}</div>` : ''),
     '<button type="button" class="ghost" data-ev-section="hosp">Bearbeiten</button>');
 
-    view.innerHTML = hero + `
+    view.innerHTML = hero + evtTablesCardHtml(e) + `
       <div class="concert-grid">
         <div class="ev-col">${timelineCard}${actsCard}${techCard}${crewCard}</div>
         <div class="ev-col">${venueCard}${financeCard}${ticketsCard}${hospCard}${tasksCard}</div>
       </div>`;
 
     // ---- Ereignisse ----
+    evtBindCard();
     const SECTION_TITLES = { times: 'Zeiten', venue: 'Location', tech: 'Technik', hosp: 'Catering & Übernachtung', tickets: 'Tickets' };
     document.getElementById('ev-back').addEventListener('click', () => { showEvList(); renderEvList(); });
     document.getElementById('ev-edit').addEventListener('click', () => evEditSection('basic', 'Event bearbeiten'));
@@ -8941,6 +8948,266 @@
     }));
   }
 
+  // ---- Freie Tabellen je Event (z.B. Gesamtuebersicht: Uhrzeit x Raum/Buehne) ----
+  // Zellen werden direkt in der Tabelle bearbeitet und verzoegert gespeichert. s = Zelle
+  // reicht ueber s Zeilen nach unten (verbunden), c = Farbe.
+  const EVT_COLORS = [['', 'keine'], ['yellow', 'gelb'], ['green', 'grün'], ['blue', 'blau'], ['red', 'rot'], ['violet', 'lila'], ['grey', 'grau']];
+  let evtActiveId = null;
+  let evtSel = null; // { r, c } der zuletzt fokussierten Zelle (r = -1 Kopfzeile, c = -1 Zeilenbeschriftung)
+  let evtSaveTimer = null;
+  let evtPending = null; // { id, data } noch nicht gespeicherte Tabelle - bleibt bei Neuaufbau erhalten
+  const evtTable = () => evDetail && evDetail.tables.find(t => t.id === evtActiveId);
+
+  function evtCovered(d) {
+    const covered = new Set();
+    d.rows.forEach((row, r) => row.cells.forEach((cell, c) => {
+      for (let k = 1; k < (cell.s || 1); k++) covered.add(`${r + k}:${c}`);
+    }));
+    return covered;
+  }
+  function evtSaveSoon(delay = 700) {
+    const t = evtTable();
+    if (!t) return;
+    const pending = { eventId: evDetail.id, id: t.id, data: t.data };
+    evtPending = pending;
+    clearTimeout(evtSaveTimer);
+    evtSaveTimer = setTimeout(async () => {
+      try { await api(`/api/events/${pending.eventId}/tables/${pending.id}`, { method: 'PUT', body: JSON.stringify({ data: pending.data }) }); }
+      catch (err) { toast('Tabelle nicht gespeichert: ' + err.message); }
+      if (evtPending === pending) evtPending = null;
+    }, delay);
+  }
+  function evtTimeRows(from, to, step) {
+    const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    let a = toMin(from), b = toMin(to);
+    if (b <= a) b += 24 * 60; // ueber Mitternacht
+    const out = [];
+    for (let m = a; m <= b && out.length < 300; m += step) out.push(`${pad2(Math.floor(m / 60) % 24)}:${pad2(m % 60)}`);
+    return out;
+  }
+
+  function evtTablesCardHtml(e) {
+    const t = evtTable();
+    const chips = e.tables.map(x => `<button type="button" class="chip ${x.id === evtActiveId ? 'active' : ''}" data-evt-tab="${x.id}">${escapeHtml(x.title)}</button>`).join('');
+    return evCard('📊', 'Übersicht', `
+      ${e.tables.length > 1 ? `<div class="chip-row evt-tabs">${chips}</div>` : ''}
+      ${t ? `
+        <div class="evt-toolbar">
+          <div class="evt-colors" title="Farbe der ausgewählten Zelle">${EVT_COLORS.map(([c, l]) => `<button type="button" class="evt-swatch evt-c-${c || 'none'}" data-evt-color="${c}" title="${l}" aria-label="Farbe ${l}"></button>`).join('')}</div>
+          <span class="evt-sep"></span>
+          <button type="button" class="ghost" data-evt-op="merge" title="Ausgewählte Zelle mit der darunter verbinden">Verbinden ↓</button>
+          <button type="button" class="ghost" data-evt-op="split">Trennen</button>
+          <span class="evt-sep"></span>
+          <button type="button" class="ghost" data-evt-op="row-before" title="Zeile über der ausgewählten einfügen">+ Zeile</button>
+          <button type="button" class="ghost" data-evt-op="row-del">Zeile löschen</button>
+          <button type="button" class="ghost" data-evt-op="col-add">+ Spalte</button>
+          <button type="button" class="ghost" data-evt-op="col-del">Spalte löschen</button>
+          ${e.acts.some(a => a.set_start) ? '<span class="evt-sep"></span><button type="button" class="ghost" data-evt-op="acts" title="Auftritte der Bands nach Uhrzeit und Bühne/Raum eintragen">Bands übernehmen</button>' : ''}
+        </div>
+        <div class="evt-wrap" id="evt-wrap">${evtGridHtml(t.data)}</div>
+        <p class="hint evt-hint">In eine Zelle klicken und schreiben – wird automatisch gespeichert. Kopfzeile und Uhrzeiten sind ebenfalls bearbeitbar.</p>`
+      : evEmpty('Tabelle für die Gesamtübersicht anlegen, z.B. Uhrzeiten × Räume/Bühnen mit Aufbau, Soundchecks und Auftritten.')}`,
+    `${t ? `<button type="button" class="ghost" data-evt-op="rename">Umbenennen</button><a class="ghost-link" href="/api/events/${e.id}/tables/${t.id}/export.xlsx">Excel</a><button type="button" class="ghost" data-evt-op="delete">Löschen</button>` : ''}
+     <button type="button" class="ghost" id="evt-new">+ Tabelle</button>`, 'ev-tables-card');
+  }
+
+  function evtGridHtml(d) {
+    const covered = evtCovered(d);
+    const ed = (r, c, text, tag, extra = '') => `<${tag} contenteditable="true" spellcheck="false" data-r="${r}" data-c="${c}"${extra}>${escapeHtml(text)}</${tag}>`;
+    return `<table class="evt">
+      <thead><tr>${ed(-1, -1, d.label_header || '', 'th', ' class="evt-corner"')}${d.columns.map((col, c) => ed(-1, c, col.name, 'th')).join('')}</tr></thead>
+      <tbody>${d.rows.map((row, r) => `<tr>${ed(r, -1, row.label, 'th', ' class="evt-label"')}${row.cells.map((cell, c) => covered.has(`${r}:${c}`) ? ''
+        : ed(r, c, cell.t, 'td', `${cell.s > 1 ? ` rowspan="${Math.min(cell.s, d.rows.length - r)}"` : ''} class="${cell.c ? 'evt-c-' + cell.c : ''}"`)).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+  }
+
+  function evtRerender(focus = evtSel) {
+    const t = evtTable();
+    const wrap = document.getElementById('evt-wrap');
+    if (!t || !wrap) return;
+    wrap.innerHTML = evtGridHtml(t.data);
+    evtBindGrid();
+    if (focus) {
+      const el = wrap.querySelector(`[data-r="${focus.r}"][data-c="${focus.c}"]`);
+      if (el) el.focus();
+    }
+  }
+
+  function evtBindGrid() {
+    const t = evtTable();
+    document.querySelectorAll('#evt-wrap [contenteditable]').forEach(el => {
+      const r = +el.dataset.r, c = +el.dataset.c;
+      el.addEventListener('focus', () => {
+        evtSel = { r, c };
+        document.querySelectorAll('#evt-wrap .evt-sel').forEach(x => x.classList.remove('evt-sel'));
+        el.classList.add('evt-sel');
+      });
+      el.addEventListener('input', () => {
+        const text = el.innerText.replace(/\n$/, '');
+        if (r === -1 && c === -1) t.data.label_header = text;
+        else if (r === -1) t.data.columns[c].name = text;
+        else if (c === -1) t.data.rows[r].label = text;
+        else t.data.rows[r].cells[c].t = text;
+        evtSaveSoon();
+      });
+      el.addEventListener('paste', (ev) => { // nur reinen Text einfuegen
+        ev.preventDefault();
+        document.execCommand('insertText', false, (ev.clipboardData || window.clipboardData).getData('text/plain'));
+      });
+      el.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) { // Enter = Zelle darunter, Shift+Enter = Zeilenumbruch
+          ev.preventDefault();
+          const below = document.querySelector(`#evt-wrap [data-r="${r + (+el.getAttribute('rowspan') || 1)}"][data-c="${c}"]`);
+          if (below) below.focus(); else el.blur();
+        }
+      });
+    });
+  }
+
+  // Strukturaenderungen: Zeilen/Spalten einfuegen oder loeschen, Spannen dabei mitfuehren
+  function evtInsertRow(d, at, label = '') {
+    d.rows.forEach((row, r) => row.cells.forEach(cell => { if (r < at && r + (cell.s || 1) > at) cell.s = (cell.s || 1) + 1; }));
+    d.rows.splice(at, 0, { label, cells: d.columns.map(() => ({ t: '' })) });
+  }
+  function evtDeleteRow(d, at) {
+    d.rows.forEach((row, r) => row.cells.forEach((cell, c) => {
+      if (r < at && r + (cell.s || 1) > at) cell.s = cell.s - 1;
+      if (r === at && cell.s > 1 && d.rows[at + 1]) { // Spanne an die naechste Zeile weitergeben
+        const next = d.rows[at + 1].cells[c];
+        next.t = next.t || cell.t; next.c = next.c || cell.c; next.s = cell.s - 1;
+      }
+    }));
+    d.rows.splice(at, 1);
+    d.rows.forEach(row => row.cells.forEach(cell => { if (cell.s <= 1) delete cell.s; }));
+  }
+
+  function evtFillActs(d, acts) {
+    const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + (m || 0) : null; };
+    const rowMins = d.rows.map(r => toMin(r.label));
+    let done = 0;
+    const skipped = [];
+    acts.filter(a => a.status !== 'Abgesagt' && a.set_start).forEach(a => {
+      const stage = (a.stage || '').trim().toLowerCase();
+      let col = stage ? d.columns.findIndex(c => c.name.toLowerCase().startsWith(stage)) : -1;
+      if (col < 0 && stage) col = d.columns.findIndex(c => c.name.toLowerCase().includes(stage));
+      if (col < 0 && d.columns.length === 1) col = 0;
+      const start = toMin(a.set_start);
+      let row = -1;
+      rowMins.forEach((m, i) => { if (m !== null && m <= start) row = i; });
+      if (col < 0 || row < 0) { skipped.push(a.name); return; }
+      const end = a.set_end ? toMin(a.set_end) : null;
+      let span = 1;
+      if (end !== null) while (row + span < d.rows.length && rowMins[row + span] !== null && rowMins[row + span] < end) span++;
+      const cell = d.rows[row].cells[col];
+      cell.t = `${a.name} (${evRange(a.set_start, a.set_end)})`;
+      cell.c = cell.c || 'blue';
+      if (span > 1) cell.s = span;
+      done++;
+    });
+    return { done, skipped };
+  }
+
+  function evtOpenNewModal() {
+    openEvModal({
+      heading: 'Neue Tabelle', submitLabel: 'Anlegen',
+      form: [
+        evF('title', 'Titel', 'text', { req: true, p: 'z.B. Gesamtübersicht' }),
+        evF('kind', 'Vorlage', 'select', { o: [['time', 'Zeitraster: Uhrzeiten × Räume/Bühnen'], ['blank', 'Leere Tabelle']] }),
+        evF('columns', 'Spalten (eine pro Zeile)', 'textarea', { rows: 4, p: 'Mediathek (Robin)\nVeranstaltungsraum (Luca)\nHerzMahl (Marcel)' }),
+        [evF('from', 'Uhrzeit von', 'time'), evF('to', 'bis', 'time')],
+        [evF('step', 'Takt', 'select', { o: [['15', '15 Minuten'], ['30', '30 Minuten'], ['60', '1 Stunde']] }), evF('rows', 'Zeilen (bei leerer Tabelle)', 'int')],
+      ],
+      values: { title: evDetail.tables.length ? '' : 'Gesamtübersicht', kind: 'time', from: evDetail.time_load_in || '15:00', to: evDetail.time_load_out || evDetail.time_end || '23:00', step: '15', rows: 10 },
+      onSave: async (p) => {
+        const names = p.columns.split('\n').map(x => x.trim()).filter(Boolean);
+        const columns = (names.length ? names : ['Spalte 1', 'Spalte 2']).map(name => ({ name }));
+        const labels = p.kind === 'time' && p.from && p.to ? evtTimeRows(p.from, p.to, +p.step || 15) : Array.from({ length: Math.min(+p.rows || 10, 300) }, () => '');
+        const data = { label_header: p.kind === 'time' ? 'Uhrzeit' : '', columns, rows: labels.map(label => ({ label, cells: columns.map(() => ({ t: '' })) })) };
+        const saved = await api(`/api/events/${evDetail.id}/tables`, { method: 'POST', body: JSON.stringify({ title: p.title, data }) });
+        evtActiveId = saved.tables[saved.tables.length - 1].id;
+        showEvDetail(saved);
+      },
+    });
+  }
+
+  function evtBindCard() {
+    const card = document.querySelector('.ev-tables-card');
+    if (!card) return;
+    document.getElementById('evt-new').addEventListener('click', evtOpenNewModal);
+    card.querySelectorAll('[data-evt-tab]').forEach(b => b.addEventListener('click', () => { evtActiveId = +b.dataset.evtTab; evtSel = null; renderEvDetail(); }));
+    // mousedown verhindern, damit die ausgewaehlte Zelle den Fokus behaelt
+    card.querySelectorAll('[data-evt-color], [data-evt-op]').forEach(b => b.addEventListener('mousedown', (ev) => ev.preventDefault()));
+    card.querySelectorAll('[data-evt-color]').forEach(b => b.addEventListener('click', () => {
+      const t = evtTable();
+      if (!evtSel || evtSel.r < 0 || evtSel.c < 0) { toast('Erst eine Zelle anklicken'); return; }
+      const cell = t.data.rows[evtSel.r].cells[evtSel.c];
+      if (b.dataset.evtColor) cell.c = b.dataset.evtColor; else delete cell.c;
+      evtRerender();
+      evtSaveSoon(0);
+    }));
+    card.querySelectorAll('[data-evt-op]').forEach(b => b.addEventListener('click', async () => {
+      const t = evtTable();
+      const op = b.dataset.evtOp;
+      if (op === 'rename') {
+        openEvModal({ heading: 'Tabelle umbenennen', form: [evF('title', 'Titel', 'text', { req: true })], values: t,
+          onSave: async (p) => showEvDetail(await api(`/api/events/${evDetail.id}/tables/${t.id}`, { method: 'PUT', body: JSON.stringify({ title: p.title }) })) });
+        return;
+      }
+      if (op === 'delete') {
+        if (!confirm(`Tabelle „${t.title}“ löschen?`)) return;
+        clearTimeout(evtSaveTimer);
+        evtPending = null;
+        evtActiveId = null;
+        showEvDetail(await api(`/api/events/${evDetail.id}/tables/${t.id}`, { method: 'DELETE' }));
+        return;
+      }
+      const d = t.data;
+      const sel = evtSel;
+      const needCell = () => { if (!sel || sel.r < 0 || sel.c < 0) { toast('Erst eine Zelle anklicken'); return false; } return true; };
+      if (op === 'merge') {
+        if (!needCell()) return;
+        const cell = d.rows[sel.r].cells[sel.c];
+        const nextR = sel.r + (cell.s || 1);
+        if (nextR >= d.rows.length) return;
+        const next = d.rows[nextR].cells[sel.c];
+        cell.s = (cell.s || 1) + (next.s || 1);
+        if (!cell.t && next.t) cell.t = next.t;
+        if (!cell.c && next.c) cell.c = next.c;
+        d.rows[nextR].cells[sel.c] = { t: '' };
+      } else if (op === 'split') {
+        if (!needCell()) return;
+        delete d.rows[sel.r].cells[sel.c].s;
+      } else if (op === 'row-before') {
+        const at = sel && sel.r >= 0 ? sel.r : d.rows.length;
+        evtInsertRow(d, at);
+        evtSel = { r: at, c: -1 };
+      } else if (op === 'row-del') {
+        if (!sel || sel.r < 0) { toast('Erst eine Zelle in der Zeile anklicken'); return; }
+        if (d.rows.length <= 1) return;
+        evtDeleteRow(d, sel.r);
+        evtSel = null;
+      } else if (op === 'col-add') {
+        const at = sel && sel.c >= 0 ? sel.c + 1 : d.columns.length;
+        d.columns.splice(at, 0, { name: '' });
+        d.rows.forEach(row => row.cells.splice(at, 0, { t: '' }));
+        evtSel = { r: -1, c: at };
+      } else if (op === 'col-del') {
+        if (!sel || sel.c < 0) { toast('Erst eine Zelle in der Spalte anklicken'); return; }
+        const name = d.columns[sel.c].name || `Spalte ${sel.c + 1}`;
+        if (d.rows.some(row => row.cells[sel.c].t) && !confirm(`Spalte „${name}“ mit Inhalt löschen?`)) return;
+        d.columns.splice(sel.c, 1);
+        d.rows.forEach(row => row.cells.splice(sel.c, 1));
+        evtSel = null;
+      } else if (op === 'acts') {
+        const { done, skipped } = evtFillActs(d, evDetail.acts);
+        toast(`${done} Auftritt${done === 1 ? '' : 'e'} eingetragen${skipped.length ? ` – ohne passende Spalte/Uhrzeit: ${skipped.join(', ')} (bei der Band „Bühne / Raum“ eintragen)` : ''}`);
+      }
+      evtRerender();
+      evtSaveSoon(0);
+    }));
+    evtBindGrid();
+  }
+
   // Tagesablauf zum Ausdrucken bzw. als PDF: fuer Bands, Technik und Team - ohne Gagen und Budget
   function printEvDaySheet(e, timeline) {
     const w = window.open('', '_blank');
@@ -8962,11 +9229,22 @@
         th { width: 170px; font-weight: 600; color: #444; } td { white-space: pre-wrap; }
         .tl td:first-child { width: 90px; font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
         .act { break-inside: avoid; }
+        table.grid { table-layout: fixed; } table.grid th, table.grid td { border: 1px solid #bbb; padding: 3px 5px; width: auto; }
+        table.grid tr:first-child th { background: #eee; } table.grid tr th:first-child { width: 60px; background: #f4f4f4; font-variant-numeric: tabular-nums; }
+        .c-yellow { background: #fdf3c4; } .c-green { background: #d7f2df; } .c-blue { background: #d8e6fb; } .c-red { background: #f9d9d7; } .c-violet { background: #e8dcfb; } .c-grey { background: #e6e6e6; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         @media print { body { margin: 0; } }
       </style></head><body>
       <h1>${esc(e.title)}</h1>
       <div class="sub">${esc([dateText, e.venue_name, e.subtitle].filter(Boolean).join(' · '))}</div>
       ${timeline.length ? `<h2>Ablauf</h2><table class="tl">${timeline.map(it => `<tr><td>${esc(evRange(it.time, it.end) || '–')}</td><td><strong>${esc(it.title)}</strong>${it.meta ? ` – ${esc(it.meta)}` : ''}</td></tr>`).join('')}</table>` : ''}
+      ${e.tables.map(t => {
+        const d = t.data;
+        const covered = evtCovered(d);
+        return `<h2>${esc(t.title)}</h2><table class="grid"><tr><th>${esc(d.label_header || '')}</th>${d.columns.map(c => `<th>${esc(c.name)}</th>`).join('')}</tr>
+          ${d.rows.map((row, r) => `<tr><th>${esc(row.label)}</th>${row.cells.map((cell, c) => covered.has(`${r}:${c}`) ? ''
+            : `<td${cell.s > 1 ? ` rowspan="${Math.min(cell.s, d.rows.length - r)}"` : ''} class="${cell.c ? 'c-' + cell.c : ''}">${esc(cell.t)}</td>`).join('')}</tr>`).join('')}</table>`;
+      }).join('')}
       ${block('Location', [['Name', e.venue_name], ['Adresse', e.venue_address], ['Ansprechpartner', [e.venue_contact, e.venue_phone].filter(Boolean).join(' · ')],
         ['Anfahrt, Parken, Ladezone', e.venue_access], ['Bühne', e.venue_stage], ['Strom', e.venue_power], ['Backstage', e.venue_backstage]])}
       ${acts.length ? `<h2>Bands &amp; Künstler</h2>${acts.map(a => `<div class="act"><h3>${esc(a.name)}${a.set_start ? ` · Auftritt ${esc(evRange(a.set_start, a.set_end))}` : ''}</h3><table>

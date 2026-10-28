@@ -3,6 +3,7 @@
 // Bands/Kuenstler (Gage, Zeiten, Technik-Bedarf), Team & Dienstleister, Ablaufplan,
 // Budget (Einnahmen/Ausgaben) und Checkliste. Rechte: Reiter "events".
 
+const XLSX = require('xlsx');
 const db = require('./db');
 const { displayForUserId } = require('./access');
 
@@ -29,7 +30,7 @@ const SUBS = {
   acts: {
     table: 'ev_acts', label: 'Band/Künstler', required: 'name',
     fields: {
-      name: 'text', genre: 'text', status: 'text', contact_person: 'text', phone: 'text', email: 'text', members: 'int',
+      name: 'text', genre: 'text', stage: 'text', status: 'text', contact_person: 'text', phone: 'text', email: 'text', members: 'int',
       fee: 'money', fee_type: 'text', fee_paid: 'bool', travel_costs: 'money', invoice: 'text',
       arrival_time: 'time', soundcheck_time: 'time', set_start: 'time', set_end: 'time',
       channels: 'text', tech_needs: 'long', backline: 'long', hospitality: 'long', accommodation: 'long', notes: 'long',
@@ -51,9 +52,14 @@ const SUBS = {
     table: 'ev_tasks', label: 'Aufgabe', required: 'text',
     fields: { text: 'text', who: 'text', due_date: 'date', done: 'bool' },
   },
+  // Freie Tabellen (Gesamtuebersicht Zeit x Raum, Materialliste …): Spalten, Zeilen und Zellen als JSON
+  tables: {
+    table: 'ev_tables', label: 'Tabelle', required: 'title',
+    fields: { title: 'text', data: 'json' },
+  },
 };
 
-const SQL_TYPE = { int: 'INTEGER', money: 'REAL', bool: 'INTEGER DEFAULT 0' };
+const SQL_TYPE = { int: 'INTEGER', money: 'REAL', bool: 'INTEGER DEFAULT 0', json: 'TEXT' };
 const cols = (fields) => Object.entries(fields).map(([k, t]) => `${k} ${SQL_TYPE[t] || 'TEXT'}`).join(',\n  ');
 
 db.exec(`
@@ -140,7 +146,29 @@ function cleanValue(type, v) {
   if (type === 'bool') return v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0;
   if (type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null;
   if (type === 'time') return /^\d{2}:\d{2}$/.test(String(v || '')) ? v : null;
+  if (type === 'json') return cleanTable(v);
   return clean(v, type === 'text' ? 300 : 8000);
+}
+
+// Tabelle: { columns: [{ name }], rows: [{ label, cells: [{ t, c, s }] }] } - t Text, c Farbe, s Zeilen-Spanne
+const TABLE_COLORS = ['', 'yellow', 'green', 'blue', 'red', 'violet', 'grey'];
+function cleanTable(v) {
+  let d = v;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { d = null; } }
+  if (!d || typeof d !== 'object') d = {};
+  const columns = (Array.isArray(d.columns) ? d.columns : []).slice(0, 30).map(c => ({ name: String((c && c.name) || '').slice(0, 120) }));
+  const rows = (Array.isArray(d.rows) ? d.rows : []).slice(0, 300).map(r => ({
+    label: String((r && r.label) || '').slice(0, 120),
+    cells: columns.map((_, i) => {
+      const c = (r && Array.isArray(r.cells) && r.cells[i]) || {};
+      const out = { t: String(c.t || '').slice(0, 1000) };
+      if (TABLE_COLORS.includes(c.c) && c.c) out.c = c.c;
+      const span = parseInt(c.s, 10);
+      if (span > 1) out.s = Math.min(span, 300);
+      return out;
+    }),
+  }));
+  return JSON.stringify({ label_header: String(d.label_header || '').slice(0, 60), columns, rows });
 }
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -172,6 +200,7 @@ function eventDetail(id) {
     const order = key === 'schedule' ? 'time IS NULL, time, sort, id' : key === 'acts' ? 'set_start IS NULL, set_start, sort, id' : 'sort, id';
     rows[key] = db.prepare(`SELECT * FROM ${s.table} WHERE event_id = ? ORDER BY ${order}`).all(id);
   }
+  rows.tables = rows.tables.map(t => ({ ...t, data: JSON.parse(t.data || '{}') }));
   return {
     ...e,
     ...rows,
@@ -279,7 +308,28 @@ function register(app) {
     res.json(eventDetail(e.id));
   });
 
-  // ---- Unterlisten: Bands, Team, Ablauf, Budget, Checkliste ----
+  app.get('/api/events/:id/tables/:tid/export.xlsx', (req, res) => {
+    const e = db.prepare('SELECT title, date FROM ev_events WHERE id = ?').get(req.params.id);
+    const t = e && db.prepare('SELECT * FROM ev_tables WHERE id = ? AND event_id = ?').get(req.params.tid, req.params.id);
+    if (!t) return res.status(404).send('Tabelle nicht gefunden');
+    const d = JSON.parse(t.data || '{}');
+    const aoa = [[`${e.title} – ${t.title}`, ...d.columns.map(() => '')], [d.label_header || '', ...d.columns.map(c => c.name)],
+      ...d.rows.map(r => [r.label, ...r.cells.map(c => c.t)])];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = [];
+    d.rows.forEach((r, ri) => r.cells.forEach((c, ci) => {
+      if (c.s > 1) ws['!merges'].push({ s: { r: ri + 2, c: ci + 1 }, e: { r: Math.min(ri + c.s, d.rows.length) + 1, c: ci + 1 } });
+    }));
+    ws['!cols'] = [{ wch: 14 }, ...d.columns.map(() => ({ wch: 24 }))];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, t.title.replace(/[\\/?*[\]:]/g, '').slice(0, 31) || 'Tabelle');
+    const name = `${e.title} - ${t.title}`.replace(/[^\wäöüÄÖÜß -]/g, '').trim() || 'Tabelle';
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', `attachment; filename="tabelle.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
+    res.send(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+  });
+
+  // ---- Unterlisten: Bands, Team, Ablauf, Budget, Checkliste, Tabellen ----
   app.post('/api/events/:id/:sub', (req, res) => {
     const s = SUBS[req.params.sub];
     if (!s) return res.status(404).json({ error: 'Unbekannter Bereich' });

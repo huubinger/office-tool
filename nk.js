@@ -14,7 +14,8 @@ const budget = require('./nk-budget');
 const FILES_DIR = path.join(db.dbDir, 'nk-files');
 const DROPBOX_NK_FOLDER = process.env.DROPBOX_NK_FOLDER || '/Neckarsulmer Konzerte';
 const MAX_FILE_BYTES = 18 * 1024 * 1024;
-const VALID_ANSWERS = new Set(['yes', 'no', 'maybe']);
+// Kein "vielleicht" mehr anbieten (aeltere ?-Antworten bleiben gespeichert und sichtbar)
+const VALID_ANSWERS = new Set(['yes', 'no']);
 const CONCERT_STATUSES = ['Idee', 'Planung', 'Bestätigt', 'Abgeschlossen', 'Abgesagt'];
 // Ordnerstruktur je Projekt: "<Datum> <Eventname>" -> Verträge / Sonstige Absprachen / 2Dos.
 // Dokumente landen je nach Kategorie im Ordner Verträge oder Sonstige Absprachen.
@@ -398,7 +399,7 @@ function register(app) {
     res.json(pollDetail(poll.id, req));
   });
 
-  // Eigene Antworten speichern: { votes: { [optionId]: 'yes'|'no'|'maybe'|null } }
+  // Eigene Antworten speichern: { votes: { [optionId]: 'yes'|'no'|null } }
   app.put('/api/nk/polls/:id/votes', (req, res) => {
     const poll = db.prepare('SELECT * FROM nk_polls WHERE id = ?').get(req.params.id);
     if (!poll) return res.status(404).json({ error: 'Umfrage nicht gefunden' });

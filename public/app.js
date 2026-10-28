@@ -4247,7 +4247,7 @@
     const memberCount = Math.max(members.length, 1);
     const locked = !!p.closed;
 
-    const myButtons = (o, big) => ['yes', 'maybe', 'no'].map(a => `
+    const myButtons = (o, big) => ['yes', 'no'].map(a => `
       <button type="button" class="ans-btn ${ANSWER_META[a].cls} ${answerOf(o, me) === a ? 'on' : ''} ${big ? 'big' : ''}"
         data-vote-option="${o.id}" data-vote-answer="${a}" title="${ANSWER_META[a].label}" ${locked ? 'disabled' : ''}>
         ${ANSWER_META[a].icon}${big ? `<span>${ANSWER_META[a].label}</span>` : ''}
@@ -4385,7 +4385,7 @@
       <div class="card poll-answer-card">
         <div class="poll-answer-head">
           <h3>${locked ? 'Ergebnis' : 'Wann kannst du?'}</h3>
-          ${locked ? '' : `<div class="legend"><span class="ans-mark ans-yes">✓</span> kann <span class="ans-mark ans-maybe">?</span> vielleicht <span class="ans-mark ans-no">✕</span> kann nicht</div>`}
+          ${locked ? '' : `<div class="legend"><span class="ans-mark ans-yes">✓</span> kann <span class="ans-mark ans-no">✕</span> kann nicht</div>`}
         </div>
         ${locked ? '' : '<p class="hint">Einfach antippen – deine Auswahl wird sofort gespeichert. Nochmal tippen entfernt die Antwort.</p>'}
         ${matrix}

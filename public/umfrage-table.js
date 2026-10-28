@@ -70,5 +70,59 @@
     return order[(order.indexOf(v || '') + 1) % order.length] || undefined;
   }
 
-  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL };
+  // ---- Auswertung je Person: Anzahl Shows, Wochentage, mit wem wie oft ----
+  // Gezaehlt werden die Termine im Abschnitt "Aufführungen"/"Shows" (gibt es keinen, alle Termine).
+  function showOptions(s) {
+    const shows = s.options.filter(o => /auff[üu]hrung|show|vorstellung/i.test(o.section || ''));
+    return shows.length ? shows : s.options;
+  }
+  const DAY_ORDER = [4, 5, 6, 0, 1, 2, 3]; // Do, Fr, Sa, So zuerst
+  function statsBody(s, rid) {
+    const me = s.responses.find(r => r.id === rid);
+    if (!me) return '<p class="empty-state">Namen auswählen.</p>';
+    const shows = showOptions(s);
+    const mine = shows.filter(o => me.answers[o.id] === 'yes');
+    const maybe = shows.filter(o => me.answers[o.id] === 'maybe').length;
+    const days = {};
+    mine.forEach(o => { const d = o.date ? new Date(o.date + 'T00:00:00').getDay() : 'x'; days[d] = (days[d] || 0) + 1; });
+    const tiles = DAY_ORDER.filter(d => d >= 4 || d === 0 || days[d]).map(d => `<div><strong>${days[d] || 0}</strong><span>${WEEKDAYS[d]}</span></div>`);
+    if (days.x) tiles.push(`<div><strong>${days.x}</strong><span>ohne Datum</span></div>`);
+    const partners = s.responses.filter(r => r.id !== me.id)
+      .map(r => ({ r, n: mine.filter(o => r.answers[o.id] === 'yes').length }))
+      .filter(x => x.n > 0)
+      .sort((a, b) => b.n - a.n || a.r.name.localeCompare(b.r.name, 'de'));
+    const max = partners.length ? partners[0].n : 1;
+    return `
+      <div class="sv-stat-tiles">
+        <div class="sv-stat-main"><strong>${mine.length}</strong><span>von ${shows.length} Shows${maybe ? ` · ${maybe} vielleicht` : ''}</span></div>
+        ${tiles.join('')}
+      </div>
+      <h4 class="sv-stat-head">Mit wem wie oft</h4>
+      ${partners.length ? `<div class="sv-partners">${partners.map(x => `
+        <div class="sv-partner"><span class="sv-partner-name"><strong>${esc(x.r.name)}</strong>${x.r.role ? ` <small>${esc(x.r.role)}</small>` : ''}</span>
+          <span class="sv-partner-bar"><i style="width:${Math.round(x.n / max * 100)}%"></i></span><span class="sv-partner-n">${x.n}×</span></div>`).join('')}</div>`
+        : '<p class="empty-state">Noch keine gemeinsamen Shows.</p>'}`;
+  }
+  function statsHtml(s, rid) {
+    if (!s.responses.length) return '';
+    const sorted = [...s.responses].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    return `<div class="sv-stats">
+      <div class="sv-stats-head"><h3>📊 Auswertung</h3>
+        <select data-sv-stats aria-label="Name auswählen"><option value="">— Namen auswählen —</option>${sorted.map(r =>
+          `<option value="${r.id}" ${r.id === rid ? 'selected' : ''}>${esc(r.name)}${r.role ? ` (${esc(r.role)})` : ''}</option>`).join('')}</select></div>
+      <div data-sv-stats-body>${rid ? statsBody(s, rid) : '<p class="empty-state">Namen auswählen, um zu sehen, wie viele Shows man spielt, an welchen Wochentagen und mit wem wie oft.</p>'}</div>
+    </div>`;
+  }
+  // Auswahl verdrahten; onPick merkt sich die Auswahl beim Neuaufbau
+  function bindStats(root, s, onPick) {
+    const sel = root.querySelector('[data-sv-stats]');
+    if (!sel) return;
+    sel.addEventListener('change', () => {
+      const rid = sel.value ? +sel.value : null;
+      root.querySelector('[data-sv-stats-body]').innerHTML = rid ? statsBody(s, rid) : '';
+      if (onPick) onPick(rid);
+    });
+  }
+
+  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats };
 })();

@@ -54,7 +54,9 @@
 <script src="/umfrage-table.js"></script>
 <script>
 (function () {
-  const { esc, fmtDate, weekday, sections, render, nextValue } = window.SurveyTable;
+  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats } = window.SurveyTable;
+  let statsPick = null;
+  const statsId = () => (statsPick && data.responses.some(r => r.id === statsPick) ? statsPick : (data.own ? data.own.id : null));
   const token = location.pathname.split('/').pop();
   const storeKey = 'umfrage_' + token;
   const params = new URLSearchParams(location.search);
@@ -112,7 +114,9 @@
         <p class="sv-error hidden" id="sv-error"></p>
       </form>` : ''}
       ${data.show_results ? `<div class="card"><h3 style="margin-top:0">Bisherige Antworten <span class="count-chip">${data.responses.length}</span></h3>
-        ${render(data, { ownId: own && own.id })}</div>` : ''}`;
+        ${render(data, { ownId: own && own.id })}</div>
+        <div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
+    bindStats(app, data, (rid) => { statsPick = rid; });
 
     if (!open) return;
     const secs = sections(data.options);
@@ -245,7 +249,9 @@
       <div class="card">
         <h3 style="margin-top:0">Tabelle <span class="count-chip">${data.responses.length}</span></h3>
         ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit), claim: open && data.roles.length > 0 })}
-      </div>`;
+      </div>
+      ${data.responses.length ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
+    bindStats(app, data, (rid) => { statsPick = rid; });
     tableMsg = '';
     if (!open) return;
 

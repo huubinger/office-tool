@@ -2907,3 +2907,26 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .svg td.svg-empty { cursor: copy; }
 .svg td.svg-empty:hover { background: var(--accent-soft); }
 .svg .svg-addrow th, .svg .svg-addrow td { border-bottom: none; text-align: left; padding-top: 8px; }
+
+/* Umfragen: Uhrzeit-Kopplung und Auswertung */
+.svg .svg-time-cell { white-space: nowrap; }
+.svg .svg-time { outline: none; display: inline-block; min-width: 3em; padding: 1px 3px; border-radius: 4px; cursor: text; }
+.svg .svg-time:empty::before { content: '…'; color: var(--ink-faint); }
+.svg .svg-time:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.svg .svg-inherit { color: var(--ink-faint); font-weight: 500; font-style: italic; }
+.sv-stats-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.sv-stats-head h3 { margin: 0; font-size: 14.5px; }
+.sv-stats-head select { width: auto; min-width: 220px; margin: 0; }
+.sv-stat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.sv-stat-tiles > div { background: var(--panel-alt); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; }
+.sv-stat-tiles strong { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sv-stat-tiles span { font-size: 12px; color: var(--ink-soft); }
+.sv-stat-tiles .sv-stat-main { grid-column: span 2; background: var(--ok-soft); }
+.sv-stat-tiles .sv-stat-main strong { color: var(--ok); font-size: 28px; }
+.sv-stat-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); margin: 16px 0 6px; }
+.sv-partners { display: flex; flex-direction: column; gap: 4px; }
+.sv-partner { display: grid; grid-template-columns: minmax(120px, 1.2fr) 2fr 44px; gap: 10px; align-items: center; font-size: 13px; }
+.sv-partner-name small { color: var(--ink-faint); }
+.sv-partner-bar { height: 8px; background: var(--panel-alt); border-radius: 999px; overflow: hidden; }
+.sv-partner-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.sv-partner-n { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }

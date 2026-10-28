@@ -62,6 +62,8 @@ CREATE INDEX IF NOT EXISTS idx_sv_responses_survey ON sv_responses(survey_id);
 const svCols = new Set(db.prepare('PRAGMA table_info(sv_surveys)').all().map(c => c.name));
 if (!svCols.has('layout')) db.exec("ALTER TABLE sv_surveys ADD COLUMN layout TEXT DEFAULT 'form'");
 if (!svCols.has('open_edit')) db.exec('ALTER TABLE sv_surveys ADD COLUMN open_edit INTEGER DEFAULT 0');
+// time_inherit: Uhrzeit folgt dem ersten Termin des Abschnitts (z.B. alle Shows wie die Premiere)
+if (!db.prepare('PRAGMA table_info(sv_options)').all().some(c => c.name === 'time_inherit')) db.exec('ALTER TABLE sv_options ADD COLUMN time_inherit INTEGER DEFAULT 0');
 
 // Einmalig: wer die Vertraege sieht, bekommt auch den neuen Reiter Umfragen
 if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'migr_surveys_tab'").get()) {
@@ -146,10 +148,12 @@ function saveOptions(surveyId, options) {
   if (!Array.isArray(options)) return;
   const existing = new Set(db.prepare('SELECT id FROM sv_options WHERE survey_id = ?').all(surveyId).map(o => o.id));
   const keep = new Set();
-  const upd = db.prepare('UPDATE sv_options SET section = ?, label = ?, date = ?, time = ?, note = ?, sort = ? WHERE id = ?');
-  const ins = db.prepare('INSERT INTO sv_options (survey_id, section, label, date, time, note, sort) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  // time_inherit nicht mitgeschickt (z.B. aus dem Einstellungen-Dialog) = bisherigen Wert behalten
+  const upd = db.prepare('UPDATE sv_options SET section = ?, label = ?, date = ?, time = ?, note = ?, sort = ?, time_inherit = COALESCE(?, time_inherit) WHERE id = ?');
+  const ins = db.prepare('INSERT INTO sv_options (survey_id, section, label, date, time, note, sort, time_inherit) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))');
   options.slice(0, MAX_OPTIONS).forEach((o, i) => {
-    const vals = [clean(o.section, 100), clean(o.label, 100), cleanDate(o.date), clean(o.time, 30), clean(o.note, 300), i];
+    const inherit = o.time_inherit === undefined || o.time_inherit === null ? null : (o.time_inherit ? 1 : 0);
+    const vals = [clean(o.section, 100), clean(o.label, 100), cleanDate(o.date), clean(o.time, 30), clean(o.note, 300), i, inherit];
     if (!vals[1] && !vals[2] && !o.id && !o.keep) return; // leere Zeile (im Tabellen-Editor bleiben neue Spalten erhalten)
     if (o.id && existing.has(+o.id)) { upd.run(...vals, +o.id); keep.add(+o.id); }
     else ins.run(surveyId, ...vals);

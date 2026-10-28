@@ -18,12 +18,28 @@
     return out;
   }
 
+  // Besetzung einer Rolle ("SONJA: Anna / Berta"): wer spielt welchen Termin
+  const castOf = (s, role) => (s.cast || {})[role] || null;
+  const castCell = (s, role, oid) => ((s.cast_cells || {})[role] || {})[oid] || '';
+  const castCount = (s, role, name) => Object.values((s.cast_cells || {})[role] || {}).filter(n => n === name).length;
+  const castFilled = (s, oid) => Object.values(s.cast_cells || {}).filter(c => c[oid]).length;
+  // Namen mit Zaehler, z.B. "Anna 9 · Berta 8"
+  const castNamesHtml = (s, role) => castOf(s, role).map(n => `${esc(n)} <small class="sv-cast-n">${castCount(s, role, n)}</small>`).join(' · ');
+  // Zelle der Besetzung: Auswahl der Namen (bearbeitbar) oder nur der Name
+  function castCellHtml(s, role, ri, o, editable) {
+    const v = castCell(s, role, o.id);
+    if (!editable || !o.id) return `<td class="sv-cell sv-cast${v ? ' sv-cast-set' : ''}">${esc(v)}</td>`;
+    return `<td class="sv-cell sv-cast${v ? ' sv-cast-set' : ''}"><select data-sv-cast="${ri}:${o.id}" aria-label="${esc(role)}: wer spielt?">
+      <option value="">–</option>${castOf(s, role).map(n => `<option ${v === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>`;
+  }
+
   // Zeilen in Rollen-Reihenfolge; Rollen ohne Antwort bleiben als leere Zeile sichtbar
   function rows(s) {
     const out = [];
-    (s.roles || []).forEach(role => {
+    (s.roles || []).forEach((role, ri) => {
       const rs = s.responses.filter(r => r.role === role);
-      if (!rs.length) out.push({ role, name: '', response: null });
+      if (castOf(s, role)) out.push({ role, ri, cast: true });
+      else if (!rs.length) out.push({ role, name: '', response: null });
       rs.forEach(r => out.push({ role, name: r.name, response: r }));
     });
     s.responses.filter(r => !r.role || !(s.roles || []).includes(r.role)).forEach(r => out.push({ role: '', name: r.name, response: r }));
@@ -41,6 +57,10 @@
         <tr class="sv-h-day"><th class="sv-name"></th>${sec.options.map(o => `<th>${esc(weekday(o.date).slice(0, 2))}</th>`).join('')}</tr>
         ${hasTime ? `<tr class="sv-h-time"><th class="sv-name"></th>${sec.options.map(o => `<th>${esc(o.time || '')}</th>`).join('')}</tr>` : ''}`;
       const body = people.length ? people.map(p => {
+        if (p.cast) {
+          return `<tr class="sv-cast-row"><th class="sv-name"><strong>${esc(p.role)}</strong> <span class="sv-cast-names">${castNamesHtml(s, p.role)}</span></th>
+            ${sec.options.map(o => castCellHtml(s, p.role, p.ri, o, opts.canEditCast)).join('')}</tr>`;
+        }
         const r = p.response;
         // opts.clickable: Name oeffnet die Antwort; opts.canEdit(r): Zellen per Klick umschalten;
         // opts.claim: leere Rollen-Zeilen bekommen einen "eintragen"-Knopf
@@ -58,7 +78,7 @@
       const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
       const foot = `<tr class="sv-sum"><th class="sv-name">Zusagen</th>${sec.options.map(o => {
         const maybe = count(o, 'maybe');
-        return `<td>${count(o, 'yes')}${maybe ? `<small>+${maybe}?</small>` : ''}</td>`;
+        return `<td>${count(o, 'yes') + castFilled(s, o.id)}${maybe ? `<small>+${maybe}?</small>` : ''}</td>`;
       }).join('')}</tr>`;
       return `<div class="sv-table-wrap"><table class="sv-table"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>`;
     }).join('');
@@ -77,18 +97,28 @@
     return shows.length ? shows : s.options;
   }
   const DAY_ORDER = [4, 5, 6, 0, 1, 2, 3]; // Do, Fr, Sa, So zuerst
-  function statsBody(s, rid) {
-    const me = s.responses.find(r => r.id === rid);
+  // Alle Personen: Teilnehmer (Zusagen) und Besetzung (eingetragen in der Rollen-Zeile)
+  function people(s) {
+    const out = s.responses.map(r => ({ key: 'r' + r.id, name: r.name, role: r.role, plays: (o) => r.answers[o.id] === 'yes', maybe: (o) => r.answers[o.id] === 'maybe' }));
+    (s.roles || []).forEach(role => (castOf(s, role) || []).forEach(n => out.push({
+      key: `c:${role}:${n}`, name: n, role, plays: (o) => castCell(s, role, o.id) === n, maybe: () => false,
+    })));
+    return out;
+  }
+  const hasPerson = (s, key) => !!key && people(s).some(p => p.key === key);
+  function statsBody(s, key) {
+    const all = people(s);
+    const me = all.find(p => p.key === key);
     if (!me) return '<p class="empty-state">Namen auswählen.</p>';
     const shows = showOptions(s);
-    const mine = shows.filter(o => me.answers[o.id] === 'yes');
-    const maybe = shows.filter(o => me.answers[o.id] === 'maybe').length;
+    const mine = shows.filter(o => me.plays(o));
+    const maybe = shows.filter(o => me.maybe(o)).length;
     const days = {};
     mine.forEach(o => { const d = o.date ? new Date(o.date + 'T00:00:00').getDay() : 'x'; days[d] = (days[d] || 0) + 1; });
     const tiles = DAY_ORDER.filter(d => d >= 4 || d === 0 || days[d]).map(d => `<div><strong>${days[d] || 0}</strong><span>${WEEKDAYS[d]}</span></div>`);
     if (days.x) tiles.push(`<div><strong>${days.x}</strong><span>ohne Datum</span></div>`);
-    const partners = s.responses.filter(r => r.id !== me.id)
-      .map(r => ({ r, n: mine.filter(o => r.answers[o.id] === 'yes').length }))
+    const partners = all.filter(p => p.key !== me.key)
+      .map(r => ({ r, n: mine.filter(o => r.plays(o)).length }))
       .filter(x => x.n > 0)
       .sort((a, b) => b.n - a.n || a.r.name.localeCompare(b.r.name, 'de'));
     const max = partners.length ? partners[0].n : 1;
@@ -103,14 +133,15 @@
           <span class="sv-partner-bar"><i style="width:${Math.round(x.n / max * 100)}%"></i></span><span class="sv-partner-n">${x.n}×</span></div>`).join('')}</div>`
         : '<p class="empty-state">Noch keine gemeinsamen Shows.</p>'}`;
   }
-  function statsHtml(s, rid) {
-    if (!s.responses.length) return '';
-    const sorted = [...s.responses].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  function statsHtml(s, key) {
+    const all = people(s);
+    if (!all.length) return '';
+    const sorted = all.sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return `<div class="sv-stats">
       <div class="sv-stats-head"><h3>📊 Auswertung</h3>
-        <select data-sv-stats aria-label="Name auswählen"><option value="">— Namen auswählen —</option>${sorted.map(r =>
-          `<option value="${r.id}" ${r.id === rid ? 'selected' : ''}>${esc(r.name)}${r.role ? ` (${esc(r.role)})` : ''}</option>`).join('')}</select></div>
-      <div data-sv-stats-body>${rid ? statsBody(s, rid) : '<p class="empty-state">Namen auswählen, um zu sehen, wie viele Shows man spielt, an welchen Wochentagen und mit wem wie oft.</p>'}</div>
+        <select data-sv-stats aria-label="Name auswählen"><option value="">— Namen auswählen —</option>${sorted.map(p =>
+          `<option value="${esc(p.key)}" ${p.key === key ? 'selected' : ''}>${esc(p.name)}${p.role ? ` (${esc(p.role)})` : ''}</option>`).join('')}</select></div>
+      <div data-sv-stats-body>${key ? statsBody(s, key) : '<p class="empty-state">Namen auswählen, um zu sehen, wie viele Shows man spielt, an welchen Wochentagen und mit wem wie oft.</p>'}</div>
     </div>`;
   }
   // Auswahl verdrahten; onPick merkt sich die Auswahl beim Neuaufbau
@@ -118,11 +149,11 @@
     const sel = root.querySelector('[data-sv-stats]');
     if (!sel) return;
     sel.addEventListener('change', () => {
-      const rid = sel.value ? +sel.value : null;
-      root.querySelector('[data-sv-stats-body]').innerHTML = rid ? statsBody(s, rid) : '';
-      if (onPick) onPick(rid);
+      const key = sel.value || null;
+      root.querySelector('[data-sv-stats-body]').innerHTML = key ? statsBody(s, key) : '';
+      if (onPick) onPick(key);
     });
   }
 
-  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats };
+  window.SurveyTable = { render, sections, fmtDate, weekday, esc, nextValue, SYMBOL, statsHtml, bindStats, hasPerson, castOf, castCellHtml, castNamesHtml, castFilled };
 })();

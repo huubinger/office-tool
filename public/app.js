@@ -9307,7 +9307,8 @@
     const view = document.getElementById('sv-detail-view');
     view.classList.remove('hidden');
     const comments = s.responses.filter(r => r.comment);
-    const missing = s.roles.filter(role => !s.responses.some(r => r.role === role));
+    const missing = s.roles.filter(role => !s.cast[role] && !s.responses.some(r => r.role === role));
+    const stats = SurveyTable.statsHtml(s, SurveyTable.hasPerson(s, svStatsPick) ? svStatsPick : null);
     view.innerHTML = `
       <nav class="folder-path">
         <button type="button" class="link-btn" id="sv-back">🗳️ Umfragen</button>
@@ -9340,10 +9341,11 @@
       <div class="card">
         <div class="section-card-head"><h3>📋 Tabelle</h3>
           <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Person eintragen</button></div></div>
-        <p class="hint">Termine oben direkt eintragen (Abschnitt, Bezeichnung, Datum, Uhrzeit), Rollen/Aufgaben links. Zellen anklicken schaltet um: leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗. Namen anklicken für Name, Rolle, Kommentar.</p>
+        <p class="hint">Termine oben direkt eintragen (Abschnitt, Bezeichnung, Datum, Uhrzeit), Rollen/Aufgaben links. Zellen anklicken schaltet um: leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗. Namen anklicken für Name, Rolle, Kommentar.
+          Doppelbesetzung: Rolle als „SONJA: Anna / Berta“ eintragen – dann wählt man je Termin aus, wer spielt.</p>
         ${svGridHtml(s)}
       </div>
-      ${s.responses.length ? `<div class="card">${SurveyTable.statsHtml(s, s.responses.some(r => r.id === svStatsPick) ? svStatsPick : null)}</div>` : ''}
+      ${stats ? `<div class="card">${stats}</div>` : ''}
       ${comments.length ? `<div class="card"><div class="section-card-head"><h3>💬 Kommentare</h3></div><div class="sponsor-info">
         ${comments.map(r => `<div><span>${escapeHtml([r.role, r.name].filter(Boolean).join(' · '))}</span><p>${escapeHtml(r.comment)}</p></div>`).join('')}</div></div>` : ''}`;
 
@@ -9365,7 +9367,17 @@
     });
     document.getElementById('sv-add-response').addEventListener('click', () => openSvResponseModal(null));
     svBindGrid(view);
-    SurveyTable.bindStats(view, s, (rid) => { svStatsPick = rid; });
+    SurveyTable.bindStats(view, s, (key) => { svStatsPick = key; });
+    view.querySelectorAll('[data-sv-cast]').forEach(sel => sel.addEventListener('change', async () => {
+      const [ri, oid] = sel.dataset.svCast.split(':').map(Number);
+      if (svStructTimer) await svSaveStructure(false);
+      try {
+        const fresh = await api(`/api/surveys/${s.id}/cast`, { method: 'PUT', body: JSON.stringify({ role: s.roles[ri], option_id: oid, person: sel.value }) });
+        if (svDetail && svDetail.id === s.id) { svAdopt(fresh); renderSvDetail(); }
+        const again = document.querySelector(`#sv-detail-view [data-sv-cast="${ri}:${oid}"]`);
+        if (again) again.focus();
+      } catch (err) { toast(err.message); }
+    }));
     view.querySelectorAll('[data-sv-cell]').forEach(td => {
       const toggle = () => {
         const [rid, oid] = td.dataset.svCell.split(':').map(Number);
@@ -9472,7 +9484,7 @@
           </div>
         </div>
         <label>Rollen / Aufgaben (eine pro Zeile, optional – werden die Zeilen der Tabelle)
-          <textarea id="svf-roles" rows="5" placeholder="SONJA&#10;BARBARA&#10;…&#10;Tontechnik&#10;Lichttechnik">${escapeHtml(s ? s.roles_text : '')}</textarea></label>
+          <textarea id="svf-roles" rows="5" placeholder="SONJA: Anna / Berta&#10;BARBARA: Clara / Doris&#10;…&#10;Tontechnik&#10;Lichttechnik">${escapeHtml(s ? s.roles_text : '')}</textarea></label>
         <div class="ev-subhead">Termine</div>
         <datalist id="sv-sections">${sectionNames.map(n => `<option value="${escapeHtml(n)}">`).join('')}<option value="Aufführungen"><option value="Proben"></datalist>
         <div id="sv-opt-rows">${(s ? s.options : []).map(svOptionRowHtml).join('')}</div>
@@ -9538,7 +9550,7 @@
   let svRenames = {};
   // Antwort vom Server uebernehmen, ohne noch nicht gespeicherte Tabellen-Aenderungen zu verlieren
   function svAdopt(fresh) {
-    if (svStructTimer && svDetail && svDetail.id === fresh.id) { fresh.options = svDetail.options; fresh.roles = svDetail.roles; }
+    if (svStructTimer && svDetail && svDetail.id === fresh.id) { fresh.options = svDetail.options; fresh.roles = svDetail.roles; fresh.cast = svDetail.cast; }
     svDetail = fresh;
   }
   async function svSaveStructure(rerender) {
@@ -9550,7 +9562,7 @@
     try {
       const fresh = await api(`/api/surveys/${s.id}`, { method: 'PUT', body: JSON.stringify({
         options: s.options.map(o => ({ id: o.id || null, section: o.section, label: o.label, date: o.date, time: o.time, note: o.note, time_inherit: o.time_inherit ? 1 : 0, keep: true })),
-        roles: s.roles.join('\n'), role_renames: renames,
+        roles: s.roles.map(r => (s.cast[r] && s.cast[r].length ? `${r}: ${s.cast[r].join(' / ')}` : r)).join('\n'), role_renames: renames,
       }) });
       if (svDetail && svDetail.id === s.id) {
         if (rerender) { svAdopt(fresh); renderSvDetail(); }
@@ -9573,8 +9585,14 @@
       const roleCell = (first) => `<span class="svg-role" contenteditable="true" spellcheck="false" data-svg-role="${ri}">${escapeHtml(role)}</span>
         ${first ? `<button type="button" class="svg-mini" data-svg-add-person="${escapeHtml(role)}" title="Person für ${escapeHtml(role)} eintragen">+ Person</button>
         <button type="button" class="svg-mini svg-del" data-svg-del-role="${ri}" title="Zeile ${escapeHtml(role)} löschen" aria-label="Zeile löschen">✕</button>` : ''}`;
-      if (!rs.length) rows.push(`<tr><th class="sv-name sv-open">${roleCell(true)}</th>${opts.map(() => `<td class="sv-cell svg-empty" data-svg-add-person="${escapeHtml(role)}"></td>`).join('')}<td class="svg-pad"></td></tr>`);
-      rs.forEach((r, i) => rows.push(svRespRow(s, r, roleCell(i === 0))));
+      if (s.cast[role]) {
+        // Besetzung: eine Zeile, je Termin auswaehlen, wer spielt; Namen (mit Zaehler) daneben bearbeitbar
+        rows.push(`<tr class="sv-cast-row"><th class="sv-name">${roleCell(true)}
+          <span class="svg-cast" contenteditable="true" spellcheck="false" data-svg-cast-names="${ri}" title="Besetzung, Namen mit / trennen">${escapeHtml(s.cast[role].join(' / '))}</span>
+          <span class="sv-cast-names">${SurveyTable.castNamesHtml(s, role)}</span></th>
+          ${opts.map(o => SurveyTable.castCellHtml(s, role, ri, o, true)).join('')}<td class="svg-pad"></td></tr>`);
+      } else if (!rs.length) rows.push(`<tr><th class="sv-name sv-open">${roleCell(true)}</th>${opts.map(() => `<td class="sv-cell svg-empty" data-svg-add-person="${escapeHtml(role)}"></td>`).join('')}<td class="svg-pad"></td></tr>`);
+      rs.forEach((r, i) => rows.push(svRespRow(s, r, roleCell(i === 0 && !s.cast[role]))));
     });
     s.responses.filter(r => !r.role || !s.roles.includes(r.role)).forEach(r => rows.push(svRespRow(s, r, '')));
     const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
@@ -9590,7 +9608,7 @@
       <tbody>${rows.join('') || `<tr><th class="sv-name sv-open">Noch keine Zeilen</th>${opts.map(() => '<td></td>').join('')}<td class="svg-pad"></td></tr>`}
         <tr class="svg-addrow"><th class="sv-name"><button type="button" class="ghost" id="svg-add-role">+ Zeile (Rolle / Aufgabe)</button></th><td colspan="${colCount + 1}"><button type="button" class="ghost" id="svg-add-free">+ Person ohne Rolle</button></td></tr>
       </tbody>
-      <tfoot><tr class="sv-sum"><th class="sv-name">Zusagen</th>${opts.map(o => { const m = count(o, 'maybe'); return `<td>${o.id ? count(o, 'yes') : ''}${m ? `<small>+${m}?</small>` : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr></tfoot>
+      <tfoot><tr class="sv-sum"><th class="sv-name">Zusagen</th>${opts.map(o => { const m = count(o, 'maybe'); return `<td>${o.id ? count(o, 'yes') + SurveyTable.castFilled(s, o.id) : ''}${m ? `<small>+${m}?</small>` : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr></tfoot>
     </table></div>`;
   }
   // Erster Termin eines Abschnitts (z.B. die Premiere) gibt die Uhrzeit fuer die gekoppelten Termine vor
@@ -9638,11 +9656,32 @@
       el.addEventListener('focus', () => { before = el.innerText.trim(); });
       el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); } });
       el.addEventListener('blur', () => {
-        const now = el.innerText.trim();
-        if (!now || now === before) { el.innerText = before; return; }
-        if (s.roles.includes(now)) { toast(`„${now}“ gibt es schon`); el.innerText = before; return; }
+        // "SONJA: Anna / Berta" macht aus der Zeile eine Rolle mit Besetzung
+        const typed = el.innerText.trim();
+        const m = typed.match(/^([^:]+?)\s*:\s*(.+)$/);
+        const names = m ? [...new Set(m[2].split(/[\/,]/).map(n => n.trim()).filter(Boolean))] : [];
+        const now = names.length ? m[1] : typed;
+        if (!now || (now === before && !names.length)) { el.innerText = before; return; }
+        if (now !== before && s.roles.includes(now)) { toast(`„${now}“ gibt es schon`); el.innerText = before; return; }
         s.roles[+el.dataset.svgRole] = now;
-        svRenames[before] = now;
+        if (now !== before) {
+          svRenames[before] = now;
+          if (s.cast[before]) { s.cast[now] = s.cast[before]; delete s.cast[before]; }
+        }
+        if (names.length) s.cast[now] = names;
+        svSaveStructure(true);
+      });
+    });
+    view.querySelectorAll('[data-svg-cast-names]').forEach(el => {
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); } });
+      el.addEventListener('blur', () => {
+        const role = s.roles[+el.dataset.svgCastNames];
+        const names = [...new Set(el.innerText.split(/[\/,]/).map(n => n.trim()).filter(Boolean))];
+        if (names.join('/') === s.cast[role].join('/')) return;
+        const lost = s.cast[role].length !== names.length ? s.cast[role].filter(n => !names.includes(n)) : [];
+        const n = lost.reduce((a, name) => a + Object.values(s.cast_cells[role] || {}).filter(x => x === name).length, 0);
+        if (n && !confirm(`${lost.join(', ')} entfernen? ${n} eingetragene Termin${n === 1 ? '' : 'e'} gehen verloren.`)) { el.innerText = s.cast[role].join(' / '); return; }
+        if (names.length) s.cast[role] = names; else delete s.cast[role];
         svSaveStructure(true);
       });
     });
@@ -9672,6 +9711,7 @@
       const n = s.responses.filter(r => r.role === role).length;
       if (!confirm(n ? `Zeile „${role}“ löschen? Die ${n} eingetragene${n === 1 ? '' : 'n'} Person${n === 1 ? '' : 'en'} bleibt/bleiben ohne Rolle erhalten.` : `Zeile „${role}“ löschen?`)) return;
       s.roles.splice(+b.dataset.svgDelRole, 1);
+      delete s.cast[role];
       svSaveStructure(true);
     }));
     view.querySelectorAll('[data-svg-add-person]').forEach(b => b.addEventListener('click', () => openSvResponseModal(null, b.dataset.svgAddPerson)));
@@ -9696,7 +9736,7 @@
 
   // Vorlagen fuer neue Umfragen: gleich als Tabelle
   const SV_TEMPLATES = {
-    musical: { roles: '', sections: ['Aufführungen', 'Probenwochenenden'], hint: 'Rollen eine pro Zeile, z.B. SONJA, BARBARA … Tontechnik, Lichttechnik' },
+    musical: { roles: '', sections: ['Aufführungen', 'Probenwochenenden'], hint: 'Rollen eine pro Zeile, mit Besetzung als „SONJA: Anna / Berta“ – dann wird je Show ausgewählt, wer spielt. Außerdem z.B. Tontechnik, Lichttechnik.' },
     helpers: { roles: 'Kasse\nEinlass\nGarderobe\nBar / Getränke\nCatering\nAufbau\nAbbau', sections: ['Schichten'], hint: 'Aufgaben eine pro Zeile' },
     blank: { roles: '', sections: [''], hint: 'Zeilen eine pro Zeile (optional)' },
   };

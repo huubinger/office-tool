@@ -69,6 +69,16 @@ if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'migr_surveys_no_maybe'"
 }
 // time_inherit: Uhrzeit folgt dem ersten Termin des Abschnitts (z.B. alle Shows wie die Premiere)
 if (!db.prepare('PRAGMA table_info(sv_options)').all().some(c => c.name === 'time_inherit')) db.exec('ALTER TABLE sv_options ADD COLUMN time_inherit INTEGER DEFAULT 0');
+// Besetzung: Rolle mit festen Personen ("SONJA: Anna / Berta") - je Termin steht in der Zelle, wer spielt
+db.exec(`
+CREATE TABLE IF NOT EXISTS sv_cast (
+  survey_id INTEGER NOT NULL REFERENCES sv_surveys(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  option_id INTEGER NOT NULL REFERENCES sv_options(id) ON DELETE CASCADE,
+  person TEXT NOT NULL,
+  PRIMARY KEY (survey_id, role, option_id)
+);
+`);
 
 // Einmalig: wer die Vertraege sieht, bekommt auch den neuen Reiter Umfragen
 if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'migr_surveys_tab'").get()) {
@@ -89,7 +99,20 @@ const clean = (v, max = 300) => {
   return s ? s.slice(0, max) : null;
 };
 const cleanDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null);
-const parseRoles = (raw) => String(raw || '').split('\n').map(r => r.trim()).filter(Boolean);
+// Zeile "SONJA: Anna / Berta" = Rolle SONJA mit Besetzung Anna und Berta (Namen mit / oder , getrennt)
+function parseRoleLine(line) {
+  const m = line.match(/^([^:]+?)\s*:\s*(.+)$/);
+  if (!m) return { role: line, cast: [] };
+  const cast = [...new Set(m[2].split(/[\/,]/).map(n => n.trim()).filter(Boolean))];
+  return cast.length ? { role: m[1], cast } : { role: line, cast: [] };
+}
+const roleLines = (raw) => String(raw || '').split('\n').map(r => r.trim()).filter(Boolean).map(parseRoleLine);
+const parseRoles = (raw) => roleLines(raw).map(l => l.role);
+const parseCast = (raw) => {
+  const out = {};
+  roleLines(raw).forEach(l => { if (l.cast.length) out[l.role] = l.cast; });
+  return out;
+};
 
 function surveyData(id, { withTokens = false } = {}) {
   const s = db.prepare('SELECT * FROM sv_surveys WHERE id = ?').get(id);
@@ -101,10 +124,17 @@ function surveyData(id, { withTokens = false } = {}) {
   `).all(id);
   const byResponse = {};
   answers.forEach(a => { (byResponse[a.response_id] ||= {})[a.option_id] = a.value; });
+  const cast = parseCast(s.roles);
+  const castCells = {};
+  db.prepare('SELECT * FROM sv_cast WHERE survey_id = ?').all(id).forEach(c => {
+    if (cast[c.role] && cast[c.role].includes(c.person)) (castCells[c.role] ||= {})[c.option_id] = c.person;
+  });
   return {
     ...s,
     roles: parseRoles(s.roles),
     roles_text: s.roles || '',
+    cast,
+    cast_cells: castCells,
     options,
     responses: responses.map(r => {
       const out = { id: r.id, name: r.name, role: r.role, comment: r.comment, updated_at: r.updated_at, answers: byResponse[r.id] || {} };
@@ -122,6 +152,7 @@ function publicData(s, ownToken) {
   return {
     title: full.title, description: full.description, status: full.status, deadline: full.deadline,
     allow_maybe: !!full.allow_maybe, show_results: !!full.show_results || full.layout === 'table', roles: full.roles,
+    cast: full.cast, cast_cells: full.show_results || full.layout === 'table' ? full.cast_cells : {},
     layout: full.layout || 'form', open_edit: full.layout === 'table' && !!full.open_edit,
     options: full.options.map(({ id, section, label, date, time, note }) => ({ id, section, label, date, time, note })),
     responses: full.show_results || full.layout === 'table' ? full.responses.map(strip) : [],
@@ -138,6 +169,37 @@ function saveAnswers(responseId, surveyId, answers, allowMaybe) {
     if (value === 'maybe' && !allowMaybe) continue;
     ins.run(responseId, +optId, value);
   }
+}
+
+// Eine Zelle der Besetzung setzen (leer = wieder freigeben)
+function saveCastCell(s, b) {
+  const role = String(b.role || '');
+  const names = parseCast(s.roles)[role];
+  if (!names) return 'Diese Rolle hat keine Besetzung';
+  const opt = db.prepare('SELECT id FROM sv_options WHERE id = ? AND survey_id = ?').get(b.option_id, s.id);
+  if (!opt) return 'Termin nicht gefunden';
+  const person = clean(b.person, 100);
+  if (person && !names.includes(person)) return 'Unbekannter Name';
+  if (person) db.prepare('INSERT INTO sv_cast (survey_id, role, option_id, person) VALUES (?, ?, ?, ?) ON CONFLICT(survey_id, role, option_id) DO UPDATE SET person = excluded.person').run(s.id, role, opt.id, person);
+  else db.prepare('DELETE FROM sv_cast WHERE survey_id = ? AND role = ? AND option_id = ?').run(s.id, role, opt.id);
+  return null;
+}
+
+// Nach dem Speichern der Rollen: umbenannte Rollen/Namen in der Besetzung mitnehmen, Verwaistes loeschen
+function syncCast(id, oldRaw, newRaw, renames) {
+  const oldCast = parseCast(oldRaw);
+  const newCast = parseCast(newRaw);
+  const back = {};
+  Object.entries(renames).forEach(([from, to]) => { back[to] = from; });
+  const upd = db.prepare('UPDATE sv_cast SET person = ? WHERE survey_id = ? AND role = ? AND person = ?');
+  Object.entries(newCast).forEach(([role, names]) => {
+    const before = oldCast[back[role] || role];
+    // gleiche Anzahl Namen: Namen an derselben Stelle gelten als umbenannt
+    if (before && before.length === names.length) before.forEach((n, i) => { if (n !== names[i] && !before.includes(names[i])) upd.run(names[i], id, role, n); });
+  });
+  db.prepare('SELECT DISTINCT role, person FROM sv_cast WHERE survey_id = ?').all(id).forEach(c => {
+    if (!newCast[c.role] || !newCast[c.role].includes(c.person)) db.prepare('DELETE FROM sv_cast WHERE survey_id = ? AND role = ? AND person = ?').run(id, c.role, c.person);
+  });
 }
 
 function responseInput(b, s) {
@@ -188,8 +250,10 @@ function exportWorkbook(s) {
     rows.push(['', ...sec.options.map(o => fmtDate(o.date))]);
     rows.push(['', ...sec.options.map(o => (o.date ? WEEKDAYS[new Date(o.date + 'T00:00:00').getDay()].toUpperCase() : ''))]);
     if (sec.options.some(o => o.time)) rows.push(['', ...sec.options.map(o => o.time || '')]);
-    people.forEach(p => rows.push([p.label, ...sec.options.map(o => (p.response ? SYMBOL[p.response.answers[o.id]] || '' : ''))]));
-    rows.push(['Zusagen', ...sec.options.map(o => s.responses.filter(r => r.answers[o.id] === 'yes').length)]);
+    people.forEach(p => rows.push([p.label, ...sec.options.map(o => (p.castRole ? (s.cast_cells[p.castRole] || {})[o.id] || ''
+      : p.response ? SYMBOL[p.response.answers[o.id]] || '' : ''))]));
+    rows.push(['Zusagen', ...sec.options.map(o => s.responses.filter(r => r.answers[o.id] === 'yes').length
+      + Object.values(s.cast_cells).filter(c => c[o.id]).length)]);
     rows.push([], []);
   });
   const comments = s.responses.filter(r => r.comment);
@@ -209,7 +273,10 @@ function orderedRows(s) {
   const out = [];
   s.roles.forEach(role => {
     const rs = s.responses.filter(r => r.role === role);
-    if (!rs.length) out.push({ label: role, response: null });
+    if (s.cast[role]) {
+      const cells = Object.values(s.cast_cells[role] || {});
+      out.push({ label: `${role} (${s.cast[role].map(n => `${n} ${cells.filter(c => c === n).length}×`).join(' / ')})`, castRole: role });
+    } else if (!rs.length) out.push({ label: role, response: null });
     rs.forEach(r => out.push({ label: `${role} – ${r.name}`, response: r }));
   });
   s.responses.filter(r => !r.role || !s.roles.includes(r.role)).forEach(r => out.push({ label: r.name, response: r }));
@@ -256,11 +323,19 @@ function register(app) {
         .run(...keys.map(k => fields[k]), newToken(), b._user).lastInsertRowid;
     }
     saveOptions(id, b.options);
-    // Umbenannte Rollen: bestehende Antworten mitnehmen
+    // Umbenannte Rollen: bestehende Antworten und Besetzung mitnehmen
+    const renames = {};
     if (b.role_renames && typeof b.role_renames === 'object') {
       const upd = db.prepare('UPDATE sv_responses SET role = ? WHERE survey_id = ? AND role = ?');
-      Object.entries(b.role_renames).slice(0, 100).forEach(([from, to]) => { if (clean(to, 100)) upd.run(clean(to, 100), id, from); });
+      const updCast = db.prepare('UPDATE sv_cast SET role = ? WHERE survey_id = ? AND role = ?');
+      Object.entries(b.role_renames).slice(0, 100).forEach(([from, to]) => {
+        if (!clean(to, 100)) return;
+        upd.run(clean(to, 100), id, from);
+        updCast.run(clean(to, 100), id, from);
+        renames[from] = clean(to, 100);
+      });
     }
+    syncCast(id, existing ? existing.roles : '', fields.roles, renames);
     return id;
   }
 
@@ -309,6 +384,14 @@ function register(app) {
       db.prepare("UPDATE sv_responses SET name = ?, role = ?, comment = ?, updated_at = datetime('now') WHERE id = ?").run(input.name, input.role, input.comment, r.id);
       saveAnswers(r.id, s.id, req.body.answers, true);
     })();
+    res.json(surveyData(s.id));
+  });
+
+  app.put('/api/surveys/:id/cast', (req, res) => {
+    const s = db.prepare('SELECT * FROM sv_surveys WHERE id = ?').get(req.params.id);
+    if (!s) return res.status(404).json({ error: 'Umfrage nicht gefunden' });
+    const err = saveCastCell(s, req.body || {});
+    if (err) return res.status(400).json({ error: err });
     res.json(surveyData(s.id));
   });
 
@@ -362,6 +445,17 @@ function register(app) {
       saveAnswers(r.id, s.id, b.answers, !!s.allow_maybe);
     })();
     res.json({ ...publicData(s, token), edit_token: token });
+  });
+
+  // Besetzung: gehoert keiner einzelnen Person, darf in der offenen Tabelle von allen gesetzt werden
+  app.put('/api/public/umfrage/:token/cast', (req, res) => {
+    const s = bySurveyToken(req.params.token);
+    if (!s) return res.status(404).json({ error: 'Diese Umfrage gibt es nicht (mehr).' });
+    if (s.status !== 'offen') return res.status(403).json({ error: 'Die Umfrage ist geschlossen.' });
+    if (s.layout !== 'table') return res.status(403).json({ error: 'Nur in der Tabellen-Ansicht möglich.' });
+    const err = saveCastCell(s, req.body || {});
+    if (err) return res.status(400).json({ error: err });
+    res.json(publicData(s, req.query.e));
   });
 
   // Offene Tabelle: fremde Zeile aendern (nur wenn die Umfrage das erlaubt)

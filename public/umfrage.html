@@ -54,9 +54,9 @@
 <script src="/umfrage-table.js"></script>
 <script>
 (function () {
-  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats } = window.SurveyTable;
+  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats, hasPerson } = window.SurveyTable;
   let statsPick = null;
-  const statsId = () => (statsPick && data.responses.some(r => r.id === statsPick) ? statsPick : (data.own ? data.own.id : null));
+  const statsId = () => (hasPerson(data, statsPick) ? statsPick : (data.own ? 'r' + data.own.id : null));
   const token = location.pathname.split('/').pop();
   const storeKey = 'umfrage_' + token;
   const params = new URLSearchParams(location.search);
@@ -115,7 +115,7 @@
       </form>` : ''}
       ${data.show_results ? `<div class="card"><h3 style="margin-top:0">Bisherige Antworten <span class="count-chip">${data.responses.length}</span></h3>
         ${render(data, { ownId: own && own.id })}</div>
-        <div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
+        ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}` : ''}`;
     bindStats(app, data, (rid) => { statsPick = rid; });
 
     if (!open) return;
@@ -248,9 +248,9 @@
       </div>` : ''}
       <div class="card">
         <h3 style="margin-top:0">Tabelle <span class="count-chip">${data.responses.length}</span></h3>
-        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit), claim: open && data.roles.length > 0 })}
+        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit), canEditCast: open, claim: open && data.roles.length > 0 })}
       </div>
-      ${data.responses.length ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
+      ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
     bindStats(app, data, (rid) => { statsPick = rid; });
     tableMsg = '';
     if (!open) return;
@@ -268,6 +268,22 @@
     app.querySelectorAll('[data-sv-claim]').forEach(b => b.addEventListener('click', () => {
       const name = own ? own.name : (document.getElementById('sv-name') || {}).value.trim();
       join(name, b.dataset.svClaim);
+    }));
+    // Besetzung: in der Rollen-Zeile auswaehlen, wer den Termin spielt
+    app.querySelectorAll('[data-sv-cast]').forEach(sel => sel.addEventListener('change', async () => {
+      const [ri, oid] = sel.dataset.svCast.split(':').map(Number);
+      const role = data.roles[ri];
+      try {
+        const res = await fetch(`/api/public/umfrage/${token}/cast` + (editToken ? `?e=${encodeURIComponent(editToken)}` : ''), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, option_id: oid, person: sel.value }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+        data = body;
+      } catch (err) { tableMsg = err.message; }
+      renderTablePage();
+      const again = app.querySelector(`[data-sv-cast="${ri}:${oid}"]`);
+      if (again) again.focus();
     }));
     app.querySelectorAll('[data-sv-cell]').forEach(td => {
       const toggle = () => {

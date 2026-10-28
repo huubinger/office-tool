@@ -2900,6 +2900,17 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .svg .svg-role { font-weight: 700; outline: none; padding: 1px 3px; border-radius: 4px; cursor: text; }
 .svg .svg-role:hover { background: var(--panel-alt); }
 .svg .svg-person { color: var(--ink-soft); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.svg .svg-cast { display: block; color: var(--ink-soft); outline: none; padding: 1px 3px; border-radius: 4px; cursor: text; font-size: 12.5px; }
+.svg .svg-cast:hover { background: var(--panel-alt); }
+.svg .svg-cast:focus { box-shadow: inset 0 0 0 2px var(--accent); background: var(--panel); }
+.svg .sv-cast-row .sv-cast-names { display: block; padding: 0 3px; }
+/* Besetzung: je Termin steht der Name, wer spielt */
+.sv-table .sv-cast-names { font-size: 12px; color: var(--ink-soft); font-weight: 500; }
+.sv-table .sv-cast-n { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent-soft, var(--panel-alt)); color: var(--accent); font-weight: 700; font-size: 11px; text-align: center; }
+.sv-table td.sv-cast { font-weight: 600; font-size: 12px; padding: 2px; }
+.sv-table td.sv-cast-set { background: var(--ok-soft); color: var(--ok); }
+.sv-table td.sv-cast select { width: 100%; min-width: 74px; margin: 0; padding: 3px 4px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid transparent; color: inherit; box-shadow: none; }
+.sv-table td.sv-cast select:hover, .sv-table td.sv-cast select:focus { border-color: var(--line-strong); background: var(--panel); }
 .svg .svg-mini { padding: 0 7px; font-size: 11px; border-radius: 999px; box-shadow: none; background: transparent; border: 1px solid var(--line); color: var(--ink-soft); margin-left: 4px; }
 .svg .svg-mini:hover { background: var(--panel-alt); filter: none; }
 .svg .svg-del { color: var(--ink-faint); }

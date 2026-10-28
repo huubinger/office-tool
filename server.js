@@ -30,6 +30,7 @@ const nkReport = require('./nk-report');
 const diktat = require('./diktat');
 const finder = require('./finder');
 const marketing = require('./marketing');
+const events = require('./events');
 const PDFDocument = require('pdfkit');
 
 const app = express();
@@ -127,6 +128,7 @@ const API_TAB_RULES = [
   ['/api/public-holidays', ['yearcalendar']],
   ['/api/year-calendar/', ['yearcalendar']],
   ['/api/contract-events', ['contracts', 'yearcalendar']],
+  ['/api/events', ['events']],
   ['/api/bfd-defaults', ['people']],
   ['/api/settings', ['people', 'timetracking']],
   ['/api/projects', ['tasks', 'calendar', 'people', 'yearcalendar']],
@@ -1997,6 +1999,7 @@ diktat.register(app);
 nk.backfillFileText();
 finder.register(app);
 marketing.register(app);
+events.register(app);
 
 app.listen(PORT, () => {
   console.log(`Office Task Tool laeuft auf Port ${PORT}`);

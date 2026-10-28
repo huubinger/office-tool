@@ -87,10 +87,10 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts', 'calendar', 'yearcalendar', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
+    yearcalendar: 'Jahr', contracts: 'Verträge', events: 'Events', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
   };
   let activeTab = null;
   // Eigener Einstieg /nk ("NK Konzerte" als App auf dem Home-Bildschirm): nur die NK-Reiter
@@ -130,6 +130,7 @@
     if (tab === 'timetracking') { loadReport(); loadAbsences(); loadWarnings(); loadTimeOff(); }
     if (tab === 'yearcalendar') { renderYearCalendar(); if (!opts.restore) maybeAutoOpenSecondHalf(); }
     if (tab === 'contracts') { loadContractEvents(); }
+    if (tab === 'events') { if (!opts.keepEvent) showEvList(); loadEvents(); }
     if (tab === 'nk_polls') { showNkPollList(); loadNkPolls(); }
     if (tab === 'nk_projects') { showNkConcertList(); loadNkConcerts(); }
     if (tab === 'nk_sponsors') { showNkSponsorList(); loadNkSponsors(); }
@@ -174,7 +175,7 @@
     if (moreBtn) moreBtn.addEventListener('click', () => openMoreSheet(allowed));
   }
 
-  const LEGACY_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'];
+  const LEGACY_TABS = ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events'];
 
   const moreSheet = document.getElementById('more-sheet-overlay');
   function openMoreSheet(allowed) {
@@ -3560,13 +3561,13 @@
   const usersError = document.getElementById('users-error');
   const TAB_LABELS = [
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
-    ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'],
+    ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'], ['events', 'Events'],
     ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_contacts', 'NK · Kontakte'],
     ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
     nk: ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts'],
-    office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts'],
+    office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events'],
     all: TAB_LABELS.map(t => t[0]),
   };
 
@@ -8444,6 +8445,540 @@
     loadMarketing();
   }
   document.querySelectorAll('[data-mk-mode]').forEach(b => b.addEventListener('click', () => setMkMode(b.dataset.mkMode)));
+
+  // ================= EVENTS =================
+  // Veranstaltungsplanung: Liste (kommende/vergangene) und Detailansicht mit Karten fuer
+  // Zeitplan, Bands, Location, Technik, Team, Finanzen, Tickets, Hospitality und Checkliste.
+  // Alle Bearbeitungen laufen ueber einen Dialog, dessen Felder aus EV_FORMS aufgebaut werden.
+  let evMeta = { events: [], statuses: [], act_statuses: [], fee_types: [], budget_categories: { expense: [], income: [] } };
+  let evDetail = null;
+  let evPastOpen = false;
+  const EV_STATUS_PILL = { Idee: 'pill-muted', 'In Planung': 'pill-accent', Bestätigt: 'pill-ok', Abgeschlossen: 'pill-muted', Abgesagt: 'pill-declined' };
+  const EV_ACT_PILL = { Angefragt: 'pill-muted', Zugesagt: 'pill-accent', 'Vertrag unterschrieben': 'pill-ok', Abgesagt: 'pill-declined' };
+  const EV_TIMES = [
+    ['time_load_in', 'Aufbau / Get-in'], ['time_soundcheck', 'Soundcheck'], ['time_doors', 'Einlass'], ['time_start', 'Beginn'],
+    ['time_end', 'Ende'], ['time_curfew', 'Curfew'], ['time_load_out', 'Abbau'],
+  ];
+  const evF = (k, l, t = 'text', extra = {}) => ({ k, l, t, ...extra });
+  const EV_FORMS = {
+    basic: () => [
+      evF('title', 'Titel', 'text', { req: true, p: 'z.B. Sommerfest im Hof' }),
+      evF('subtitle', 'Untertitel / Motto'),
+      [evF('date', 'Datum', 'date'), evF('end_date', 'bis (bei mehreren Tagen)', 'date')],
+      [evF('status', 'Status', 'select', { o: evMeta.statuses }), evF('organizer', 'Veranstalter')],
+      evF('description', 'Beschreibung', 'textarea', { rows: 3 }),
+      evF('notes', 'Interne Notizen', 'textarea', { rows: 3 }),
+    ],
+    times: () => [
+      [evF('time_load_in', 'Aufbau / Get-in', 'time'), evF('time_soundcheck', 'Soundcheck', 'time')],
+      [evF('time_doors', 'Einlass', 'time'), evF('time_start', 'Beginn', 'time')],
+      [evF('time_end', 'Ende', 'time'), evF('time_curfew', 'Curfew (spätestens Schluss)', 'time')],
+      [evF('time_load_out', 'Abbau', 'time')],
+    ],
+    venue: () => [
+      evF('venue_name', 'Location', 'text', { p: 'z.B. Ballei Neckarsulm' }),
+      evF('venue_address', 'Adresse', 'textarea', { rows: 2 }),
+      [evF('venue_contact', 'Ansprechpartner'), evF('venue_phone', 'Telefon', 'tel')],
+      [evF('venue_email', 'E-Mail', 'email'), evF('venue_capacity', 'Kapazität (Personen)', 'int')],
+      evF('venue_stage', 'Bühne (Maße, Höhe, Podeste)', 'textarea', { rows: 2 }),
+      evF('venue_power', 'Strom (Anschlüsse, CEE, Absicherung)', 'textarea', { rows: 2 }),
+      evF('venue_access', 'Anfahrt, Parken, Ladezone', 'textarea', { rows: 2 }),
+      evF('venue_backstage', 'Backstage / Garderoben', 'textarea', { rows: 2 }),
+      evF('venue_notes', 'Sonstiges (Miete, Schlüssel, Hausregeln)', 'textarea', { rows: 2 }),
+    ],
+    tech: () => [
+      evF('tech_pa', 'Ton / PA (Anbieter, Pult, Monitore)', 'textarea', { rows: 2 }),
+      evF('tech_light', 'Licht', 'textarea', { rows: 2 }),
+      evF('tech_backline', 'Backline (gestellt / geteilt)', 'textarea', { rows: 2 }),
+      evF('tech_staff', 'Techniker (Ton, Licht, Stagehands)', 'textarea', { rows: 2 }),
+      evF('tech_notes', 'Sonstiges (Funk, Beamer, Nebel …)', 'textarea', { rows: 2 }),
+    ],
+    hosp: () => [
+      evF('hosp_catering', 'Catering (Essen für Bands und Team)', 'textarea', { rows: 2 }),
+      evF('hosp_drinks', 'Getränke', 'textarea', { rows: 2 }),
+      evF('hosp_accommodation', 'Übernachtung', 'textarea', { rows: 2 }),
+      evF('hosp_notes', 'Sonstiges', 'textarea', { rows: 2 }),
+    ],
+    tickets: () => [
+      [evF('ticket_presale', 'Vorverkauf (€)', 'money'), evF('ticket_box', 'Abendkasse (€)', 'money')],
+      [evF('ticket_reduced', 'Ermäßigt (€)', 'money'), evF('ticket_contingent', 'Kontingent', 'int')],
+      [evF('expected_visitors', 'Erwartete Besucher', 'int'), evF('sold_tickets', 'Verkaufte Tickets', 'int')],
+      evF('ticket_link', 'Ticket-Link', 'text', { p: 'https://…' }),
+    ],
+    acts: () => [
+      [evF('name', 'Band / Künstler', 'text', { req: true }), evF('genre', 'Genre / Besetzung')],
+      [evF('status', 'Status', 'select', { o: evMeta.act_statuses }), evF('members', 'Personen (inkl. Crew)', 'int')],
+      [evF('contact_person', 'Ansprechpartner'), evF('phone', 'Telefon', 'tel')],
+      evF('email', 'E-Mail', 'email'),
+      [evF('fee', 'Gage (€)', 'money'), evF('fee_type', 'Art der Gage', 'select', { o: evMeta.fee_types })],
+      [evF('travel_costs', 'Fahrt-/Nebenkosten (€)', 'money'), evF('invoice', 'Vertrag / Rechnung (Notiz)')],
+      evF('fee_paid', 'Gage bezahlt', 'checkbox'),
+      [evF('arrival_time', 'Ankunft', 'time'), evF('soundcheck_time', 'Soundcheck', 'time')],
+      [evF('set_start', 'Auftritt von', 'time'), evF('set_end', 'bis', 'time')],
+      evF('channels', 'Kanäle (Inputs)', 'text', { p: 'z.B. 16' }),
+      evF('tech_needs', 'Technik-Bedarf / Rider', 'textarea', { rows: 3, p: 'Mikros, Monitore, DI-Boxen, Strom auf der Bühne …' }),
+      evF('backline', 'Backline (bringen mit / brauchen)', 'textarea', { rows: 2 }),
+      evF('hospitality', 'Catering & Getränke', 'textarea', { rows: 2, p: 'Anzahl Essen, vegetarisch, Allergien …' }),
+      evF('accommodation', 'Übernachtung', 'textarea', { rows: 2 }),
+      evF('notes', 'Notizen', 'textarea', { rows: 2 }),
+    ],
+    crew: () => [
+      [evF('name', 'Name / Firma', 'text', { req: true }), evF('role', 'Aufgabe', 'text', { p: 'Ton, Kasse, Einlass, Security …' })],
+      [evF('phone', 'Telefon', 'tel'), evF('email', 'E-Mail', 'email')],
+      [evF('time_from', 'von', 'time'), evF('time_to', 'bis', 'time')],
+      [evF('fee', 'Honorar (€)', 'money'), evF('fee_paid', 'bezahlt', 'checkbox')],
+      evF('notes', 'Notizen', 'textarea', { rows: 2 }),
+    ],
+    schedule: () => [
+      [evF('time', 'Uhrzeit', 'time'), evF('end_time', 'bis', 'time')],
+      evF('title', 'Programmpunkt', 'text', { req: true, p: 'z.B. Begrüßung, Pause, Zugabe' }),
+      evF('who', 'Wer'),
+      evF('notes', 'Notizen', 'textarea', { rows: 2 }),
+    ],
+    budget: (row) => [
+      [evF('type', 'Art', 'select', { o: [['expense', 'Ausgabe'], ['income', 'Einnahme']] }),
+        evF('category', 'Kategorie', 'select', { o: evMeta.budget_categories[(row && row.type) || 'expense'] })],
+      evF('label', 'Bezeichnung', 'text', { req: true, p: 'z.B. Saalmiete, Plakatdruck, Zuschuss Stadt' }),
+      [evF('amount', 'Betrag (€)', 'money'), evF('paid', 'bezahlt / eingegangen', 'checkbox')],
+      evF('notes', 'Notizen', 'textarea', { rows: 2 }),
+    ],
+    tasks: () => [
+      evF('text', 'Aufgabe', 'text', { req: true }),
+      [evF('who', 'Wer'), evF('due_date', 'Bis wann', 'date')],
+      evF('done', 'erledigt', 'checkbox'),
+    ],
+  };
+  const EV_SUB_LABEL = { acts: 'Band / Künstler', crew: 'Team / Dienstleister', schedule: 'Programmpunkt', budget: 'Posten', tasks: 'Aufgabe' };
+
+  // ---- Dialog ----
+  const evModal = document.getElementById('ev-modal-overlay');
+  let evModalCfg = null;
+  function evOptions(opts, val) {
+    return (opts || []).map(o => {
+      const [ov, ol] = Array.isArray(o) ? o : [o, o];
+      return `<option value="${escapeHtml(ov)}" ${String(ov) === String(val ?? '') ? 'selected' : ''}>${escapeHtml(ol)}</option>`;
+    }).join('');
+  }
+  function evFieldHtml(f, v) {
+    const id = 'evf-' + f.k;
+    const val = v ?? '';
+    const ph = f.p ? ` placeholder="${escapeHtml(f.p)}"` : '';
+    if (f.t === 'checkbox') return `<label class="ev-check"><input type="checkbox" id="${id}" ${v ? 'checked' : ''}><span>${escapeHtml(f.l)}</span></label>`;
+    let input;
+    if (f.t === 'textarea') input = `<textarea id="${id}" rows="${f.rows || 3}"${ph}>${escapeHtml(val)}</textarea>`;
+    else if (f.t === 'select') input = `<select id="${id}">${evOptions(f.o, val)}</select>`;
+    else if (f.t === 'money') input = `<input type="text" inputmode="decimal" id="${id}" value="${val === '' ? '' : escapeHtml(String(val).replace('.', ','))}"${ph}>`;
+    else if (f.t === 'int') input = `<input type="number" min="0" step="1" id="${id}" value="${escapeHtml(val)}"${ph}>`;
+    else input = `<input type="${f.t}" id="${id}" value="${escapeHtml(val)}" ${f.req ? 'required' : ''}${ph}>`;
+    return `<label>${escapeHtml(f.l)} ${input}</label>`;
+  }
+  function openEvModal(cfg) {
+    evModalCfg = cfg;
+    const values = cfg.values || {};
+    document.getElementById('ev-modal-heading').textContent = cfg.heading;
+    document.getElementById('ev-modal-submit').textContent = cfg.submitLabel || 'Speichern';
+    document.getElementById('ev-modal-delete').classList.toggle('hidden', !cfg.onDelete);
+    document.getElementById('ev-modal-fields').innerHTML = cfg.form.map(row => Array.isArray(row)
+      ? `<div class="time-row">${row.map(f => evFieldHtml(f, values[f.k])).join('')}</div>`
+      : evFieldHtml(row, values[row.k])).join('');
+    // Budget: Kategorien passend zur Art (Ausgabe/Einnahme)
+    const typeSel = document.getElementById('evf-type');
+    const catSel = document.getElementById('evf-category');
+    if (typeSel && catSel) typeSel.addEventListener('change', () => { catSel.innerHTML = evOptions(evMeta.budget_categories[typeSel.value], ''); });
+    evModal.classList.remove('hidden');
+    const first = document.querySelector('#ev-modal-fields input:not([type="checkbox"]), #ev-modal-fields textarea');
+    if (first && !window.matchMedia('(max-width: 820px)').matches) setTimeout(() => first.focus(), 0);
+  }
+  function closeEvModal() { evModal.classList.add('hidden'); evModalCfg = null; }
+  document.getElementById('ev-modal-cancel').addEventListener('click', closeEvModal);
+  evModal.addEventListener('click', (e) => { if (e.target === evModal) closeEvModal(); });
+  document.getElementById('ev-modal-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!evModalCfg) return;
+    const payload = {};
+    evModalCfg.form.flat().forEach(f => {
+      const el = document.getElementById('evf-' + f.k);
+      payload[f.k] = f.t === 'checkbox' ? el.checked : el.value.trim();
+    });
+    try {
+      await evModalCfg.onSave(payload);
+      closeEvModal();
+    } catch (err) { alert(err.message); }
+  });
+  document.getElementById('ev-modal-delete').addEventListener('click', async () => {
+    if (!evModalCfg || !evModalCfg.onDelete) return;
+    if (!confirm(evModalCfg.deleteConfirm || 'Eintrag löschen?')) return;
+    try {
+      await evModalCfg.onDelete();
+      closeEvModal();
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---- Liste ----
+  const evIsPast = (e) => ['Abgeschlossen', 'Abgesagt'].includes(e.status) || (!!e.date && (e.end_date || e.date) < isoDate(new Date()));
+  function showEvList() {
+    evDetail = null;
+    document.getElementById('ev-list-view').classList.remove('hidden');
+    document.getElementById('ev-detail-view').classList.add('hidden');
+  }
+  async function loadEvents() {
+    try { evMeta = await api('/api/events'); } catch (err) { toast(err.message); return; }
+    if (evDetail) return openEvent(evDetail.id);
+    renderEvList();
+  }
+  function evCardHtml(e) {
+    const times = [e.time_doors && `Einlass ${e.time_doors}`, e.time_start && `Beginn ${e.time_start}`].filter(Boolean).join(' · ');
+    return `
+      <button type="button" class="nk-card concert-card ${evIsPast(e) ? 'is-closed' : ''}" data-ev-card="${e.id}">
+        ${dateBlockHtml(e.date)}
+        <div class="concert-card-body">
+          <div class="nk-card-top"><span class="pill pill-xs ${EV_STATUS_PILL[e.status] || ''}">${escapeHtml(e.status || '')}</span></div>
+          <div class="nk-card-title">${escapeHtml(e.title)}</div>
+          <div class="nk-card-meta">${escapeHtml([e.venue_name, times].filter(Boolean).join(' · '))}</div>
+          ${e.acts.length ? `<div class="nk-card-meta">🎤 ${escapeHtml(e.acts.join(', '))}</div>` : ''}
+          <div class="concert-card-stats">
+            ${e.tasks_total ? `<span>✓ ${e.tasks_done}/${e.tasks_total}</span>` : ''}
+            ${e.fees ? `<span>Gagen ${fmtEuro(e.fees)}</span>` : ''}
+          </div>
+        </div>
+      </button>`;
+  }
+  function renderEvList() {
+    const q = document.getElementById('ev-search').value.trim().toLowerCase();
+    const list = evMeta.events.filter(e => !q || [e.title, e.subtitle, e.venue_name, ...e.acts].some(v => (v || '').toLowerCase().includes(q)));
+    const upcoming = list.filter(e => !evIsPast(e));
+    const past = list.filter(evIsPast).reverse();
+    document.getElementById('ev-list').innerHTML = upcoming.length ? upcoming.map(evCardHtml).join('') : `
+      <div class="empty-card"><div class="empty-card-icon">🎪</div><strong>${evMeta.events.length ? 'Keine kommenden Events' : 'Noch keine Events'}</strong>
+        <span>${q ? 'Suche ändern.' : 'Mit „+ Neues Event“ die erste Veranstaltung anlegen.'}</span></div>`;
+    document.getElementById('ev-past-card').classList.toggle('hidden', !past.length);
+    document.getElementById('ev-past-count').textContent = `Vergangene Events (${past.length})`;
+    const pastList = document.getElementById('ev-past-list');
+    pastList.classList.toggle('hidden', !evPastOpen);
+    pastList.innerHTML = past.map(evCardHtml).join('');
+    document.querySelectorAll('[data-ev-card]').forEach(el => el.addEventListener('click', () => openEvent(+el.dataset.evCard)));
+  }
+  document.getElementById('ev-search').addEventListener('input', renderEvList);
+  document.getElementById('ev-past-toggle').addEventListener('click', () => { evPastOpen = !evPastOpen; renderEvList(); });
+  document.getElementById('ev-new-btn').addEventListener('click', () => openEvModal({
+    heading: 'Neues Event', submitLabel: 'Anlegen', form: EV_FORMS.basic(), values: { status: 'In Planung' },
+    onSave: async (payload) => {
+      const created = await api('/api/events', { method: 'POST', body: JSON.stringify(payload) });
+      evMeta = await api('/api/events');
+      showEvDetail(created);
+    },
+  }));
+
+  // ---- Detail ----
+  async function openEvent(id) {
+    try { showEvDetail(await api(`/api/events/${id}`)); } catch (err) { toast(err.message); showEvList(); renderEvList(); }
+  }
+  function showEvDetail(e) {
+    const isNew = !evDetail || evDetail.id !== e.id;
+    evDetail = e;
+    renderEvDetail();
+    if (isNew) window.scrollTo({ top: 0 });
+  }
+  async function evSave(payload) {
+    showEvDetail(await api(`/api/events/${evDetail.id}`, { method: 'PUT', body: JSON.stringify(payload) }));
+  }
+  function evEditSection(key, heading) {
+    openEvModal({ heading, form: EV_FORMS[key](), values: evDetail, onSave: evSave });
+  }
+  function openEvSub(sub, row, preset = {}) {
+    const base = `/api/events/${evDetail.id}/${sub}`;
+    const values = row || preset;
+    openEvModal({
+      heading: `${EV_SUB_LABEL[sub]} ${row ? 'bearbeiten' : 'hinzufügen'}`,
+      submitLabel: row ? 'Speichern' : 'Hinzufügen',
+      form: EV_FORMS[sub](values),
+      values,
+      onSave: async (payload) => showEvDetail(await api(row ? `${base}/${row.id}` : base, { method: row ? 'PUT' : 'POST', body: JSON.stringify(payload) })),
+      onDelete: row ? async () => showEvDetail(await api(`${base}/${row.id}`, { method: 'DELETE' })) : null,
+      deleteConfirm: row ? `„${row.name || row.title || row.label || row.text}“ löschen?` : null,
+    });
+  }
+
+  // Zeitplan aus Event-Zeiten, Bands (Ankunft, Soundcheck, Auftritt), Team und eigenen Programmpunkten
+  function evTimeline(e) {
+    const items = [];
+    const add = (time, end, title, meta, kind, open) => items.push({ time, end, title, meta, kind, open });
+    EV_TIMES.forEach(([k, l]) => { if (e[k]) add(e[k], null, l, '', 'event', () => evEditSection('times', 'Zeiten')); });
+    e.acts.filter(a => a.status !== 'Abgesagt').forEach(a => {
+      const open = () => openEvSub('acts', a);
+      if (a.arrival_time) add(a.arrival_time, null, `Ankunft ${a.name}`, '', 'act', open);
+      if (a.soundcheck_time) add(a.soundcheck_time, null, `Soundcheck ${a.name}`, '', 'act', open);
+      if (a.set_start) add(a.set_start, a.set_end, `Auftritt ${a.name}`, a.genre || '', 'act', open);
+    });
+    e.crew.forEach(c => { if (c.time_from) add(c.time_from, c.time_to, c.name, c.role || 'Team', 'crew', () => openEvSub('crew', c)); });
+    e.schedule.forEach(s => add(s.time, s.end_time, s.title, s.who || '', 'schedule', () => openEvSub('schedule', s)));
+    // Zeiten nach Mitternacht hinter den Abend sortieren
+    const late = items.some(i => i.time && i.time >= '12:00');
+    const key = (t) => !t ? '9' : (late && t < '06:00' ? '1' : '0') + t;
+    return items.sort((a, b) => key(a.time).localeCompare(key(b.time)));
+  }
+
+  function evInfoHtml(pairs) {
+    return pairs.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([label, v, raw]) =>
+      `<div><span>${escapeHtml(label)}</span>${raw ? v : `<p>${escapeHtml(v)}</p>`}</div>`).join('');
+  }
+  const evTel = (p) => p ? `<a href="tel:${escapeHtml(p.replace(/[^\d+]/g, ''))}">${escapeHtml(p)}</a>` : '';
+  const evMail = (m) => m ? `<a href="mailto:${escapeHtml(m)}">${escapeHtml(m)}</a>` : '';
+  const evRange = (a, b) => a ? (b ? `${a}–${b}` : a) : '';
+  function evCard(icon, title, body, actions = '', extraClass = '') {
+    return `<div class="card ev-card ${extraClass}"><div class="section-card-head"><h3>${icon} ${title}</h3><div class="section-head-actions">${actions}</div></div>${body}</div>`;
+  }
+  const evEmpty = (text) => `<p class="empty-state">${text}</p>`;
+
+  function renderEvDetail() {
+    const e = evDetail;
+    document.getElementById('ev-list-view').classList.add('hidden');
+    const view = document.getElementById('ev-detail-view');
+    view.classList.remove('hidden');
+    const fin = e.finance;
+    const liveActs = e.acts.filter(a => a.status !== 'Abgesagt');
+    const tasksDone = e.tasks.filter(t => t.done).length;
+    const timeline = evTimeline(e);
+    const dateText = e.date ? (fmtDateDE(e.date) + (e.end_date && e.end_date !== e.date ? ` – ${fmtDateDE(e.end_date)}` : '')) : 'Datum offen';
+
+    const hero = `
+      <nav class="folder-path">
+        <button type="button" class="link-btn" id="ev-back">🎪 Events</button>
+        <span>›</span><strong>${escapeHtml(e.title)}</strong>
+      </nav>
+      <div class="card detail-hero">
+        ${dateBlockHtml(e.date)}
+        <div class="detail-hero-main">
+          <div class="detail-hero-kicker"><select id="ev-status" class="status-select">${evOptions(evMeta.statuses, e.status)}</select></div>
+          <h2 class="detail-title">${escapeHtml(e.title)}</h2>
+          ${e.subtitle ? `<div class="nk-card-meta">${escapeHtml(e.subtitle)}</div>` : ''}
+          <div class="detail-meta">
+            <span>📅 ${escapeHtml(dateText)}</span>
+            ${e.venue_name ? `<span>📍 ${escapeHtml(e.venue_name)}</span>` : ''}
+            ${e.time_doors ? `<span>Einlass ${e.time_doors}</span>` : ''}
+            ${e.time_start ? `<span>Beginn ${e.time_start}</span>` : ''}
+            ${e.organizer ? `<span>Veranstalter: ${escapeHtml(e.organizer)}</span>` : ''}
+            ${e.tasks.length ? `<span>✓ ${tasksDone}/${e.tasks.length} erledigt</span>` : ''}
+          </div>
+          ${e.description || e.notes ? `<div class="detail-notes">${escapeHtml([e.description, e.notes].filter(Boolean).join('\n\n'))}</div>` : ''}
+        </div>
+        <div class="detail-actions ev-hero-actions">
+          <button type="button" class="ghost" id="ev-edit">Bearbeiten</button>
+          <button type="button" class="ghost" id="ev-print" title="Ablauf, Kontakte und Technik für Bands und Team – ohne Gagen">Tagesablauf drucken</button>
+          <button type="button" class="ghost" id="ev-dup" title="Neues Event mit denselben Angaben anlegen">Kopieren</button>
+          <button type="button" class="danger" id="ev-delete">Löschen</button>
+        </div>
+      </div>`;
+
+    const timelineCard = evCard('🕒', 'Zeitplan', timeline.length ? `<div class="ev-timeline">${timeline.map((it, i) => `
+        <button type="button" class="ev-tl-row ev-tl-${it.kind}" data-ev-tl="${i}">
+          <span class="ev-tl-time">${it.time || '–'}${it.end ? `<small>bis ${it.end}</small>` : ''}</span>
+          <span class="ev-tl-title">${escapeHtml(it.title)}${it.meta ? `<small>${escapeHtml(it.meta)}</small>` : ''}</span>
+        </button>`).join('')}</div>`
+      : evEmpty('Noch keine Zeiten – Eckzeiten eintragen, Band-Zeiten und Programmpunkte erscheinen hier automatisch.'),
+      '<button type="button" class="ghost" data-ev-section="times">Eckzeiten</button><button type="button" class="ghost" data-ev-add="schedule">+ Programmpunkt</button>');
+
+    const actsCard = evCard('🎤', `Bands &amp; Künstler <span class="count-chip">${liveActs.length}</span>`, e.acts.length ? e.acts.map(a => {
+      const chips = [
+        a.arrival_time && `Ankunft ${a.arrival_time}`, a.soundcheck_time && `Soundcheck ${a.soundcheck_time}`,
+        a.set_start && `Auftritt ${evRange(a.set_start, a.set_end)}`, a.channels && `${a.channels} Kanäle`, a.members && `${a.members} Personen`,
+      ].filter(Boolean);
+      const info = evInfoHtml([
+        ['Ansprechpartner', a.contact_person], ['Telefon', evTel(a.phone), true], ['E-Mail', evMail(a.email), true],
+        ['Technik-Bedarf / Rider', a.tech_needs], ['Backline', a.backline], ['Catering & Getränke', a.hospitality],
+        ['Übernachtung', a.accommodation], ['Vertrag / Rechnung', a.invoice], ['Notizen', a.notes],
+      ]);
+      return `
+        <div class="ev-act ${a.status === 'Abgesagt' ? 'is-cancelled' : ''}">
+          <div class="ev-act-head">
+            <div class="ev-act-name">
+              <strong>${escapeHtml(a.name)}</strong>
+              <span class="pill pill-xs ${EV_ACT_PILL[a.status] || 'pill-muted'}">${escapeHtml(a.status || 'ohne Status')}</span>
+              ${a.genre ? `<div class="nk-card-meta">${escapeHtml(a.genre)}</div>` : ''}
+            </div>
+            <div class="ev-act-fee">
+              <strong>${a.fee !== null ? fmtEuro(a.fee) : '–'}</strong>
+              <small>${escapeHtml([a.fee_type, a.fee ? (a.fee_paid ? 'bezahlt' : 'offen') : ''].filter(Boolean).join(' · '))}</small>
+            </div>
+          </div>
+          ${chips.length ? `<div class="ev-chips">${chips.map(c => `<span>${escapeHtml(c)}</span>`).join('')}</div>` : ''}
+          ${info ? `<div class="sponsor-info ev-info">${info}</div>` : ''}
+          <div class="ev-row-actions"><button type="button" class="ghost" data-ev-edit="acts:${a.id}">Bearbeiten</button></div>
+        </div>`;
+    }).join('') : evEmpty('Noch keine Bands oder Künstler eingetragen.'),
+    '<button type="button" class="ghost" data-ev-add="acts">+ Band / Künstler</button>');
+
+    const techSummary = liveActs.filter(a => a.channels || a.tech_needs || a.backline);
+    const techInfo = evInfoHtml([
+      ['Ton / PA', e.tech_pa], ['Licht', e.tech_light], ['Backline', e.tech_backline], ['Techniker', e.tech_staff], ['Sonstiges', e.tech_notes],
+    ]);
+    const techCard = evCard('🎛️', 'Technik', (techInfo ? `<div class="sponsor-info">${techInfo}</div>` : evEmpty('Noch keine Angaben zu Ton, Licht und Backline.'))
+      + (techSummary.length ? `<div class="ev-subhead">Bedarf der Bands</div><div class="sponsor-info">${techSummary.map(a =>
+        `<div><span>${escapeHtml(a.name)}${a.channels ? ` · ${escapeHtml(a.channels)} Kanäle` : ''}</span><p>${escapeHtml([a.tech_needs, a.backline && 'Backline: ' + a.backline].filter(Boolean).join('\n') || '–')}</p></div>`).join('')}</div>` : ''),
+    '<button type="button" class="ghost" data-ev-section="tech">Bearbeiten</button>');
+
+    const crewCard = evCard('👷', `Team &amp; Dienstleister <span class="count-chip">${e.crew.length}</span>`, e.crew.length ? `<div class="ev-list">${e.crew.map(c => `
+        <div class="ev-list-row" role="button" tabindex="0" data-ev-edit="crew:${c.id}">
+          <span class="ev-list-main"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml([c.role, evRange(c.time_from, c.time_to)].filter(Boolean).join(' · '))}</small></span>
+          <span class="ev-list-side">${evTel(c.phone)}${c.fee ? `<small>${fmtEuro(c.fee)}${c.fee_paid ? ' ✓' : ''}</small>` : ''}</span>
+        </div>`).join('')}</div>`
+      : evEmpty('Techniker, Kasse, Einlass, Security, Catering-Firma …'),
+    '<button type="button" class="ghost" data-ev-add="crew">+ Person / Firma</button>');
+
+    const taskList = e.tasks.length ? `<div class="ev-list">${e.tasks.map(t => `
+        <div class="ev-list-row ev-task ${t.done ? 'is-done' : ''}">
+          <input type="checkbox" data-ev-task="${t.id}" ${t.done ? 'checked' : ''} aria-label="erledigt">
+          <span class="ev-list-main" role="button" tabindex="0" data-ev-edit="tasks:${t.id}">${escapeHtml(t.text)}
+            ${t.who || t.due_date ? `<small>${escapeHtml([t.who, t.due_date && 'bis ' + fmtDateDE(t.due_date)].filter(Boolean).join(' · '))}</small>` : ''}</span>
+        </div>`).join('')}</div>` : evEmpty('Noch keine Aufgaben. Die Standard-Checkliste enthält die üblichen Punkte von Location bis Abrechnung.');
+    const tasksCard = evCard('✅', `Checkliste ${e.tasks.length ? `<span class="count-chip">${tasksDone}/${e.tasks.length}</span>` : ''}`, taskList,
+      `<button type="button" class="ghost" id="ev-task-defaults">Standardpunkte</button><button type="button" class="ghost" data-ev-add="tasks">+ Aufgabe</button>`);
+
+    const venueInfo = evInfoHtml([
+      ['Adresse', e.venue_address], ['Ansprechpartner', e.venue_contact], ['Telefon', evTel(e.venue_phone), true], ['E-Mail', evMail(e.venue_email), true],
+      ['Kapazität', e.venue_capacity ? `${e.venue_capacity} Personen` : null], ['Bühne', e.venue_stage], ['Strom', e.venue_power],
+      ['Anfahrt, Parken, Ladezone', e.venue_access], ['Backstage / Garderoben', e.venue_backstage], ['Sonstiges', e.venue_notes],
+    ]);
+    const mapLink = e.venue_address || e.venue_name ? `<a class="ghost-link ev-map" href="https://maps.apple.com/?q=${encodeURIComponent([e.venue_name, e.venue_address].filter(Boolean).join(', '))}" target="_blank" rel="noopener noreferrer">Karte öffnen</a>` : '';
+    const venueCard = evCard('📍', escapeHtml(e.venue_name || 'Location'), (venueInfo ? `<div class="sponsor-info">${venueInfo}</div>` : evEmpty(e.venue_name ? 'Noch keine Details – Adresse, Ansprechpartner, Bühne, Strom, Anfahrt …' : 'Noch keine Location eingetragen.')) + mapLink,
+      '<button type="button" class="ghost" data-ev-section="venue">Bearbeiten</button>');
+
+    const finRow = (label, amount, opts = {}) => `
+      <div class="ev-fin-row ${opts.cls || ''}" ${opts.edit ? `role="button" tabindex="0" data-ev-edit="${opts.edit}"` : ''}>
+        <span>${label}${opts.small ? `<small>${escapeHtml(opts.small)}</small>` : ''}</span><span class="finance-num">${amount}</span>
+      </div>`;
+    const expenses = e.budget.filter(b => b.type === 'expense');
+    const incomes = e.budget.filter(b => b.type === 'income');
+    const financeCard = evCard('💶', 'Finanzen', `
+      <div class="ev-fin">
+        <div class="ev-subhead">Ausgaben</div>
+        ${finRow('Gagen Bands', fmtEuro(fin.fees))}
+        ${fin.travel ? finRow('Fahrt-/Nebenkosten Bands', fmtEuro(fin.travel)) : ''}
+        ${fin.crew_fees ? finRow('Team &amp; Dienstleister', fmtEuro(fin.crew_fees)) : ''}
+        ${expenses.map(b => finRow(escapeHtml(b.label), fmtEuro(b.amount) + (b.paid ? ' ✓' : ''), { edit: `budget:${b.id}`, small: b.category })).join('')}
+        ${finRow('<strong>Summe Ausgaben</strong>', `<strong>${fmtEuro(fin.expenses)}</strong>`, { cls: 'ev-fin-sum' })}
+        <div class="ev-subhead">Einnahmen</div>
+        ${incomes.length ? incomes.map(b => finRow(escapeHtml(b.label), fmtEuro(b.amount) + (b.paid ? ' ✓' : ''), { edit: `budget:${b.id}`, small: b.category })).join('') : '<p class="empty-state">Noch keine Einnahmen eingetragen.</p>'}
+        ${finRow('<strong>Summe Einnahmen</strong>', `<strong>${fmtEuro(fin.income)}</strong>`, { cls: 'ev-fin-sum' })}
+        ${finRow('<strong>Ergebnis</strong>', `<strong class="${resultClass(fin.result)}">${fmtEuro(fin.result)}</strong>`, { cls: 'ev-fin-total' })}
+        ${fin.unpaid ? `<p class="hint">Noch offen zu zahlen: <strong>${fmtEuro(fin.unpaid)}</strong></p>` : ''}
+        ${fin.ticket_forecast ? `<p class="hint">Ticket-Prognose (${e.sold_tickets ? 'verkauft' : 'erwartet'} × Preis): ${fmtEuro(fin.ticket_forecast)} – als Einnahme „Tickets“ eintragen, sobald abgerechnet.</p>` : ''}
+      </div>`,
+    '<button type="button" class="ghost" data-ev-add="budget" data-type="expense">+ Ausgabe</button><button type="button" class="ghost" data-ev-add="budget" data-type="income">+ Einnahme</button>');
+
+    const ticketInfo = evInfoHtml([
+      ['Vorverkauf', e.ticket_presale !== null ? fmtEuro(e.ticket_presale) : null], ['Abendkasse', e.ticket_box !== null ? fmtEuro(e.ticket_box) : null],
+      ['Ermäßigt', e.ticket_reduced !== null ? fmtEuro(e.ticket_reduced) : null], ['Kontingent', e.ticket_contingent],
+      ['Erwartete Besucher', e.expected_visitors],
+      ['Verkauft', e.sold_tickets !== null ? `${e.sold_tickets}${e.ticket_contingent ? ` von ${e.ticket_contingent}` : ''}` : null],
+      ['Ticket-Link', e.ticket_link ? `<a href="${escapeHtml(/^https?:\/\//i.test(e.ticket_link) ? e.ticket_link : 'https://' + e.ticket_link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(e.ticket_link)}</a>` : '', true],
+    ]);
+    const ticketsCard = evCard('🎟️', 'Tickets', ticketInfo ? `<div class="sponsor-info ev-info-grid">${ticketInfo}</div>` : evEmpty('Preise, Kontingent und Besucherzahlen.'),
+      '<button type="button" class="ghost" data-ev-section="tickets">Bearbeiten</button>');
+
+    const hospActs = liveActs.filter(a => a.hospitality || a.accommodation || a.members);
+    const totalPeople = liveActs.reduce((s, a) => s + (a.members || 0), 0) + e.crew.length;
+    const hospInfo = evInfoHtml([['Catering', e.hosp_catering], ['Getränke', e.hosp_drinks], ['Übernachtung', e.hosp_accommodation], ['Sonstiges', e.hosp_notes]]);
+    const hospCard = evCard('🍽️', 'Catering &amp; Übernachtung', (hospInfo ? `<div class="sponsor-info">${hospInfo}</div>` : evEmpty('Noch keine Angaben zu Catering und Übernachtung.'))
+      + (hospActs.length ? `<div class="ev-subhead">Wünsche der Bands${totalPeople ? ` · ca. ${totalPeople} Personen mit Team` : ''}</div><div class="sponsor-info">${hospActs.map(a =>
+        `<div><span>${escapeHtml(a.name)}${a.members ? ` · ${a.members} Pers.` : ''}</span><p>${escapeHtml([a.hospitality, a.accommodation && 'Übernachtung: ' + a.accommodation].filter(Boolean).join('\n') || '–')}</p></div>`).join('')}</div>` : ''),
+    '<button type="button" class="ghost" data-ev-section="hosp">Bearbeiten</button>');
+
+    view.innerHTML = hero + `
+      <div class="concert-grid">
+        <div class="ev-col">${timelineCard}${actsCard}${techCard}${crewCard}</div>
+        <div class="ev-col">${venueCard}${financeCard}${ticketsCard}${hospCard}${tasksCard}</div>
+      </div>`;
+
+    // ---- Ereignisse ----
+    const SECTION_TITLES = { times: 'Zeiten', venue: 'Location', tech: 'Technik', hosp: 'Catering & Übernachtung', tickets: 'Tickets' };
+    document.getElementById('ev-back').addEventListener('click', () => { showEvList(); renderEvList(); });
+    document.getElementById('ev-edit').addEventListener('click', () => evEditSection('basic', 'Event bearbeiten'));
+    document.getElementById('ev-status').addEventListener('change', (ev) => evSave({ status: ev.target.value }).catch(err => alert(err.message)));
+    document.getElementById('ev-print').addEventListener('click', () => printEvDaySheet(e, timeline));
+    document.getElementById('ev-dup').addEventListener('click', async () => {
+      if (!confirm(`„${e.title}“ als neues Event kopieren? Datum, Zahlungen und Haken werden zurückgesetzt.`)) return;
+      try {
+        const copy = await api(`/api/events/${e.id}/duplicate`, { method: 'POST' });
+        evMeta = await api('/api/events');
+        showEvDetail(copy);
+        toast('Kopie angelegt');
+      } catch (err) { alert(err.message); }
+    });
+    document.getElementById('ev-delete').addEventListener('click', async () => {
+      if (!confirm(`Event „${e.title}“ mit allen Bands, Team, Budget und Checkliste löschen?`)) return;
+      await api(`/api/events/${e.id}`, { method: 'DELETE' });
+      evDetail = null;
+      await loadEvents();
+      showEvList();
+    });
+    document.getElementById('ev-task-defaults').addEventListener('click', async () => {
+      try { showEvDetail(await api(`/api/events/${e.id}/tasks/defaults`, { method: 'POST' })); } catch (err) { alert(err.message); }
+    });
+    view.querySelectorAll('[data-ev-section]').forEach(b => b.addEventListener('click', () => evEditSection(b.dataset.evSection, SECTION_TITLES[b.dataset.evSection])));
+    view.querySelectorAll('[data-ev-add]').forEach(b => b.addEventListener('click', () => {
+      const sub = b.dataset.evAdd;
+      const preset = sub === 'acts' ? { status: evMeta.act_statuses[0], fee_type: evMeta.fee_types[0] }
+        : sub === 'budget' ? { type: b.dataset.type, category: evMeta.budget_categories[b.dataset.type][0] } : {};
+      openEvSub(sub, null, preset);
+    }));
+    view.querySelectorAll('[data-ev-edit]').forEach(el => {
+      const go = (ev) => {
+        if (ev.target.closest('a')) return;
+        const [sub, id] = el.dataset.evEdit.split(':');
+        const row = e[sub].find(r => r.id === +id);
+        if (row) openEvSub(sub, row);
+      };
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') go(ev); });
+    });
+    view.querySelectorAll('[data-ev-tl]').forEach(b => b.addEventListener('click', () => timeline[+b.dataset.evTl].open()));
+    view.querySelectorAll('[data-ev-task]').forEach(cb => cb.addEventListener('change', async () => {
+      try {
+        showEvDetail(await api(`/api/events/${e.id}/tasks/${cb.dataset.evTask}`, { method: 'PUT', body: JSON.stringify({ done: cb.checked }) }));
+      } catch (err) { alert(err.message); }
+    }));
+  }
+
+  // Tagesablauf zum Ausdrucken bzw. als PDF: fuer Bands, Technik und Team - ohne Gagen und Budget
+  function printEvDaySheet(e, timeline) {
+    const w = window.open('', '_blank');
+    if (!w) { toast('Bitte Pop-ups für diese Seite erlauben'); return; }
+    const esc = escapeHtml;
+    const block = (title, pairs) => {
+      const rows = pairs.filter(([, v]) => v).map(([l, v]) => `<tr><th>${esc(l)}</th><td>${esc(v)}</td></tr>`).join('');
+      return rows ? `<h2>${esc(title)}</h2><table>${rows}</table>` : '';
+    };
+    const acts = e.acts.filter(a => a.status !== 'Abgesagt');
+    const dateText = e.date ? new Date(e.date + 'T00:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Datum offen';
+    w.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${esc(e.title)} – Tagesablauf</title>
+      <style>
+        body { font: 12.5px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #111; margin: 28px; }
+        h1 { font-size: 22px; margin: 0 0 2px; } .sub { color: #555; margin-bottom: 14px; }
+        h2 { font-size: 14px; margin: 20px 0 6px; padding-bottom: 3px; border-bottom: 1.5px solid #111; }
+        h3 { font-size: 13px; margin: 12px 0 4px; }
+        table { width: 100%; border-collapse: collapse; } th, td { text-align: left; vertical-align: top; padding: 3px 8px 3px 0; border-bottom: 1px solid #ddd; }
+        th { width: 170px; font-weight: 600; color: #444; } td { white-space: pre-wrap; }
+        .tl td:first-child { width: 90px; font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+        .act { break-inside: avoid; }
+        @media print { body { margin: 0; } }
+      </style></head><body>
+      <h1>${esc(e.title)}</h1>
+      <div class="sub">${esc([dateText, e.venue_name, e.subtitle].filter(Boolean).join(' · '))}</div>
+      ${timeline.length ? `<h2>Ablauf</h2><table class="tl">${timeline.map(it => `<tr><td>${esc(evRange(it.time, it.end) || '–')}</td><td><strong>${esc(it.title)}</strong>${it.meta ? ` – ${esc(it.meta)}` : ''}</td></tr>`).join('')}</table>` : ''}
+      ${block('Location', [['Name', e.venue_name], ['Adresse', e.venue_address], ['Ansprechpartner', [e.venue_contact, e.venue_phone].filter(Boolean).join(' · ')],
+        ['Anfahrt, Parken, Ladezone', e.venue_access], ['Bühne', e.venue_stage], ['Strom', e.venue_power], ['Backstage', e.venue_backstage]])}
+      ${acts.length ? `<h2>Bands &amp; Künstler</h2>${acts.map(a => `<div class="act"><h3>${esc(a.name)}${a.set_start ? ` · Auftritt ${esc(evRange(a.set_start, a.set_end))}` : ''}</h3><table>
+        ${[['Kontakt', [a.contact_person, a.phone].filter(Boolean).join(' · ')], ['Personen', a.members], ['Ankunft / Soundcheck', [a.arrival_time, a.soundcheck_time].filter(Boolean).join(' / ')],
+          ['Kanäle', a.channels], ['Technik-Bedarf', a.tech_needs], ['Backline', a.backline], ['Catering', a.hospitality], ['Übernachtung', a.accommodation]]
+          .filter(([, v]) => v).map(([l, v]) => `<tr><th>${esc(l)}</th><td>${esc(v)}</td></tr>`).join('')}</table></div>`).join('')}` : ''}
+      ${block('Technik', [['Ton / PA', e.tech_pa], ['Licht', e.tech_light], ['Backline', e.tech_backline], ['Techniker', e.tech_staff], ['Sonstiges', e.tech_notes]])}
+      ${e.crew.length ? `<h2>Team &amp; Dienstleister</h2><table>${e.crew.map(c => `<tr><th>${esc(c.name)}</th><td>${esc([c.role, evRange(c.time_from, c.time_to), c.phone].filter(Boolean).join(' · '))}</td></tr>`).join('')}</table>` : ''}
+      ${block('Catering & Übernachtung', [['Catering', e.hosp_catering], ['Getränke', e.hosp_drinks], ['Übernachtung', e.hosp_accommodation], ['Sonstiges', e.hosp_notes]])}
+      <script>window.onload = function () { window.print(); };<\/script>
+      </body></html>`);
+    w.document.close();
+  }
 
   init();
 })();

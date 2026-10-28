@@ -69,6 +69,10 @@
         <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><rect x="4" y="2.5" width="12" height="15" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 6.5h7M6.5 9.5h7M6.5 12.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         Verträge
       </button>
+      <button class="tab-btn" data-tab="events" data-title="Events">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M4 16.5V5.5M4 5.5h9.5l-1.8 3 1.8 3H4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 14.5l1 1 2-2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Events
+      </button>
     </nav>
     <div class="sidebar-section-label" id="nk-section-label">Neckarsulmer Konzerte</div>
     <nav class="tabs" id="nk-tabs">
@@ -706,6 +710,28 @@
       </button>
       <div id="contract-done-list" class="contract-events-list hidden"></div>
     </div>
+  </section>
+
+  <!-- ===================== EVENTS ===================== -->
+  <section id="tab-events" class="tab-panel">
+    <div id="ev-list-view">
+      <div class="section-head">
+        <p class="section-intro">Veranstaltungen planen: Location, Bands, Technik, Zeiten, Team, Gagen und Budget an einem Ort.</p>
+        <button type="button" id="ev-new-btn">+ Neues Event</button>
+      </div>
+      <div class="nk-contact-filters">
+        <input type="search" id="ev-search" placeholder="Titel, Location, Band …" autocomplete="off">
+      </div>
+      <div id="ev-list" class="nk-card-grid"></div>
+      <div class="card done-tasks-card hidden" id="ev-past-card">
+        <button type="button" id="ev-past-toggle" class="done-tasks-toggle">
+          <span id="ev-past-count">Vergangene Events (0)</span>
+          <span class="task-group-chevron">▾</span>
+        </button>
+        <div id="ev-past-list" class="nk-card-grid nk-closed-grid hidden"></div>
+      </div>
+    </div>
+    <div id="ev-detail-view" class="hidden"></div>
   </section>
 
   <!-- ===================== NK: TERMINFINDUNG ===================== -->
@@ -1483,6 +1509,21 @@
       <button type="button" id="notify-save">Speichern</button>
       <button type="button" id="notify-cancel" class="secondary">Abbrechen</button>
     </div>
+  </div>
+</div>
+
+<!-- Events: ein Dialog fuer alle Bereiche (Felder werden per JS aufgebaut) -->
+<div id="ev-modal-overlay" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <h3 id="ev-modal-heading">Event</h3>
+    <form id="ev-modal-form">
+      <div id="ev-modal-fields"></div>
+      <div class="form-actions">
+        <button type="submit" id="ev-modal-submit">Speichern</button>
+        <button type="button" id="ev-modal-cancel" class="secondary">Abbrechen</button>
+        <button type="button" id="ev-modal-delete" class="danger hidden">Löschen</button>
+      </div>
+    </form>
   </div>
 </div>
 

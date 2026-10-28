@@ -245,6 +245,7 @@ ensureColumn('contract_events', 'jpmr_termin_id', 'INTEGER');
 ensureColumn('people', 'contract_start', 'TEXT');
 ensureColumn('people', 'contract_end', 'TEXT');
 ensureColumn('people', 'seminar_days_total', 'INTEGER');
+ensureColumn('absences', 'minutes_per_day', 'INTEGER'); // angerechnete Minuten je Tag (leer = 8 Std an Werktagen)
 ensureColumn('tasks', 'due_time', 'TEXT');
 ensureColumn('tasks', 'project_id', 'INTEGER REFERENCES projects(id)');
 ensureColumn('tasks', 'start_date', 'TEXT');

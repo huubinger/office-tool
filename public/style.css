@@ -3068,3 +3068,12 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .sv-partner-bar { height: 8px; background: var(--panel-alt); border-radius: 999px; overflow: hidden; }
 .sv-partner-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .sv-partner-n { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Zeiterfassung: Gesamtsaldo (Über- und Unterstunden zusammengerechnet) */
+.report-saldo { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; }
+.report-saldo-zeile { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); }
+.report-saldo-zeile strong { font-size: 18px; }
+.report-saldo-zeile.positive strong { color: var(--ok); }
+.report-saldo-zeile.negative strong { color: var(--danger); }
+.wd-extra { color: var(--ink-soft); font-style: italic; }
+.report-multi-table td.leise, .report-saldo-zeile .leise { color: var(--ink-soft); }

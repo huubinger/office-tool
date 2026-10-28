@@ -428,30 +428,39 @@ function getMondayOf(date) {
   return d;
 }
 
-// Rechnet Seminartage (Abwesenheitstyp 'Seminar') als 8h/Werktag in die Arbeitszeit ein
-// Rechnet Abwesenheitstage (Urlaub, Krank, Seminar, Sonstiges) als 8h/Werktag in die
-// Arbeitszeit ein - gilt fuer alle Abwesenheitsarten, nicht nur Seminar.
-function absenceCreditMinutes(personId, from, to) {
+// Abwesenheiten (Urlaub, Krank, Seminar, Sonstiges) je Tag mit angerechneten Minuten: eigene Stundenangabe
+// der Abwesenheit (gilt jeden Tag, auch am Wochenende - z.B. krank an einem Sonntag mit 4 Std Dienst),
+// sonst 8 Std je Werktag. -> Map(datum -> [{ type, note, minutes }])
+function absenceDays(personId, from, to) {
   const rows = db.prepare(`
-    SELECT date_from, date_to FROM absences
+    SELECT date_from, date_to, type, note, minutes_per_day FROM absences
     WHERE person_id = ? AND date_to >= ? AND date_from <= ?
   `).all(personId, from, to);
-  let minutes = 0;
+  const days = new Map();
   rows.forEach(r => {
     const start = new Date(Math.max(new Date(r.date_from).getTime(), new Date(from).getTime()));
     const end = new Date(Math.min(new Date(r.date_to).getTime(), new Date(to).getTime()));
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dow = d.getDay();
-      if (dow !== 0 && dow !== 6) minutes += 480;
+      const minutes = r.minutes_per_day != null ? r.minutes_per_day : (dow !== 0 && dow !== 6 ? 480 : 0);
+      const iso = isoDateLocal(d);
+      if (!days.has(iso)) days.set(iso, []);
+      days.get(iso).push({ type: r.type, note: r.note, minutes });
     }
   });
+  return days;
+}
+
+function absenceCreditMinutes(personId, from, to) {
+  let minutes = 0;
+  absenceDays(personId, from, to).forEach(list => list.forEach(a => { minutes += a.minutes; }));
   return minutes;
 }
 
 // BFD-Zuschlag: 1 Std Freizeitausgleich pro Samstagsdienst, 2 Std pro Sonn-/Feiertagsdienst,
 // halbiert bei "halben Arbeitstagen" (< 4 Std an diesem Tag gearbeitet). Nur fuer Personen
-// mit Vertragsart 'BFD', da dies eine BFD-spezifische Vertragsregelung ist.
-function weekendHolidayBonusMinutes(personId, from, to) {
+// mit Vertragsart 'BFD', da dies eine BFD-spezifische Vertragsregelung ist. -> Map(datum -> Minuten)
+function weekendHolidayBonusDays(personId, from, to) {
   const rows = db.prepare(`
     SELECT date, SUM(duration_minutes) AS minutes
     FROM time_entries
@@ -459,7 +468,7 @@ function weekendHolidayBonusMinutes(personId, from, to) {
     GROUP BY date
   `).all(personId, from, to);
 
-  let bonus = 0;
+  const days = new Map();
   rows.forEach(r => {
     const d = new Date(r.date);
     const dow = d.getDay();
@@ -468,11 +477,17 @@ function weekendHolidayBonusMinutes(personId, from, to) {
 
     const isHalfDay = r.minutes < 240;
     if (dow === 6 && !holiday) {
-      bonus += isHalfDay ? 30 : 60; // Samstag: 1 Std, halbiert 30 Min
+      days.set(r.date, isHalfDay ? 30 : 60); // Samstag: 1 Std, halbiert 30 Min
     } else {
-      bonus += isHalfDay ? 60 : 120; // Sonntag oder Feiertag: 2 Std, halbiert 60 Min
+      days.set(r.date, isHalfDay ? 60 : 120); // Sonntag oder Feiertag: 2 Std, halbiert 60 Min
     }
   });
+  return days;
+}
+
+function weekendHolidayBonusMinutes(personId, from, to) {
+  let bonus = 0;
+  weekendHolidayBonusDays(personId, from, to).forEach(m => { bonus += m; });
   return bonus;
 }
 
@@ -1236,13 +1251,16 @@ app.get('/api/reports/week', (req, res) => {
     }
     const targetMinutes = beforeContractStart ? null : (p.weekly_target_minutes || null);
     const diff = targetMinutes ? actual - targetMinutes : null;
+    // Ueber- und Unterstunden zusammengerechnet: Stand am Ende dieser Woche (seit Beginn)
+    const saldo = targetMinutes ? lifetimeBalance(p, to) : null;
     return {
       person_id: p.id,
       person_name: p.name,
       target_minutes: targetMinutes,
       actual_minutes: actual,
       diff_minutes: diff,
-      bfd_warning: isBfd ? bfdThresholdWarning(diff) : null,
+      saldo_minutes: saldo && saldo.available ? saldo.diff_minutes : null,
+      bfd_warning: isBfd ? bfdThresholdWarning(saldo && saldo.available ? saldo.diff_minutes : diff) : null,
     };
   });
 
@@ -1273,6 +1291,15 @@ app.get('/api/reports/week-detail', (req, res) => {
     WHERE te.person_id = ? AND te.date = ?
     ORDER BY te.start_time
   `);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const from = isoDateLocal(monday), to = isoDateLocal(sunday);
+  const isBfd = person.contract_type === 'BFD';
+  const abwesend = absenceDays(person.id, from, to);
+  const bonus = isBfd ? weekendHolidayBonusDays(person.id, from, to) : new Map();
+  const ausgleich = new Map(db.prepare(`
+    SELECT date, SUM(minutes) AS m FROM time_off_compensation WHERE person_id = ? AND date BETWEEN ? AND ? GROUP BY date
+  `).all(person.id, from, to).map(r => [r.date, r.m]));
   const days = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
@@ -1280,9 +1307,29 @@ app.get('/api/reports/week-detail', (req, res) => {
     const iso = isoDateLocal(d);
     const entries = entriesStmt.all(personId, iso);
     const totalMinutes = entries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
-    days.push({ date: iso, entries, total_minutes: totalMinutes });
+    days.push({
+      date: iso, entries, total_minutes: totalMinutes,
+      absences: abwesend.get(iso) || [],                 // Urlaub/Krank/Seminar … mit angerechneten Minuten
+      bonus_minutes: bonus.get(iso) || 0,                // Wochenend-/Feiertagszuschlag (BFD)
+      timeoff_minutes: isBfd ? (ausgleich.get(iso) || 0) : 0,   // genommener Freizeitausgleich (BFD)
+    });
   }
-  res.json({ person_id: +personId, person_name: person.name, days });
+  const gearbeitet = days.reduce((s_, d) => s_ + d.total_minutes, 0);
+  const angerechnet = days.reduce((s_, d) => s_ + d.absences.reduce((a, x) => a + x.minutes, 0), 0);
+  const zuschlag = days.reduce((s_, d) => s_ + d.bonus_minutes, 0);
+  const ausgleichSumme = days.reduce((s_, d) => s_ + d.timeoff_minutes, 0);
+  const vorStart = (person.contract_start && to < person.contract_start) || to < getToolStartDate();
+  const soll = vorStart ? null : (person.weekly_target_minutes || null);
+  const ist = gearbeitet + angerechnet + zuschlag - ausgleichSumme;
+  const saldo = soll ? lifetimeBalance(person, to) : null;
+  res.json({
+    person_id: +personId, person_name: person.name, days,
+    summary: {
+      worked_minutes: gearbeitet, absence_minutes: angerechnet, bonus_minutes: zuschlag, timeoff_minutes: ausgleichSumme,
+      actual_minutes: ist, target_minutes: soll, diff_minutes: soll ? ist - soll : null,
+      saldo_minutes: saldo && saldo.available ? saldo.diff_minutes : null,
+    },
+  });
 });
 
 const DE_WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -1417,27 +1464,14 @@ app.get('/api/reports/timesheet-pdf', (req, res) => {
   doc.end();
 });
 
-// Kumulierte Ueber-/Unterstunden ueber die gesamte bisher erfasste Zeit einer Person
-// (seit dem ersten erfassten Zeiteintrag bis heute, inkl. Seminar-Gutschrift).
-app.get('/api/reports/lifetime', (req, res) => {
-  const personId = req.query.person_id;
-  if (!personId) return res.status(400).json({ error: 'person_id ist erforderlich' });
-  const own = restrictedPersonId(req);
-  if (own !== null && +personId !== own) {
-    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
-  }
-  const person = db.prepare('SELECT * FROM people WHERE id = ?').get(personId);
-  if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
-  if (!person.weekly_target_minutes) return res.json({ available: false });
-
+// Kumulierte Ueber-/Unterstunden einer Person seit dem ersten erfassten Zeiteintrag bis heute bzw. bis
+// zum Ende der Woche von `bis` (Saldo am Ende jeder Woche im Wochenreport), inkl. Abwesenheits-Gutschrift.
+function lifetimeBalance(person, bis = null) {
+  if (!person.weekly_target_minutes) return { available: false };
   const firstRow = db.prepare(`
     SELECT MIN(date) AS d FROM time_entries WHERE person_id = ? AND duration_minutes IS NOT NULL
-  `).get(personId);
-  if (!firstRow.d) return res.json({ available: false });
-
-  const totalActual = db.prepare(`
-    SELECT COALESCE(SUM(duration_minutes), 0) AS m FROM time_entries WHERE person_id = ? AND duration_minutes IS NOT NULL
-  `).get(personId).m;
+  `).get(person.id);
+  if (!firstRow.d) return { available: false };
 
   const firstMondayFromEntries = getMondayOf(new Date(firstRow.d));
   const isBfd = person.contract_type === 'BFD';
@@ -1448,28 +1482,48 @@ app.get('/api/reports/lifetime', (req, res) => {
   let firstMonday = firstMondayFromEntries;
   if (person.contract_start && new Date(person.contract_start) > firstMonday) firstMonday = getMondayOf(new Date(person.contract_start));
   if (toolStartMonday > firstMonday) firstMonday = toolStartMonday;
-  const currentMonday = getMondayOf(new Date());
-  const weeksCounted = Math.round((currentMonday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  const heute = new Date();
+  const ende = bis && new Date(bis) < heute ? new Date(bis) : heute;
+  const lastMonday = getMondayOf(ende);
+  const weeksCounted = Math.max(0, Math.round((lastMonday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1);
   const rangeFrom = isoDateLocal(firstMonday);
-  const rangeTo = isoDateLocal(new Date());
+  // ganze Woche bis Sonntag, aber nie ueber heute hinaus
+  const sonntag = new Date(lastMonday); sonntag.setDate(sonntag.getDate() + 6);
+  const rangeTo = isoDateLocal(sonntag < heute ? sonntag : heute);
+  if (!weeksCounted) return { available: true, total_actual_minutes: 0, total_target_minutes: 0, diff_minutes: 0, weeks_counted: 0, first_date: firstRow.d, bfd_warning: null };
 
-  let totalActualWithCredit = totalActual + absenceCreditMinutes(personId, rangeFrom, rangeTo);
+  let total = db.prepare(`
+    SELECT COALESCE(SUM(duration_minutes), 0) AS m FROM time_entries
+    WHERE person_id = ? AND date BETWEEN ? AND ? AND duration_minutes IS NOT NULL
+  `).get(person.id, rangeFrom, rangeTo).m;
+  total += absenceCreditMinutes(person.id, rangeFrom, rangeTo);
   if (isBfd) {
-    totalActualWithCredit += weekendHolidayBonusMinutes(personId, rangeFrom, rangeTo);
-    totalActualWithCredit -= timeOffCompensationMinutes(personId, rangeFrom, rangeTo);
+    total += weekendHolidayBonusMinutes(person.id, rangeFrom, rangeTo);
+    total -= timeOffCompensationMinutes(person.id, rangeFrom, rangeTo);
   }
   const totalTarget = weeksCounted * person.weekly_target_minutes;
-  const diff = totalActualWithCredit - totalTarget;
-
-  res.json({
+  const diff = total - totalTarget;
+  return {
     available: true,
-    total_actual_minutes: totalActualWithCredit,
+    total_actual_minutes: total,
     total_target_minutes: totalTarget,
     diff_minutes: diff,
     weeks_counted: weeksCounted,
     first_date: firstRow.d,
     bfd_warning: isBfd ? bfdThresholdWarning(diff) : null,
-  });
+  };
+}
+
+app.get('/api/reports/lifetime', (req, res) => {
+  const personId = req.query.person_id;
+  if (!personId) return res.status(400).json({ error: 'person_id ist erforderlich' });
+  const own = restrictedPersonId(req);
+  if (own !== null && +personId !== own) {
+    return res.status(403).json({ error: 'Nur eigene Zeiterfassung erlaubt' });
+  }
+  const person = db.prepare('SELECT * FROM people WHERE id = ?').get(personId);
+  if (!person) return res.status(404).json({ error: 'Person nicht gefunden' });
+  res.json(lifetimeBalance(person, req.query.to || null));
 });
 
 // ---------- Freizeitausgleich (genommene Ausgleichszeit fuer Ueberstunden) ----------
@@ -1523,13 +1577,15 @@ app.get('/api/absences', (req, res) => {
 });
 
 app.post('/api/absences', (req, res) => {
-  const { person_id, date_from, date_to, type, note } = req.body;
+  const { person_id, date_from, date_to, type, note, minutes_per_day } = req.body;
   if (!person_id || !date_from || !date_to) {
     return res.status(400).json({ error: 'person_id, date_from und date_to sind erforderlich' });
   }
+  // eigene Stundenzahl je Tag (z.B. 4 Std Dienst am Sonntag), sonst leer = 8 Std je Werktag
+  const minuten = minutes_per_day === '' || minutes_per_day == null ? null : Math.max(0, Math.round(+minutes_per_day));
   const info = db.prepare(`
-    INSERT INTO absences (person_id, date_from, date_to, type, note) VALUES (?, ?, ?, ?, ?)
-  `).run(person_id, date_from, date_to, type || 'Urlaub', note || null);
+    INSERT INTO absences (person_id, date_from, date_to, type, note, minutes_per_day) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(person_id, date_from, date_to, type || 'Urlaub', note || null, Number.isFinite(minuten) ? minuten : null);
   res.status(201).json(db.prepare(`
     SELECT a.*, p.name AS person_name, p.color AS person_color FROM absences a JOIN people p ON p.id = a.person_id WHERE a.id = ?
   `).get(info.lastInsertRowid));

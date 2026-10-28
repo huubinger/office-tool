@@ -549,10 +549,14 @@
             <select id="absence-type">
               <option value="Urlaub">Urlaub</option>
               <option value="Krank">Krank</option>
-              <option value="Seminar">Seminar (8 Std/Tag)</option>
+              <option value="Seminar">Seminar</option>
               <option value="Sonstiges">Sonstiges</option>
             </select>
           </label>
+          <label>Angerechnete Stunden je Tag
+            <input type="number" id="absence-hours" min="0" max="24" step="0.25" placeholder="leer = 8 Std Mo–Fr">
+          </label>
+          <p class="hint">Z.&nbsp;B. krank an einem Sonntag mit 4&nbsp;Std Dienst: 4 eintragen – zählt dann auch am Wochenende.</p>
           <label>Notiz
             <input type="text" id="absence-note" placeholder="optional">
           </label>
@@ -595,7 +599,8 @@
 
     <div class="card">
       <h2>Wochenreport (Soll / Ist)</h2>
-      <p class="hint">Zeigt mehrere Wochen gleichzeitig — kein Umblättern für die letzten Wochen nötig.</p>
+      <p class="hint">Zeigt mehrere Wochen gleichzeitig — kein Umblättern für die letzten Wochen nötig. Über- und Unterstunden werden zusammengerechnet („Saldo gesamt“).</p>
+      <div id="report-saldo" class="report-saldo"></div>
       <div class="calendar-nav report-nav">
         <button id="report-week-prev">‹ Ältere Wochen</button>
         <span id="report-week-label"></span>
@@ -604,7 +609,7 @@
       <div class="report-table-scroll">
         <table class="task-table report-multi-table">
           <thead>
-            <tr><th>Woche</th><th>Person</th><th>Soll</th><th>Ist</th><th>Differenz</th></tr>
+            <tr><th>Woche</th><th>Person</th><th>Soll</th><th>Ist</th><th>Woche ±</th><th>Saldo gesamt</th></tr>
           </thead>
           <tbody id="report-table"></tbody>
         </table>

@@ -2583,7 +2583,7 @@
       row.innerHTML = `
         <div>
           <div class="tri-main"><strong>${escapeHtml(a.person_name)}</strong> · ${escapeHtml(a.type)}</div>
-          <div class="tri-meta">${fmtDateDE(a.date_from)} – ${fmtDateDE(a.date_to)}${a.note ? ' · ' + escapeHtml(a.note) : ''}</div>
+          <div class="tri-meta">${fmtDateDE(a.date_from)} – ${fmtDateDE(a.date_to)}${a.minutes_per_day != null ? ' · ' + fmtDuration(a.minutes_per_day) + ' je Tag angerechnet' : ''}${a.note ? ' · ' + escapeHtml(a.note) : ''}</div>
         </div>
         <div class="row-actions">
           <button class="danger" data-delete="${a.id}">Löschen</button>
@@ -2613,6 +2613,8 @@
       type: document.getElementById('absence-type').value,
       note: document.getElementById('absence-note').value.trim(),
     };
+    const stunden = document.getElementById('absence-hours').value;
+    if (stunden !== '') payload.minutes_per_day = Math.round(+stunden * 60);
     if (!payload.person_id || !payload.date_from || !payload.date_to) return;
     await api('/api/absences', { method: 'POST', body: JSON.stringify(payload) });
     absenceForm.reset();
@@ -2666,7 +2668,37 @@
   });
 
   // ================= WOCHENREPORT =================
-  const OVERTIME_WARN_THRESHOLD_MINUTES = 60; // ab 1 Std Abweichung wird die Zeile als Warnung hervorgehoben
+  function fmtSaldo(min) {
+    const sign = min > 0 ? '+' : (min < 0 ? '−' : '±');
+    return sign + fmtDuration(Math.abs(min));
+  }
+
+  // Gesamtstand oben: Ueber- und Unterstunden zusammengerechnet - muss noch etwas nachgeholt werden?
+  // Die laufende Woche zaehlt erst, wenn sie vorbei ist (sonst stuende montags schon das volle Soll als Minus da):
+  // Saldo bis Ende der letzten Woche, die laufende Woche getrennt als „bisher X von Y“.
+  async function renderReportSaldo() {
+    const el = document.getElementById('report-saldo');
+    const personen = currentUser.is_admin
+      ? people.filter(p => p.weekly_target_minutes && p.active)
+      : people.filter(p => p.weekly_target_minutes && p.id === currentUser.person_id);
+    const vorwocheEnde = isoDate(addDays(getMonday(new Date()), -1));
+    const [woche, ...salden] = await Promise.all([
+      api('/api/reports/week?date=' + isoDate(new Date())).catch(() => null),
+      ...personen.map(p => api(`/api/reports/lifetime?person_id=${p.id}&to=${vorwocheEnde}`).catch(() => null)),
+    ]);
+    el.innerHTML = personen.map((p, i) => {
+      const d = salden[i];
+      if (!d || !d.available) return '';
+      const text = d.diff_minutes < 0 ? `noch ${fmtDuration(-d.diff_minutes)} nachzuholen`
+        : d.diff_minutes > 0 ? `${fmtDuration(d.diff_minutes)} mehr gearbeitet – nichts nachzuholen` : 'genau ausgeglichen';
+      const jetzt = woche && woche.report.find(r => r.person_id === p.id);
+      const bisher = jetzt && jetzt.target_minutes ? `diese Woche bisher ${fmtDuration(jetzt.actual_minutes)} von ${fmtDuration(jetzt.target_minutes)}` : '';
+      return `<div class="report-saldo-zeile ${d.diff_minutes < 0 ? 'negative' : 'positive'}">
+        <span>${escapeHtml(p.name)} · Saldo gesamt (bis ${fmtDateDE(vorwocheEnde)})</span><strong>${fmtSaldo(d.diff_minutes)}</strong><span>${text}</span>
+        ${bisher ? `<span class="leise">· ${bisher}</span>` : ''}
+        ${d.bfd_warning ? `<span>⚠ ${escapeHtml(d.bfd_warning)}</span>` : ''}</div>`;
+    }).join('');
+  }
 
   const REPORT_WEEKS_PER_PAGE = 8;
 
@@ -2685,24 +2717,26 @@
     });
 
     const container = document.getElementById('report-table');
+    renderReportSaldo();
     if (!rows.length) {
-      container.innerHTML = '<tr><td colspan="5" class="empty-state">Keine Daten in diesem Zeitraum.</td></tr>';
+      container.innerHTML = '<tr><td colspan="6" class="empty-state">Keine Daten in diesem Zeitraum.</td></tr>';
       return;
     }
+    // Ueber- und Unterstunden zaehlen nur in Summe: keine Warnung pro Woche, sondern der laufende Saldo
+    const heute = isoDate(new Date());
     container.innerHTML = rows.map(r => {
-      const sign = r.diff_minutes > 0 ? '+' : (r.diff_minutes < 0 ? '-' : '');
-      const diffText = r.diff_minutes === null ? '–' : sign + fmtDuration(Math.abs(r.diff_minutes));
-      const diffClass = r.diff_minutes === null ? '' : (r.diff_minutes >= 0 ? 'diff-positive' : 'diff-negative');
-      const isWarn = (r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES) || r.bfd_warning;
-      const warnLabel = r.diff_minutes !== null && Math.abs(r.diff_minutes) >= OVERTIME_WARN_THRESHOLD_MINUTES
-        ? (r.diff_minutes > 0 ? ' ⚠ Überstunden' : ' ⚠ Unterstunden') : '';
+      const laeuft = r.weekTo >= heute;   // laufende Woche: noch kein Ergebnis
+      const diffText = laeuft ? 'läuft noch' : (r.diff_minutes === null ? '–' : fmtSaldo(r.diff_minutes));
+      const saldoText = laeuft || r.saldo_minutes == null ? '–' : fmtSaldo(r.saldo_minutes);
+      const saldoClass = laeuft || r.saldo_minutes == null ? '' : (r.saldo_minutes >= 0 ? 'diff-positive' : 'diff-negative');
       return `
-        <tr class="report-detail-row ${isWarn ? 'warn' : ''}" data-report-person="${r.person_id}" data-report-week="${r.weekFrom}">
+        <tr class="report-detail-row ${r.bfd_warning && !laeuft ? 'warn' : ''}" data-report-person="${r.person_id}" data-report-week="${r.weekFrom}">
           <td>${fmtDateLabel(new Date(r.weekFrom))} – ${fmtDateLabel(new Date(r.weekTo))}</td>
           <td>${escapeHtml(r.person_name)}</td>
           <td>${r.target_minutes ? fmtDuration(r.target_minutes) : '–'}</td>
           <td>${fmtDuration(r.actual_minutes)}</td>
-          <td class="${diffClass}">${diffText}${warnLabel}${r.bfd_warning ? ` · ⚠ BFD: ${escapeHtml(r.bfd_warning)}` : ''}</td>
+          <td class="leise">${diffText}</td>
+          <td class="${saldoClass}"><strong>${saldoText}</strong>${r.bfd_warning && !laeuft ? ` · ⚠ BFD: ${escapeHtml(r.bfd_warning)}` : ''}</td>
         </tr>
       `;
     }).join('');
@@ -2743,18 +2777,23 @@
                   </div>
                 `;
               }).join('')
-            : '<div class="wd-entry-row wd-empty">Keine Einträge</div>';
+            : (d.absences.length ? '' : '<div class="wd-entry-row wd-empty">Keine Einträge</div>');
+          // Abwesenheiten (Krank, Urlaub, Seminar …), Wochenend-Zuschlag und Freizeitausgleich je Tag
+          const extraRows = [
+            ...d.absences.map(a => `<div class="wd-entry-row wd-extra"><span>${escapeHtml(a.type)}${a.note ? ' · ' + escapeHtml(a.note) : ''}</span>
+              <strong>${a.minutes ? '+' + fmtDuration(a.minutes) + ' angerechnet' : 'nicht angerechnet'}</strong></div>`),
+            d.bonus_minutes ? `<div class="wd-entry-row wd-extra"><span>Zuschlag ${dow === 6 ? 'Samstag' : dow === 0 ? 'Sonntag' : 'Feiertag'}</span><strong>+${fmtDuration(d.bonus_minutes)}</strong></div>` : '',
+            d.timeoff_minutes ? `<div class="wd-entry-row wd-extra"><span>Freizeitausgleich genommen</span><strong>−${fmtDuration(d.timeoff_minutes)}</strong></div>` : '',
+          ].join('');
+          const tagSumme = d.total_minutes + d.absences.reduce((a, x) => a + x.minutes, 0) + d.bonus_minutes - d.timeoff_minutes;
           return `
             <div class="wd-day">
-              <div class="wd-day-heading">${dayName}, ${fmtDateDE(d.date)} <strong>${d.total_minutes ? fmtDuration(d.total_minutes) : '–'}</strong></div>
-              ${entryRows}
+              <div class="wd-day-heading">${dayName}, ${fmtDateDE(d.date)} <strong>${tagSumme ? fmtDuration(tagSumme) : '–'}</strong></div>
+              ${entryRows}${extraRows}
             </div>
           `;
         }).join('')}
-        <div class="yc-day-event-row" style="border-color:var(--accent)">
-          <span><strong>Summe der Woche</strong></span>
-          <strong>${fmtDuration(total)}</strong>
-        </div>
+        ${wochenSumme(data.summary, total, data.days[6].date >= isoDate(new Date()))}
       </div>
     `;
 
@@ -2772,6 +2811,20 @@
     }));
 
     weekDetailModal.classList.remove('hidden');
+  }
+  function wochenSumme(sm, total, laeuft = false) {
+    if (!sm) return `<div class="yc-day-event-row" style="border-color:var(--accent)"><span><strong>Summe der Woche</strong></span><strong>${fmtDuration(total)}</strong></div>`;
+    const zeile = (label, wert, fett = false) => `<div class="yc-day-event-row"><span>${fett ? `<strong>${label}</strong>` : label}</span>${fett ? `<strong>${wert}</strong>` : `<span>${wert}</span>`}</div>`;
+    return `<div class="wd-summe" style="border-top:2px solid var(--accent);margin-top:8px;padding-top:6px">
+      ${zeile('Gearbeitet', fmtDuration(sm.worked_minutes))}
+      ${sm.absence_minutes ? zeile('Angerechnet (Krank, Urlaub, Seminar …)', '+' + fmtDuration(sm.absence_minutes)) : ''}
+      ${sm.bonus_minutes ? zeile('Wochenend-/Feiertagszuschlag', '+' + fmtDuration(sm.bonus_minutes)) : ''}
+      ${sm.timeoff_minutes ? zeile('Freizeitausgleich genommen', '−' + fmtDuration(sm.timeoff_minutes)) : ''}
+      ${zeile('Ist der Woche', fmtDuration(sm.actual_minutes), true)}
+      ${sm.target_minutes ? zeile('Soll der Woche', fmtDuration(sm.target_minutes)) : ''}
+      ${sm.diff_minutes != null ? zeile('Woche ±', laeuft ? 'läuft noch' : fmtSaldo(sm.diff_minutes)) : ''}
+      ${sm.saldo_minutes != null && !laeuft ? zeile('Saldo gesamt (bis Ende dieser Woche)', fmtSaldo(sm.saldo_minutes), true) : ''}
+    </div>`;
   }
   document.getElementById('week-detail-modal-close').addEventListener('click', () => weekDetailModal.classList.add('hidden'));
   weekDetailModal.addEventListener('click', (e) => { if (e.target === weekDetailModal) weekDetailModal.classList.add('hidden'); });

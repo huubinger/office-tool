@@ -108,6 +108,9 @@ function parseRoleLine(line) {
 }
 const roleLines = (raw) => String(raw || '').split('\n').map(r => r.trim()).filter(Boolean).map(parseRoleLine);
 const parseRoles = (raw) => roleLines(raw).map(l => l.role);
+// Ersatztermin: "Ersatz" im Abschnitt oder in der Bezeichnung (wie in public/umfrage-table.js)
+const isErsatz = (o) => /ersatz/i.test(o.section || '') || /ersatz/i.test(o.label || '');
+const castPeople = (v) => String(v || '').split('/').filter(Boolean);
 const parseCast = (raw) => {
   const out = {};
   roleLines(raw).forEach(l => { if (l.cast.length) out[l.role] = l.cast; });
@@ -127,7 +130,7 @@ function surveyData(id, { withTokens = false } = {}) {
   const cast = parseCast(s.roles);
   const castCells = {};
   db.prepare('SELECT * FROM sv_cast WHERE survey_id = ?').all(id).forEach(c => {
-    if (cast[c.role] && cast[c.role].includes(c.person)) (castCells[c.role] ||= {})[c.option_id] = c.person;
+    if (cast[c.role] && castPeople(c.person).every(n => cast[c.role].includes(n))) (castCells[c.role] ||= {})[c.option_id] = c.person;
   });
   return {
     ...s,
@@ -176,10 +179,13 @@ function saveCastCell(s, b) {
   const role = String(b.role || '');
   const names = parseCast(s.roles)[role];
   if (!names) return 'Diese Rolle hat keine Besetzung';
-  const opt = db.prepare('SELECT id FROM sv_options WHERE id = ? AND survey_id = ?').get(b.option_id, s.id);
+  const opt = db.prepare('SELECT id, section, label FROM sv_options WHERE id = ? AND survey_id = ?').get(b.option_id, s.id);
   if (!opt) return 'Termin nicht gefunden';
-  const person = clean(b.person, 100);
-  if (person && !names.includes(person)) return 'Unbekannter Name';
+  // bei Ersatzterminen duerfen mehrere eingetragen sein (z.B. beide, wenn beide Zeit haben)
+  const people = [...new Set(castPeople(clean(b.person, 300)))];
+  if (people.some(n => !names.includes(n))) return 'Unbekannter Name';
+  if (people.length > 1 && !isErsatz(opt)) return 'Mehrere Namen nur bei Ersatzterminen';
+  const person = people.length ? names.filter(n => people.includes(n)).join('/') : null;
   if (person) db.prepare('INSERT INTO sv_cast (survey_id, role, option_id, person) VALUES (?, ?, ?, ?) ON CONFLICT(survey_id, role, option_id) DO UPDATE SET person = excluded.person').run(s.id, role, opt.id, person);
   else db.prepare('DELETE FROM sv_cast WHERE survey_id = ? AND role = ? AND option_id = ?').run(s.id, role, opt.id);
   return null;
@@ -191,14 +197,20 @@ function syncCast(id, oldRaw, newRaw, renames) {
   const newCast = parseCast(newRaw);
   const back = {};
   Object.entries(renames).forEach(([from, to]) => { back[to] = from; });
-  const upd = db.prepare('UPDATE sv_cast SET person = ? WHERE survey_id = ? AND role = ? AND person = ?');
+  // gleiche Anzahl Namen: Namen an derselben Stelle gelten als umbenannt
+  const renamed = {};
   Object.entries(newCast).forEach(([role, names]) => {
     const before = oldCast[back[role] || role];
-    // gleiche Anzahl Namen: Namen an derselben Stelle gelten als umbenannt
-    if (before && before.length === names.length) before.forEach((n, i) => { if (n !== names[i] && !before.includes(names[i])) upd.run(names[i], id, role, n); });
+    renamed[role] = {};
+    if (before && before.length === names.length) before.forEach((n, i) => { if (n !== names[i] && !before.includes(names[i])) renamed[role][n] = names[i]; });
   });
-  db.prepare('SELECT DISTINCT role, person FROM sv_cast WHERE survey_id = ?').all(id).forEach(c => {
-    if (!newCast[c.role] || !newCast[c.role].includes(c.person)) db.prepare('DELETE FROM sv_cast WHERE survey_id = ? AND role = ? AND person = ?').run(id, c.role, c.person);
+  const upd = db.prepare('UPDATE sv_cast SET person = ? WHERE survey_id = ? AND role = ? AND option_id = ?');
+  const del = db.prepare('DELETE FROM sv_cast WHERE survey_id = ? AND role = ? AND option_id = ?');
+  db.prepare('SELECT * FROM sv_cast WHERE survey_id = ?').all(id).forEach(c => {
+    const names = newCast[c.role];
+    const people = names ? castPeople(c.person).map(n => renamed[c.role][n] || n).filter(n => names.includes(n)) : [];
+    if (!people.length) del.run(id, c.role, c.option_id);
+    else if (people.join('/') !== c.person) upd.run(names.filter(n => people.includes(n)).join('/'), id, c.role, c.option_id);
   });
 }
 
@@ -242,6 +254,17 @@ function exportWorkbook(s) {
     if (!sec) sections.push(sec = { name: key, options: [] });
     sec.options.push(o);
   });
+  // Ersatztermine zwischen die Aufführungen, alles chronologisch (wie auf der Seite)
+  const ersatzSec = (sec) => /ersatz/i.test(sec.name);
+  const main = sections.find(sec => /auff[üu]hrung|show|vorstellung/i.test(sec.name) && !ersatzSec(sec)) || sections.find(sec => !ersatzSec(sec));
+  if (main) sections.filter(ersatzSec).forEach(sec => { main.options.push(...sec.options); sections.splice(sections.indexOf(sec), 1); });
+  sections.forEach(sec => {
+    sec.options = sec.options.map((o, i) => ({ o, i })).sort((a, b) => {
+      if (a.o.date && b.o.date) return a.o.date < b.o.date ? -1 : a.o.date > b.o.date ? 1 : a.i - b.i;
+      if (a.o.date || b.o.date) return a.o.date ? -1 : 1;
+      return a.i - b.i;
+    }).map(x => x.o);
+  });
   const rows = [[s.title], []];
   const people = orderedRows(s);
   sections.forEach(sec => {
@@ -250,10 +273,10 @@ function exportWorkbook(s) {
     rows.push(['', ...sec.options.map(o => fmtDate(o.date))]);
     rows.push(['', ...sec.options.map(o => (o.date ? WEEKDAYS[new Date(o.date + 'T00:00:00').getDay()].toUpperCase() : ''))]);
     if (sec.options.some(o => o.time)) rows.push(['', ...sec.options.map(o => o.time || '')]);
-    people.forEach(p => rows.push([p.label, ...sec.options.map(o => (p.castRole ? (s.cast_cells[p.castRole] || {})[o.id] || ''
+    people.forEach(p => rows.push([p.label, ...sec.options.map(o => (p.castRole ? castPeople((s.cast_cells[p.castRole] || {})[o.id]).join(' + ')
       : p.response ? SYMBOL[p.response.answers[o.id]] || '' : ''))]));
     rows.push(['Zusagen', ...sec.options.map(o => s.responses.filter(r => r.answers[o.id] === 'yes').length
-      + Object.values(s.cast_cells).filter(c => c[o.id]).length)]);
+      + Object.values(s.cast_cells).reduce((n, c) => n + castPeople(c[o.id]).length, 0))]);
     rows.push([], []);
   });
   const comments = s.responses.filter(r => r.comment);
@@ -274,8 +297,10 @@ function orderedRows(s) {
   s.roles.forEach(role => {
     const rs = s.responses.filter(r => r.role === role);
     if (s.cast[role]) {
-      const cells = Object.values(s.cast_cells[role] || {});
-      out.push({ label: `${role} (${s.cast[role].map(n => `${n} ${cells.filter(c => c === n).length}×`).join(' / ')})`, castRole: role });
+      // Showzahl ohne Ersatztermine
+      const cells = s.cast_cells[role] || {};
+      const count = (n, ersatz) => s.options.filter(o => isErsatz(o) === ersatz && castPeople(cells[o.id]).includes(n)).length;
+      out.push({ label: `${role} (${s.cast[role].map(n => `${n} ${count(n, false)}×${count(n, true) ? ` +${count(n, true)} Ersatz` : ''}`).join(' / ')})`, castRole: role });
     } else if (!rs.length) out.push({ label: role, response: null });
     rs.forEach(r => out.push({ label: `${role} – ${r.name}`, response: r }));
   });

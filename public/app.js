@@ -9303,6 +9303,8 @@
 
   function renderSvDetail() {
     const s = svDetail;
+    // Termine je Abschnitt chronologisch, Ersatztermine zwischen den Aufführungen (wie auf der öffentlichen Seite)
+    s.options = SurveyTable.ordered(s.options);
     document.getElementById('sv-list-view').classList.add('hidden');
     const view = document.getElementById('sv-detail-view');
     view.classList.remove('hidden');
@@ -9577,7 +9579,8 @@
 
   function svGridHtml(s) {
     const opts = s.options;
-    const ed = (o, f, text) => `<th contenteditable="true" spellcheck="false" data-svg-o="${opts.indexOf(o)}" data-svg-f="${f}">${escapeHtml(text || '')}</th>`;
+    const ec = (o) => (SurveyTable.isErsatz(o) ? ' class="sv-ersatz"' : '');
+    const ed = (o, f, text) => `<th${ec(o)} contenteditable="true" spellcheck="false" data-svg-o="${opts.indexOf(o)}" data-svg-f="${f}" title="${escapeHtml(text || '')}">${escapeHtml(text || '')}</th>`;
     const colCount = opts.length;
     const rows = [];
     s.roles.forEach((role, ri) => {
@@ -9596,13 +9599,14 @@
     });
     s.responses.filter(r => !r.role || !s.roles.includes(r.role)).forEach(r => rows.push(svRespRow(s, r, '')));
     const count = (o, v) => s.responses.filter(r => r.answers[o.id] === v).length;
-    return `<div class="evt-wrap svg-wrap"><table class="sv-table svg">
+    return `<div class="evt-wrap svg-wrap"><table class="sv-table svg sv-fit" style="--sv-cols:${colCount}">
       <thead>
-        <tr class="svg-tools"><th class="sv-name"></th>${opts.map((o, i) => `<th><button type="button" class="svg-mini svg-del" data-svg-del-col="${i}" title="Termin löschen" aria-label="Termin löschen">✕</button></th>`).join('')}
-          <th class="svg-add" rowspan="5"><button type="button" class="ghost" id="svg-add-col">+ Termin</button></th></tr>
-        <tr class="svg-h"><th class="sv-name svg-rowhead">Abschnitt</th>${opts.map(o => ed(o, 'section', o.section)).join('')}</tr>
+        <tr class="svg-tools"><th class="sv-name"></th>${opts.map((o, i) => `<th${ec(o)}><button type="button" class="svg-mini svg-del" data-svg-del-col="${i}" title="Termin löschen" aria-label="Termin löschen">✕</button></th>`).join('')}
+          <th class="svg-add" rowspan="5"><button type="button" class="ghost" id="svg-add-col" title="Termin hinzufügen – wird nach Datum einsortiert">+ Termin</button></th></tr>
+        <tr class="svg-h svg-sections"><th class="sv-name svg-rowhead">Abschnitt</th>${opts.map((o, i) => ed(o, 'section', o.section).replace('<th', `<th data-same="${i > 0 && (opts[i - 1].section || '') === (o.section || '') ? 1 : 0}" data-solo="${(opts[i + 1] || {}).section === o.section ? 0 : 1}"`)).join('')}</tr>
         <tr class="sv-h-label svg-h"><th class="sv-name svg-rowhead">Bezeichnung</th>${opts.map(o => ed(o, 'label', o.label)).join('')}</tr>
-        <tr class="svg-h"><th class="sv-name svg-rowhead">Datum</th>${opts.map((o, i) => `<th class="svg-date"><input type="date" data-svg-date="${i}" value="${escapeHtml(o.date || '')}" aria-label="Datum"><small>${escapeHtml(SurveyTable.weekday(o.date))}</small></th>`).join('')}</tr>
+        <tr class="svg-h"><th class="sv-name svg-rowhead">Datum</th>${opts.map((o, i) => `<th class="svg-date${SurveyTable.isErsatz(o) ? ' sv-ersatz' : ''}"><input type="date" data-svg-date="${i}" value="${escapeHtml(o.date || '')}" aria-label="Datum" tabindex="-1">
+          <button type="button" class="svg-date-btn" data-svg-date-btn="${i}" title="Datum wählen">${svDateText(o.date)}</button></th>`).join('')}</tr>
         <tr class="svg-h"><th class="sv-name svg-rowhead">Uhrzeit</th>${opts.map((o, i) => svTimeCell(s, o, i)).join('')}</tr>
       </thead>
       <tbody>${rows.join('') || `<tr><th class="sv-name sv-open">Noch keine Zeilen</th>${opts.map(() => '<td></td>').join('')}<td class="svg-pad"></td></tr>`}
@@ -9611,19 +9615,22 @@
       <tfoot><tr class="sv-sum"><th class="sv-name">Zusagen</th>${opts.map(o => { const m = count(o, 'maybe'); return `<td>${o.id ? count(o, 'yes') + SurveyTable.castFilled(s, o.id) : ''}${m ? `<small>+${m}?</small>` : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr></tfoot>
     </table></div>`;
   }
+  // Kompaktes Datum im Spaltenkopf ("04.03." + "Do"), Klick oeffnet die Datumsauswahl
+  const svDateText = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.<small>${escapeHtml(SurveyTable.weekday(iso).slice(0, 2))}</small>` : '<span class="svg-nodate">Datum</span>');
   // Erster Termin eines Abschnitts (z.B. die Premiere) gibt die Uhrzeit fuer die gekoppelten Termine vor
   const svFirstOfSection = (s, o) => s.options.find(x => (x.section || '') === (o.section || ''));
   function svTimeCell(s, o, i) {
     const first = svFirstOfSection(s, o);
     const span = `<span class="svg-time" contenteditable="true" spellcheck="false" data-svg-o="${i}" data-svg-f="time">${escapeHtml(o.time || '')}</span>`;
-    if (first === o) return `<th class="svg-time-cell">${span}</th>`;
-    if (o.time_inherit) return `<th class="svg-time-cell svg-inherit" title="Uhrzeit wie „${escapeHtml(first.label || 'erster Termin')}“"><span data-svg-inh="${i}">${escapeHtml(o.time || '–')}</span>
+    const ex = SurveyTable.isErsatz(o) ? ' sv-ersatz' : '';
+    if (first === o) return `<th class="svg-time-cell${ex}">${span}</th>`;
+    if (o.time_inherit) return `<th class="svg-time-cell svg-inherit${ex}" title="Uhrzeit wie „${escapeHtml(first.label || 'erster Termin')}“"><span data-svg-inh="${i}">${escapeHtml(o.time || '–')}</span>
       <button type="button" class="svg-mini svg-del" data-svg-unlink="${i}" title="Eigene Uhrzeit für diesen Termin" aria-label="Uhrzeit entkoppeln">✕</button></th>`;
-    return `<th class="svg-time-cell">${span}<button type="button" class="svg-mini" data-svg-link="${i}" title="Wieder Uhrzeit von „${escapeHtml(first.label || 'erster Termin')}“ nehmen" aria-label="Uhrzeit koppeln">↺</button></th>`;
+    return `<th class="svg-time-cell${ex}">${span}<button type="button" class="svg-mini" data-svg-link="${i}" title="Wieder Uhrzeit von „${escapeHtml(first.label || 'erster Termin')}“ nehmen" aria-label="Uhrzeit koppeln">↺</button></th>`;
   }
   function svRespRow(s, r, roleHtml) {
     return `<tr class="sv-row-edit"><th class="sv-name">${roleHtml}${roleHtml ? ' ' : ''}<span class="svg-person sv-click" data-sv-response="${r.id}" tabindex="0" title="Name, Rolle, Kommentar ändern">${escapeHtml(r.name)}</span>${r.comment ? ` <span class="sv-comment" title="${escapeHtml(r.comment)}">💬</span>` : ''}</th>
-      ${s.options.map(o => { const v = o.id ? r.answers[o.id] : null; return `<td class="sv-cell sv-editable ${v ? 'sv-' + v : ''}"${o.id ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SurveyTable.SYMBOL[v] : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr>`;
+      ${s.options.map(o => { const v = o.id ? r.answers[o.id] : null; return `<td class="sv-cell sv-editable ${v ? 'sv-' + v : ''}${SurveyTable.isErsatz(o) ? ' sv-ersatz' : ''}"${o.id ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SurveyTable.SYMBOL[v] : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr>`;
   }
 
   function svBindGrid(view) {
@@ -9648,8 +9655,14 @@
     });
     view.querySelectorAll('[data-svg-date]').forEach(inp => inp.addEventListener('change', () => {
       s.options[+inp.dataset.svgDate].date = inp.value || null;
-      inp.nextElementSibling.textContent = SurveyTable.weekday(inp.value);
-      svSaveSoon();
+      inp.nextElementSibling.innerHTML = svDateText(inp.value);
+      // neues Datum: Spalte gleich chronologisch einsortieren
+      if (SurveyTable.ordered(s.options).some((o, i) => o !== s.options[i])) svSaveStructure(true);
+      else svSaveSoon();
+    }));
+    view.querySelectorAll('[data-svg-date-btn]').forEach(b => b.addEventListener('click', () => {
+      const inp = b.previousElementSibling;
+      try { inp.showPicker(); } catch (e) { inp.focus(); inp.click(); }
     }));
     view.querySelectorAll('[data-svg-role]').forEach(el => {
       let before = '';

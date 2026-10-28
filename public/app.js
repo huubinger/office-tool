@@ -9358,8 +9358,16 @@
 
     document.getElementById('sv-back').addEventListener('click', () => { showSvList(); loadSurveys(); });
     document.getElementById('sv-copy').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(svLink(s)); toast('Link kopiert'); }
-      catch (e) { document.getElementById('sv-link-input').select(); }
+      // als Link mit dem Titel als Text (z.B. in Mails), sonst nur die Adresse
+      const html = `<a href="${escapeHtml(svLink(s))}">${escapeHtml(s.title)}</a>`;
+      try {
+        if (window.ClipboardItem) {
+          await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([svLink(s)], { type: 'text/plain' }) })]);
+        } else await navigator.clipboard.writeText(svLink(s));
+        toast('Link kopiert');
+      } catch (e) {
+        try { await navigator.clipboard.writeText(svLink(s)); toast('Link kopiert'); } catch (e2) { document.getElementById('sv-link-input').select(); }
+      }
     });
     if (svAdmin()) document.getElementById('sv-status').addEventListener('change', async (ev) => {
       try { svDetail = await api(`/api/surveys/${s.id}`, { method: 'PUT', body: JSON.stringify({ status: ev.target.value }) }); renderSvDetail(); }

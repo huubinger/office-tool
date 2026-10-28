@@ -6,6 +6,7 @@
 // Antwort spaeter aendern. Im Reiter "Umfragen" erscheint alles als Tabelle Rollen x Termine.
 
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const XLSX = require('xlsx');
 const db = require('./db');
@@ -440,9 +441,20 @@ function register(app) {
   // ---- Oeffentlich (ohne Login, nur ueber den geheimen Link) ----
   const bySurveyToken = (token) => db.prepare('SELECT * FROM sv_surveys WHERE token = ?').get(token);
 
+  // Seite mit dem Titel der Umfrage im Kopf, damit Link-Vorschauen (WhatsApp, Mail ...) ihn zeigen
+  const pageFile = path.join(__dirname, 'public', 'umfrage.html');
+  const escAttr = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   app.get('/u/:token', (req, res) => {
-    if (!bySurveyToken(req.params.token)) return res.status(404).send('Diese Umfrage gibt es nicht (mehr).');
-    res.sendFile(path.join(__dirname, 'public', 'umfrage.html'));
+    const s = bySurveyToken(req.params.token);
+    if (!s) return res.status(404).send('Diese Umfrage gibt es nicht (mehr).');
+    const title = escAttr(s.title);
+    const desc = escAttr((s.description || 'Bitte hier eintragen.').replace(/\s+/g, ' ').slice(0, 200));
+    const html = fs.readFileSync(pageFile, 'utf8').replace('<title>Umfrage</title>', `<title>${title}</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${desc}">
+<meta name="description" content="${desc}">`);
+    res.set('Cache-Control', 'no-store').type('html').send(html);
   });
 
   app.get('/api/public/umfrage/:token', (req, res) => {

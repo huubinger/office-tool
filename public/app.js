@@ -9269,6 +9269,8 @@
   const svCellTimers = {};
   let svStatsPick = null;
   const svLink = (s) => `${location.origin}/u/${s.token}`;
+  // Termine, Rollen, Einstellungen nur fuer Admins; alle anderen tragen nur Namen ein
+  const svAdmin = () => !!(currentUser && currentUser.is_admin);
 
   function showSvList() {
     svDetail = null;
@@ -9281,6 +9283,7 @@
     renderSvList();
   }
   function renderSvList() {
+    document.getElementById('sv-new-btn').classList.toggle('hidden', !svAdmin());
     document.getElementById('sv-list').innerHTML = svList.length ? svList.map(s => `
       <button type="button" class="nk-card ${s.status !== 'offen' ? 'is-closed' : ''}" data-sv-card="${s.id}">
         <div class="nk-card-top"><span class="pill pill-xs ${s.status === 'offen' ? 'pill-ok' : 'pill-muted'}">${s.status === 'offen' ? 'offen' : 'geschlossen'}</span></div>
@@ -9318,9 +9321,10 @@
       </nav>
       <div class="card detail-hero">
         <div class="detail-hero-main">
-          <div class="detail-hero-kicker"><select id="sv-status" class="status-select">
+          <div class="detail-hero-kicker">${svAdmin() ? `<select id="sv-status" class="status-select">
             <option value="offen" ${s.status === 'offen' ? 'selected' : ''}>offen</option>
-            <option value="geschlossen" ${s.status !== 'offen' ? 'selected' : ''}>geschlossen</option></select></div>
+            <option value="geschlossen" ${s.status !== 'offen' ? 'selected' : ''}>geschlossen</option></select>`
+            : `<span class="pill pill-xs ${s.status === 'offen' ? 'pill-ok' : 'pill-muted'}">${s.status === 'offen' ? 'offen' : 'geschlossen'}</span>`}</div>
           <h2 class="detail-title">${escapeHtml(s.title)}</h2>
           <div class="detail-meta">
             <span>${s.options.length} Termine</span><span>${s.responses.length} Antworten</span>
@@ -9335,16 +9339,17 @@
           ${s.description ? `<div class="detail-notes">${escapeHtml(s.description)}</div>` : ''}
         </div>
         <div class="detail-actions ev-hero-actions">
-          <button type="button" class="ghost" id="sv-edit">Einstellungen</button>
+          ${svAdmin() ? '<button type="button" class="ghost" id="sv-edit">Einstellungen</button>' : ''}
           <a class="ghost-link" href="/api/surveys/${s.id}/export.xlsx">Excel</a>
-          <button type="button" class="danger" id="sv-delete">Löschen</button>
+          ${svAdmin() ? '<button type="button" class="danger" id="sv-delete">Löschen</button>' : ''}
         </div>
       </div>
       <div class="card">
         <div class="section-card-head"><h3>📋 Tabelle</h3>
           <div class="section-head-actions"><button type="button" class="ghost" id="sv-add-response">+ Person eintragen</button></div></div>
-        <p class="hint">Termine oben direkt eintragen (Abschnitt, Bezeichnung, Datum, Uhrzeit), Rollen/Aufgaben links. Zellen anklicken schaltet um: leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗. Namen anklicken für Name, Rolle, Kommentar.
-          Doppelbesetzung: Rolle als „SONJA: Anna / Berta“ eintragen – dann wählt man je Termin aus, wer spielt.</p>
+        <p class="hint">${svAdmin() ? `Termine oben direkt eintragen (Abschnitt, Bezeichnung, Datum, Uhrzeit), Rollen/Aufgaben links. Zellen anklicken schaltet um: leer → ✓ → ${s.allow_maybe ? '? → ' : ''}✗. Namen anklicken für Name, Rolle, Kommentar.
+          Doppelbesetzung: Rolle als „SONJA: Anna / Berta“ eintragen – dann wählt man je Termin aus, wer spielt.`
+          : `Namen eintragen: bei Rollen mit Besetzung je Termin auswählen, wer spielt; sonst Zellen anklicken (leer → ✓ → ✗). Termine und Rollen ändert der Admin.`}</p>
         ${svGridHtml(s)}
       </div>
       ${stats ? `<div class="card">${stats}</div>` : ''}
@@ -9356,12 +9361,12 @@
       try { await navigator.clipboard.writeText(svLink(s)); toast('Link kopiert'); }
       catch (e) { document.getElementById('sv-link-input').select(); }
     });
-    document.getElementById('sv-status').addEventListener('change', async (ev) => {
+    if (svAdmin()) document.getElementById('sv-status').addEventListener('change', async (ev) => {
       try { svDetail = await api(`/api/surveys/${s.id}`, { method: 'PUT', body: JSON.stringify({ status: ev.target.value }) }); renderSvDetail(); }
       catch (err) { alert(err.message); }
     });
-    document.getElementById('sv-edit').addEventListener('click', () => openSvSurveyModal(s));
-    document.getElementById('sv-delete').addEventListener('click', async () => {
+    if (svAdmin()) document.getElementById('sv-edit').addEventListener('click', () => openSvSurveyModal(s));
+    if (svAdmin()) document.getElementById('sv-delete').addEventListener('click', async () => {
       if (!confirm(`Umfrage „${s.title}“ mit allen ${s.responses.length} Antworten löschen? Der Link funktioniert danach nicht mehr.`)) return;
       await api(`/api/surveys/${s.id}`, { method: 'DELETE' });
       showSvList();
@@ -9580,18 +9585,20 @@
 
   function svGridHtml(s) {
     const opts = s.options;
+    const adm = svAdmin();
     const cc = SurveyTable.colClasses(opts);
-    const ed = (o, f, text, extra = '') => `<th class="${cc.get(o)}" contenteditable="true" spellcheck="false" data-svg-o="${opts.indexOf(o)}" data-svg-f="${f}" title="${escapeHtml(text || '')}"${extra}>${escapeHtml(text || '')}</th>`;
+    // Kopfzellen nur fuer Admins bearbeitbar
+    const ed = (o, f, text, extra = '') => `<th class="${cc.get(o)}"${adm ? ` contenteditable="true" spellcheck="false" data-svg-o="${opts.indexOf(o)}" data-svg-f="${f}"` : ''} title="${escapeHtml(text || '')}"${extra}>${escapeHtml(text || '')}</th>`;
     const colCount = opts.length;
     const rows = [];
     s.roles.forEach((role, ri) => {
       const rs = s.responses.filter(r => r.role === role);
       const cast = s.cast[role];
       // Rollenname; bei Besetzung zeigt das Bearbeiten "SONJA: Anna / Berta"
-      const roleCell = (first) => `<div class="svg-rolehead"><span class="svg-role" contenteditable="true" spellcheck="false" data-svg-role="${ri}"
-          title="${cast ? 'Rolle und Besetzung ändern, z.B. „SONJA: Anna / Berta“' : 'Umbenennen; mit „: Name / Name“ wird eine Besetzung daraus'}">${escapeHtml(role)}</span>
+      const roleCell = (first) => `<div class="svg-rolehead">${adm ? `<span class="svg-role" contenteditable="true" spellcheck="false" data-svg-role="${ri}"
+          title="${cast ? 'Rolle und Besetzung ändern, z.B. „SONJA: Anna / Berta“' : 'Umbenennen; mit „: Name / Name“ wird eine Besetzung daraus'}">${escapeHtml(role)}</span>` : `<span class="svg-role svg-role-ro">${escapeHtml(role)}</span>`}
         ${first ? `<span class="svg-row-tools">${cast ? '' : `<button type="button" class="svg-mini" data-svg-add-person="${escapeHtml(role)}" title="Person für ${escapeHtml(role)} eintragen">+ Person</button>`}
-        <button type="button" class="svg-mini svg-del" data-svg-del-role="${ri}" title="Zeile ${escapeHtml(role)} löschen" aria-label="Zeile löschen">✕</button></span>` : ''}</div>`;
+        ${adm ? `<button type="button" class="svg-mini svg-del" data-svg-del-role="${ri}" title="Zeile ${escapeHtml(role)} löschen" aria-label="Zeile löschen">✕</button>` : ''}</span>` : ''}</div>`;
       if (cast) {
         rows.push(`<tr class="sv-cast-row"><th class="sv-name">${roleCell(true)}${SurveyTable.castLegendHtml(s, role)}</th>
           ${opts.map(o => SurveyTable.castCellHtml(s, role, ri, o, true, cc.get(o))).join('')}<td class="svg-pad"></td></tr>`);
@@ -9604,17 +9611,18 @@
     return `<div class="evt-wrap svg-wrap"><table class="sv-table svg sv-fit" style="--sv-cols:${colCount}">
       <thead>
         <tr class="sv-h-month">${rowhead('')}${opts.length ? SurveyTable.monthCells(opts) : ''}
-          <th class="svg-add" rowspan="5"><button type="button" class="ghost" id="svg-add-col" title="Termin hinzufügen – wird nach Datum einsortiert">+ Termin</button></th></tr>
+          <th class="svg-add" rowspan="5">${adm ? '<button type="button" class="ghost" id="svg-add-col" title="Termin hinzufügen – wird nach Datum einsortiert">+ Termin</button>' : ''}</th></tr>
         <tr class="svg-h svg-sections">${rowhead('Abschnitt')}${opts.map((o, i) => ed(o, 'section', o.section,
           ` data-same="${i > 0 && (opts[i - 1].section || '') === (o.section || '') ? 1 : 0}" data-solo="${(opts[i + 1] || {}).section === o.section ? 0 : 1}"`)).join('')}</tr>
         <tr class="sv-h-label svg-h">${rowhead('Bezeichnung')}${opts.map(o => ed(o, 'label', o.label)).join('')}</tr>
-        <tr class="svg-h svg-dates">${rowhead('Datum')}${opts.map((o, i) => `<th class="svg-date ${cc.get(o)}"><input type="date" data-svg-date="${i}" value="${escapeHtml(o.date || '')}" aria-label="Datum" tabindex="-1">
+        <tr class="svg-h svg-dates">${rowhead('Datum')}${opts.map((o, i) => adm ? `<th class="svg-date ${cc.get(o)}"><input type="date" data-svg-date="${i}" value="${escapeHtml(o.date || '')}" aria-label="Datum" tabindex="-1">
           <button type="button" class="svg-date-btn" data-svg-date-btn="${i}" title="Datum wählen">${svDateText(o.date)}</button>
-          <button type="button" class="svg-col-del" data-svg-del-col="${i}" title="Termin löschen" aria-label="Termin löschen">✕</button></th>`).join('')}</tr>
-        <tr class="svg-h">${rowhead('Uhrzeit')}${opts.map((o, i) => svTimeCell(s, o, i, cc)).join('')}</tr>
+          <button type="button" class="svg-col-del" data-svg-del-col="${i}" title="Termin löschen" aria-label="Termin löschen">✕</button></th>`
+          : `<th class="svg-date ${cc.get(o)}"><span class="svg-date-btn">${o.date ? svDateText(o.date) : ''}</span></th>`).join('')}</tr>
+        <tr class="svg-h">${rowhead('Uhrzeit')}${opts.map((o, i) => (adm ? svTimeCell(s, o, i, cc) : `<th class="svg-time-cell ${cc.get(o)}">${escapeHtml(o.time || '')}</th>`)).join('')}</tr>
       </thead>
       <tbody>${rows.join('') || `<tr><th class="sv-name sv-open">Noch keine Zeilen</th>${opts.map(o => `<td class="${cc.get(o)}"></td>`).join('')}<td class="svg-pad"></td></tr>`}
-        <tr class="svg-addrow"><th class="sv-name"><button type="button" class="ghost" id="svg-add-role">+ Zeile (Rolle / Aufgabe)</button></th><td colspan="${colCount + 1}"><button type="button" class="ghost" id="svg-add-free">+ Person ohne Rolle</button></td></tr>
+        <tr class="svg-addrow"><th class="sv-name">${adm ? '<button type="button" class="ghost" id="svg-add-role">+ Zeile (Rolle / Aufgabe)</button>' : ''}</th><td colspan="${colCount + 1}"><button type="button" class="ghost" id="svg-add-free">+ Person ohne Rolle</button></td></tr>
       </tbody>
       <tfoot><tr class="sv-sum"><th class="sv-name">Zusagen</th>${opts.map(o => { const m = count(o, 'maybe'); return `<td class="${cc.get(o)}">${o.id ? count(o, 'yes') + SurveyTable.castFilled(s, o.id) : ''}${m ? `<small>+${m}?</small>` : ''}</td>`; }).join('')}<td class="svg-pad"></td></tr></tfoot>
     </table></div>${SurveyTable.noteHtml(s)}`;
@@ -9730,6 +9738,7 @@
     }));
     view.querySelectorAll('[data-svg-add-person]').forEach(b => b.addEventListener('click', () => openSvResponseModal(null, b.dataset.svgAddPerson)));
     document.getElementById('svg-add-free').addEventListener('click', () => openSvResponseModal(null, ''));
+    if (!svAdmin()) return; // Termine und Rollen nur fuer Admins
     document.getElementById('svg-add-col').addEventListener('click', async () => {
       const last = s.options[s.options.length - 1];
       const first = last ? svFirstOfSection(s, last) : null;
@@ -9823,7 +9832,7 @@
           : await api(`/api/surveys/${s.id}/responses`, { method: 'POST', body: JSON.stringify(payload) });
         renderSvDetail();
       },
-      onDelete: r ? async () => { svDetail = await api(`/api/surveys/${s.id}/responses/${r.id}`, { method: 'DELETE' }); renderSvDetail(); } : null,
+      onDelete: r && svAdmin() ? async () => { svDetail = await api(`/api/surveys/${s.id}/responses/${r.id}`, { method: 'DELETE' }); renderSvDetail(); } : null,
       deleteConfirm: r ? `Antwort von ${r.name} löschen?` : '',
     });
   }

@@ -309,6 +309,9 @@ function orderedRows(s) {
 }
 
 function register(app) {
+  // Termine, Rollen, Einstellungen und Loeschen nur fuer Admins; alle anderen tragen nur Namen ein
+  const adminOnly = (req, res, next) => (req.isAdmin ? next() : res.status(403).json({ error: 'Nur Admins können Termine, Rollen und Einstellungen ändern.' }));
+
   // ---- Verwaltung (Reiter "Umfragen") ----
   app.get('/api/surveys', (req, res) => {
     const list = db.prepare('SELECT * FROM sv_surveys ORDER BY created_at DESC, id DESC').all().map(s => ({
@@ -364,14 +367,14 @@ function register(app) {
     return id;
   }
 
-  app.post('/api/surveys', (req, res) => {
+  app.post('/api/surveys', adminOnly, (req, res) => {
     try {
       const id = db.transaction(() => writeSurvey(null, { ...req.body, _user: req.user.id }))();
       res.status(201).json(surveyData(id));
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
 
-  app.put('/api/surveys/:id', (req, res) => {
+  app.put('/api/surveys/:id', adminOnly, (req, res) => {
     const s = db.prepare('SELECT * FROM sv_surveys WHERE id = ?').get(req.params.id);
     if (!s) return res.status(404).json({ error: 'Umfrage nicht gefunden' });
     try {
@@ -380,7 +383,7 @@ function register(app) {
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
 
-  app.delete('/api/surveys/:id', (req, res) => {
+  app.delete('/api/surveys/:id', adminOnly, (req, res) => {
     db.prepare('DELETE FROM sv_surveys WHERE id = ?').run(req.params.id);
     res.status(204).end();
   });
@@ -420,7 +423,7 @@ function register(app) {
     res.json(surveyData(s.id));
   });
 
-  app.delete('/api/surveys/:id/responses/:rid', (req, res) => {
+  app.delete('/api/surveys/:id/responses/:rid', adminOnly, (req, res) => {
     db.prepare('DELETE FROM sv_responses WHERE id = ? AND survey_id = ?').run(req.params.rid, req.params.id);
     res.json(surveyData(req.params.id));
   });

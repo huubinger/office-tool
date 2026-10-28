@@ -3012,7 +3012,7 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
   .svg.sv-fit .svg-pad { padding: 0; }
   .svg.sv-fit thead th[contenteditable] { white-space: normal; hyphens: auto; -webkit-hyphens: auto; line-height: 1.2; }
   /* Abschnitt nur am Anfang zeigen, die Wiederholungen erst beim Draufzeigen */
-  .svg.sv-fit .svg-sections th[contenteditable] { white-space: nowrap; overflow: visible; text-align: left; }
+  .svg.sv-fit .svg-sections th:not(.sv-name) { white-space: nowrap; overflow: visible; text-align: left; }
   .svg.sv-fit .svg-sections th[data-same="1"]:not(:focus):not(:hover) { color: transparent; }
   .svg.sv-fit .svg-sections th[data-solo="1"] { overflow: hidden; text-overflow: ellipsis; }
   .svg.sv-fit .svg-sections th[data-same="1"]:empty::before { content: ''; }

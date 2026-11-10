@@ -135,7 +135,7 @@ function register(app) {
   // ---- Beteiligte je Konzert (Rechte: Reiter Projekte) ----
   app.post('/api/nk/concerts/:id/participants', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const b = req.body || {};
     let contactId = b.contact_id ? +b.contact_id : null;
     // Neuen Kontakt direkt mit anlegen

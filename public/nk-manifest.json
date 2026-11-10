@@ -1,7 +1,7 @@
 {
   "name": "Neckarsulmer Konzerte",
   "short_name": "NK Konzerte",
-  "description": "Neckarsulmer Konzerte: Terminfindung, Projekte, Kalkulation, GEMA und Sponsoren",
+  "description": "Neckarsulmer Konzerte: Terminfindung, Events, Kalkulation, GEMA und Sponsoren",
   "id": "/nk",
   "start_url": "/nk",
   "scope": "/",

@@ -31,8 +31,8 @@ function concertStats(year) {
       out[b.kind] = { totals: row.totals, visitors: row.visitors, data: row.data };
     });
     try {
-      const t = db.prepare('SELECT SUM(sold) AS sold, COUNT(*) AS n FROM nk_ticket_sources WHERE concert_id = ?').get(c.id);
-      out.tickets_sold = t.n ? t.sold || 0 : null;
+      const t = require('./nk-tickets').ticketSummary(c);
+      out.tickets_sold = t ? t.sold : null;
     } catch (e) { out.tickets_sold = null; }
     try { out.guest_total = db.prepare('SELECT COALESCE(SUM(count), 0) AS n FROM nk_guests WHERE concert_id = ?').get(c.id).n; } catch (e) { out.guest_total = 0; }
     try {

@@ -96,7 +96,7 @@ function register(app) {
 
   const concertOr404 = (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) res.status(404).json({ error: 'Event nicht gefunden' });
     return c;
   };
   const done = (req, res, status = 200) => res.status(status).json(nk.concertDetail(req.params.id, req));

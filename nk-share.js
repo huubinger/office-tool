@@ -128,7 +128,7 @@ function register(app) {
 
   app.post('/api/nk/concerts/:id/share', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const b = req.body || {};
     const sections = (Array.isArray(b.sections) ? b.sections : []).filter(s => SECTIONS[s]);
     if (!sections.length) return res.status(400).json({ error: 'Bitte mindestens einen Bereich freigeben' });

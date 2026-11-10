@@ -505,7 +505,7 @@ function register(app) {
 
   app.get('/api/nk/concerts/:id', (req, res) => {
     const detail = concertDetail(req.params.id, req);
-    if (!detail) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!detail) return res.status(404).json({ error: 'Event nicht gefunden' });
     res.json(detail);
   });
 
@@ -522,7 +522,7 @@ function register(app) {
 
   app.put('/api/nk/concerts/:id', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const b = req.body || {};
     const text = (key, max) => (b[key] !== undefined ? (String(b[key] || '').trim().slice(0, max) || null) : c[key]);
     const nextDate = b.date !== undefined ? cleanDate(b.date) : c.date;
@@ -549,8 +549,8 @@ function register(app) {
 
   app.delete('/api/nk/concerts/:id', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
-    if (!canManage(req, c.created_by)) return res.status(403).json({ error: 'Nur Ersteller oder Admin dürfen das Projekt löschen' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
+    if (!canManage(req, c.created_by)) return res.status(403).json({ error: 'Nur Ersteller oder Admin dürfen das Event löschen' });
     // Lokale Kopien der Dateien bleiben als Sicherung liegen (Dropbox-Kopie ebenfalls).
     db.prepare('DELETE FROM nk_concerts WHERE id = ?').run(c.id);
     res.status(204).end();
@@ -559,7 +559,7 @@ function register(app) {
   // Datei-Upload: dauerhaft auf dem Volume gespeichert, zusaetzlich (falls eingerichtet) nach Dropbox kopiert.
   app.post('/api/nk/concerts/:id/files', async (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const { category, filename, file_base64, mime_type } = req.body || {};
     if (!filename || !file_base64) return res.status(400).json({ error: 'Datei fehlt' });
     const buffer = Buffer.from(file_base64, 'base64');
@@ -627,7 +627,7 @@ function register(app) {
   // ---------- 2Dos ----------
   app.post('/api/nk/concerts/:id/todo-template', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const added = addTemplateTodos(c, req.user.id);
     res.json({ added, detail: concertDetail(c.id, req) });
   });
@@ -635,7 +635,7 @@ function register(app) {
 
   app.post('/api/nk/concerts/:id/todos', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const b = req.body || {};
     const title = String(b.title || '').trim();
     if (!title) return res.status(400).json({ error: '2Do ist leer' });
@@ -692,7 +692,7 @@ function register(app) {
 
   app.post('/api/nk/concerts/:id/comments', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const body = String((req.body && req.body.body) || '').trim();
     if (!body) return res.status(400).json({ error: 'Kommentar ist leer' });
     const info = db.prepare('INSERT INTO nk_comments (concert_id, user_id, body) VALUES (?, ?, ?)').run(c.id, req.user.id, body.slice(0, 5000));
@@ -735,7 +735,7 @@ function register(app) {
   // ---------- Kalkulation (plan) & Abrechnung (ist) ----------
   app.put('/api/nk/concerts/:id/budget/:kind', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     if (!budget.KINDS.includes(req.params.kind)) return res.status(400).json({ error: 'Unbekannte Art' });
     const b = req.body || {};
     const data = budget.cleanBudget(b.data);
@@ -770,7 +770,7 @@ function register(app) {
   // Das Ergebnis wird NICHT direkt gespeichert, sondern im Editor zur Kontrolle angezeigt.
   app.post('/api/nk/concerts/:id/budget-import', async (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const { filename, file_base64, mime_type, kind } = req.body || {};
     if (!filename || !file_base64) return res.status(400).json({ error: 'Datei fehlt' });
     if (!/\.(xlsx|xlsm|xls|ods|csv|numbers)$/i.test(filename)) return res.status(400).json({ error: 'Bitte eine Excel-Datei (.xlsx, .xls), .ods oder .csv hochladen' });
@@ -792,7 +792,7 @@ function register(app) {
   // ---------- GEMA ----------
   app.put('/api/nk/concerts/:id/gema', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const b = req.body || {};
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     ['registered', 'reported'].forEach(key => {
@@ -805,7 +805,7 @@ function register(app) {
 
   app.post('/api/nk/concerts/:id/links', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     let url = String((req.body && req.body.url) || '').trim();
     if (!url) return res.status(400).json({ error: 'Link fehlt' });
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;

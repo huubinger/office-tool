@@ -1,7 +1,8 @@
 // ================= NECKARSULMER KONZERTE: TICKETVERKAUF & KULTURKALENDER =================
 // Verkaufte Tickets je Konzert aus mehreren Quellen:
 //  - Kreatief-Homepage: oeffentliche Veranstaltungsliste (api.kreatief-neckarsulm.de) liefert die
-//    freien Plaetze ("remainingTickets"); verkauft = Kontingent - frei. Abgleich stuendlich.
+//    freien Plaetze ("remainingTickets"); verkauft = Kontingent - frei. Abgleich alle 30 Minuten; neue Konzerte werden automatisch
+//    verknuepft (gleiches Datum + passender Titel).
 //  - Reservix und sonstige: Zahl von Hand eintragen (Reservix-Schnittstelle folgt spaeter).
 // Ausserdem: Steht das Konzert schon im Neckarsulmer Kulturkalender?
 
@@ -36,6 +37,12 @@ CREATE TABLE IF NOT EXISTS nk_ticket_snapshots (
   PRIMARY KEY (source_id, day)
 );
 CREATE INDEX IF NOT EXISTS idx_nk_ticket_sources ON nk_ticket_sources(concert_id);
+-- Von Hand entfernte Homepage-Verknuepfungen nicht automatisch wieder anlegen
+CREATE TABLE IF NOT EXISTS nk_ticket_dismissed (
+  concert_id INTEGER NOT NULL REFERENCES nk_concerts(id) ON DELETE CASCADE,
+  external_id TEXT NOT NULL,
+  PRIMARY KEY (concert_id, external_id)
+);
 `);
 
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
@@ -77,7 +84,8 @@ function saveSnapshot(sourceId, sold) {
 // Alle verknuepften Kreatief-Quellen aktualisieren (Veranstaltungen, die nicht mehr in der
 // Liste stehen - z.B. weil vorbei -, behalten ihren letzten Stand)
 async function refreshKreatief(onlyConcertId) {
-  const sources = db.prepare(`SELECT * FROM nk_ticket_sources WHERE source = 'kreatief'${onlyConcertId ? ' AND concert_id = ?' : ''}`)
+  const sources = db.prepare(`SELECT t.*, c.capacity AS concert_capacity FROM nk_ticket_sources t JOIN nk_concerts c ON c.id = t.concert_id
+    WHERE t.source = 'kreatief'${onlyConcertId ? ' AND t.concert_id = ?' : ''}`)
     .all(...(onlyConcertId ? [onlyConcertId] : []));
   if (!sources.length) return 0;
   let events;
@@ -95,7 +103,9 @@ async function refreshKreatief(onlyConcertId) {
         .run('Veranstaltung steht nicht (mehr) auf der Homepage – letzter Stand bleibt erhalten', s.id);
       continue;
     }
-    const sold = s.capacity && e.remaining !== null ? Math.max(0, s.capacity - e.remaining) : null;
+    // Ohne eigenes Kontingent gilt die Kapazitaet des Konzerts (sofern es die einzige Quelle mit Homepage-Zahl ist)
+    const cap = s.capacity || s.concert_capacity;
+    const sold = cap && e.remaining !== null ? Math.max(0, cap - e.remaining) : null;
     db.prepare("UPDATE nk_ticket_sources SET remaining = ?, sold = ?, label = COALESCE(label, ?), error = NULL, last_checked_at = datetime('now') WHERE id = ?")
       .run(e.remaining, sold, e.name, s.id);
     saveSnapshot(s.id, sold);
@@ -104,13 +114,67 @@ async function refreshKreatief(onlyConcertId) {
   return updated;
 }
 
+// Konzerte der Reihe automatisch mit ihrer Veranstaltung auf der Kreatief-Homepage verknuepfen
+// (gleiches Datum + passender Titel), damit verkaufte und freie Tickets immer da sind.
+let autoLinkRunning = null;
+function autoLinkKreatief() {
+  // Nur ein Lauf gleichzeitig (Start-Abgleich, Zeitplan und Knopf koennen sich sonst ueberschneiden)
+  if (!autoLinkRunning) autoLinkRunning = autoLinkOnce().finally(() => { autoLinkRunning = null; });
+  return autoLinkRunning;
+}
+async function autoLinkOnce() {
+  const concerts = db.prepare(`SELECT * FROM nk_concerts WHERE date IS NOT NULL AND date >= ? AND status NOT IN ('Abgeschlossen', 'Abgesagt')
+    AND NOT EXISTS (SELECT 1 FROM nk_ticket_sources t WHERE t.concert_id = nk_concerts.id AND t.source = 'kreatief')`).all(today());
+  if (!concerts.length) return 0;
+  const events = await kreatiefEvents();
+  const linkedNow = db.prepare("SELECT 1 FROM nk_ticket_sources WHERE concert_id = ? AND source = 'kreatief'");
+  const taken = new Set(db.prepare("SELECT external_id FROM nk_ticket_sources WHERE source = 'kreatief'").all().map(r => String(r.external_id)));
+  const dismissed = new Set(db.prepare('SELECT concert_id, external_id FROM nk_ticket_dismissed').all().map(r => r.concert_id + ':' + r.external_id));
+  let linked = 0;
+  for (const c of concerts) {
+    const hits = events
+      .filter(e => e.date === c.date && !e.cancelled && !taken.has(e.id) && !dismissed.has(c.id + ':' + e.id))
+      .map(e => ({ e, score: titleMatch(c.title, e.name) }))
+      .filter(x => x.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+    const hit = hits[0] && (!hits[1] || hits[1].score < hits[0].score) ? hits[0] : null;
+    if (!hit || linkedNow.get(c.id)) continue;
+    // Kein Kontingent mitkopieren: ohne eigenes Kontingent gilt immer die aktuelle Kapazitaet des Konzerts
+    db.prepare('INSERT INTO nk_ticket_sources (concert_id, source, external_id, label) VALUES (?, ?, ?, ?)')
+      .run(c.id, 'kreatief', hit.e.id, hit.e.name);
+    taken.add(hit.e.id);
+    linked++;
+  }
+  return linked;
+}
+
+// Kurzfassung fuer Listen: verkauft, Kontingent, frei.
+// Homepage-Quellen ohne Kontingent nutzen die Kapazitaet des Konzerts (wird jedes Mal frisch gelesen).
+// Frei = je Quelle (Homepage: freie Plaetze laut Homepage, sonst Kontingent - verkauft) aufsummiert;
+// fehlt das bei einer Quelle, ersatzweise Kapazitaet - verkauft.
+function ticketSummary(concert) {
+  const rows = db.prepare('SELECT * FROM nk_ticket_sources WHERE concert_id = ?').all(concert.id);
+  if (!rows.length) return null;
+  const has = (v) => v !== null && v !== undefined;
+  const sold = rows.every(r => has(r.sold)) ? rows.reduce((s, r) => s + r.sold, 0) : null;
+  const capacity = rows.every(r => r.capacity) ? rows.reduce((s, r) => s + r.capacity, 0) : (concert.capacity || null);
+  const free = rows.map(r => r.source === 'kreatief' ? (has(r.remaining) ? r.remaining : null)
+    : (r.capacity && has(r.sold) ? Math.max(0, r.capacity - r.sold) : null));
+  let available = null;
+  // Je Quelle aufsummieren nur, wenn jede Quelle ein eigenes Kontingent hat (oder es nur eine gibt) -
+  // sonst teilen sich die Quellen die Kapazitaet des Konzerts
+  if (free.every(has) && (rows.length === 1 || rows.every(r => r.capacity))) available = free.reduce((a, b) => a + b, 0);
+  else if (capacity && sold !== null) available = Math.max(0, capacity - sold);
+  return { sold, capacity, available };
+}
+
 function ticketInfo(concert) {
   const sources = db.prepare('SELECT * FROM nk_ticket_sources WHERE concert_id = ? ORDER BY id').all(concert.id).map(s => ({
     ...s, source_label: SOURCES[s.source] || s.source,
     url: s.source === 'kreatief' && s.external_id ? KREATIEF_EVENT_URL + s.external_id : null,
   }));
   if (!sources.length) return null;
-  const sold = sources.reduce((sum, s) => sum + (s.sold || 0), 0);
+  const sold = sources.reduce((sum, s) => sum + (s.sold || 0), 0); // fuer Verlauf/Balken; ob die Zahl vollstaendig ist, sagt sold_known
   const capacity = sources.every(s => s.capacity) ? sources.reduce((sum, s) => sum + s.capacity, 0) : (concert.capacity || null);
   // Verlauf: verkaufte Tickets je Tag (Summe aller Quellen; fehlende Tage mit dem letzten Stand fuellen)
   const snaps = db.prepare(`SELECT s.source_id, s.day, s.sold FROM nk_ticket_snapshots s JOIN nk_ticket_sources t ON t.id = s.source_id
@@ -121,7 +185,8 @@ function ticketInfo(concert) {
     snaps.filter(s => s.day === day).forEach(s => last.set(s.source_id, s.sold || 0));
     return { day, sold: [...last.values()].reduce((a, b) => a + b, 0) };
   });
-  return { sources, sold, capacity, history };
+  const summary = ticketSummary(concert);
+  return { sources, sold, capacity, available: summary.available, sold_known: summary.sold !== null, history };
 }
 
 // ---------- Kulturkalender ----------
@@ -157,8 +222,8 @@ async function kulturkalenderLookup(concert) {
 function register(app) {
   nk.extendDetail((c) => ({ tickets: ticketInfo(c), ticket_source_types: SOURCES }));
   nk.extendList((c) => {
-    const row = db.prepare('SELECT SUM(sold) AS sold, COUNT(*) AS n, SUM(CASE WHEN capacity IS NULL THEN 1 ELSE 0 END) AS nocap, SUM(capacity) AS cap FROM nk_ticket_sources WHERE concert_id = ?').get(c.id);
-    return { tickets_sold: row.n ? (row.sold || 0) : null, tickets_capacity: row.n ? (row.nocap ? c.capacity : row.cap) : null };
+    const t = ticketSummary(c);
+    return { tickets_linked: !!t, tickets_sold: t ? t.sold : null, tickets_capacity: t ? t.capacity : null, tickets_available: t ? t.available : null };
   });
 
   app.get('/api/nk/tickets/kreatief-events', async (req, res) => {
@@ -167,7 +232,7 @@ function register(app) {
 
   app.post('/api/nk/concerts/:id/tickets', async (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     const b = req.body || {};
     if (!SOURCES[b.source]) return res.status(400).json({ error: 'Unbekannte Quelle' });
     if (b.source === 'kreatief' && !b.external_id) return res.status(400).json({ error: 'Bitte die Veranstaltung auf der Homepage auswählen' });
@@ -185,7 +250,8 @@ function register(app) {
     const b = req.body || {};
     const capacity = b.capacity !== undefined ? intOrNull(b.capacity) : s.capacity;
     let sold = s.sold;
-    if (s.source === 'kreatief') sold = capacity && s.remaining !== null ? Math.max(0, capacity - s.remaining) : null;
+    const concertCap = (db.prepare('SELECT capacity FROM nk_concerts WHERE id = ?').get(s.concert_id) || {}).capacity;
+    if (s.source === 'kreatief') sold = (capacity || concertCap) && s.remaining !== null ? Math.max(0, (capacity || concertCap) - s.remaining) : null;
     else if (b.sold !== undefined) sold = intOrNull(b.sold);
     db.prepare("UPDATE nk_ticket_sources SET capacity = ?, sold = ?, label = ?, updated_at = datetime('now') WHERE id = ?")
       .run(capacity, sold, b.label !== undefined ? (String(b.label || '').slice(0, 200) || null) : s.label, s.id);
@@ -194,25 +260,30 @@ function register(app) {
   });
 
   app.delete('/api/nk/concerts/:id/tickets/:sid', (req, res) => {
+    const s = db.prepare('SELECT * FROM nk_ticket_sources WHERE id = ? AND concert_id = ?').get(req.params.sid, req.params.id);
+    if (s && s.source === 'kreatief' && s.external_id) {
+      db.prepare('INSERT OR IGNORE INTO nk_ticket_dismissed (concert_id, external_id) VALUES (?, ?)').run(s.concert_id, String(s.external_id));
+    }
     db.prepare('DELETE FROM nk_ticket_sources WHERE id = ? AND concert_id = ?').run(req.params.sid, req.params.id);
     res.json(nk.concertDetail(req.params.id, req));
   });
 
   app.post('/api/nk/concerts/:id/tickets/refresh', async (req, res) => {
-    try { await refreshKreatief(+req.params.id); } catch (err) { return res.status(502).json({ error: err.message }); }
+    try { await autoLinkKreatief(); await refreshKreatief(+req.params.id); } catch (err) { return res.status(502).json({ error: err.message }); }
     res.json(nk.concertDetail(req.params.id, req));
   });
 
   app.get('/api/nk/concerts/:id/kulturkalender', async (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     try { res.json(await kulturkalenderLookup(c)); } catch (err) { res.status(502).json({ error: err.message }); }
   });
 
-  // Stuendlich (zur vollen Stunde + 5) die Homepage abfragen
-  cron.schedule('5 * * * *', () => {
-    refreshKreatief().catch(err => console.error('[NK-Tickets]', err.message));
-  }, { timezone: 'Europe/Berlin' });
+  // Alle 30 Minuten: neue Konzerte mit der Homepage verknuepfen und Zahlen abfragen
+  const sync = () => autoLinkKreatief().catch(err => console.error('[NK-Tickets] Verknuepfen:', err.message))
+    .then(() => refreshKreatief()).catch(err => console.error('[NK-Tickets]', err.message));
+  cron.schedule('5,35 * * * *', sync, { timezone: 'Europe/Berlin' });
+  if (process.env.NODE_ENV !== 'test') setTimeout(sync, 20 * 1000);
 }
 
-module.exports = { register, refreshKreatief, kreatiefEvents, kulturkalenderLookup, ticketInfo, titleMatch };
+module.exports = { register, refreshKreatief, autoLinkKreatief, ticketSummary, kreatiefEvents, kulturkalenderLookup, ticketInfo, titleMatch };

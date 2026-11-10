@@ -3616,7 +3616,7 @@
   const TAB_LABELS = [
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'], ['events', 'Events'], ['surveys', 'Umfragen'],
-    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Projekte'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_contacts', 'NK · Kontakte'],
+    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Events'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_contacts', 'NK · Kontakte'],
     ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
@@ -4743,6 +4743,20 @@
     setNkView(nkView);
   }
 
+  // Tickets je Konzert: verkauft und frei (immer sichtbar, solange das Konzert nicht vorbei ist)
+  function nkTicketText(sold, available, capacity) {
+    const parts = [];
+    if (sold !== null && sold !== undefined) parts.push(`${fmtNum(sold)} verkauft`);
+    if (available !== null && available !== undefined) parts.push(`${fmtNum(available)} frei`);
+    if (!parts.length) return capacity ? `${fmtNum(capacity)} Plätze` : 'keine Zahlen';
+    return parts.join(' · ');
+  }
+  function nkTicketChip(c) {
+    const archived = c.status === 'Abgeschlossen' || c.status === 'Abgesagt' || (c.date && c.date < isoDate(new Date()));
+    if (!c.tickets_linked) return archived ? '' : '<span class="muted-chip">🎟️ Tickets <em>noch nicht im Vorverkauf</em></span>';
+    return `<span>🎟️ Tickets <em>${nkTicketText(c.tickets_sold, c.tickets_available, c.tickets_capacity)}</em></span>`;
+  }
+
   function nkConcertCardHtml(c) {
     const readState = c.comment_count
       ? (c.unread_count ? `<span class="pill pill-accent">${c.unread_count} neu</span>` : (c.all_read ? '<span class="pill pill-ok">✓ Alle gelesen</span>' : '<span class="pill pill-muted">Nicht alle gelesen</span>'))
@@ -4764,7 +4778,7 @@
             <span>💶 Kalkulation ${budgetLine}</span>
             <span>🎼 GEMA <em>${c.gema_registered_at ? '✓ angemeldet' : 'nicht angemeldet'}${c.gema_reported_at ? ' · Musikfolge gemeldet' : ''}</em></span>
             <span class="${c.todo_open ? 'has-open' : ''}">☑️ 2Dos <em>${c.todo_total ? `${c.todo_open} offen` : '0'}</em></span>
-            ${c.tickets_sold !== null && c.tickets_sold !== undefined ? `<span>🎟️ Tickets <em>${fmtNum(c.tickets_sold)}${c.tickets_capacity ? ' / ' + fmtNum(c.tickets_capacity) : ''}</em></span>` : ''}
+            ${nkTicketChip(c)}
           </div>
           ${c.progress ? `<div class="progress-line" title="${escapeHtml(c.progress.next ? 'Als Nächstes: ' + c.progress.next : 'Alles erledigt')}">
             <div class="progress-bar"><span style="width:${Math.round(c.progress.done / c.progress.total * 100)}%"></span></div>
@@ -5022,7 +5036,7 @@
 
     view.innerHTML = `
       <nav class="folder-path">
-        <button type="button" class="link-btn" id="nk-concert-back">📁 Projekte</button>
+        <button type="button" class="link-btn" id="nk-concert-back">📁 Events</button>
         <span>›</span><span>${escapeHtml(nkFolderTitle(c))}</span>
         <span>›</span><strong>${NK_FOLDERS[folder].name}</strong>
       </nav>
@@ -5110,7 +5124,7 @@
       refresh(api(`/api/nk/concerts/${c.id}/comments/${b.dataset.deleteComment}`, { method: 'DELETE' }));
     }));
     view.querySelectorAll('[data-delete-file]').forEach(b => b.addEventListener('click', () => {
-      if (!confirm('Dieses Dokument aus dem Projekt entfernen?')) return;
+      if (!confirm('Dieses Dokument aus dem Event entfernen?')) return;
       refresh(api(`/api/nk/concerts/${c.id}/files/${b.dataset.deleteFile}`, { method: 'DELETE' }));
     }));
     view.querySelectorAll('[data-file-seen]').forEach(b => b.addEventListener('click', () =>
@@ -5353,7 +5367,7 @@
         ${v ? `<div><span>pro Besucher</span><strong class="${resultClass(res)}">${fmtEuro(Math.round(res / v * 100) / 100)}</strong><small>Kosten ${fmtEuro(Math.round(exp / v * 100) / 100)}</small></div>` : ''}`;
       const be = breakEven(b.data);
       const cap = c.capacity;
-      const sold = c.tickets ? c.tickets.sold : null;
+      const sold = c.tickets && c.tickets.sold_known ? c.tickets.sold : null;
       document.getElementById('budget-breakeven').innerHTML = be ? `
         ${be.revenue ? `<div>Ticketeinnahmen laut Preisstufen: <strong>${fmtEuro(be.revenue)}</strong> (${fmtNum(be.planned)} Tickets)</div>` : ''}
         <div class="${be.tickets === 0 ? 'amount-pos' : ''}">${be.tickets === 0 ? '✓ Ausgaben sind schon ohne Ticketeinnahmen gedeckt'
@@ -5642,8 +5656,8 @@
           </div>
           ${c.tickets ? `<div class="progress-line tickets-line">
             <div class="progress-bar progress-tickets"><span style="width:${pct(c.tickets.sold, c.tickets.capacity)}%"></span></div>
-            <small>🎟️ ${fmtNum(c.tickets.sold)}${c.tickets.capacity ? ` von ${fmtNum(c.tickets.capacity)} Tickets (${pct(c.tickets.sold, c.tickets.capacity)} %)` : ' Tickets verkauft'}</small>
-          </div>` : ''}
+            <small>🎟️ ${nkTicketText(c.tickets.sold, c.tickets.available, c.tickets.capacity)}${c.tickets.capacity && c.tickets.sold !== null ? ` von ${fmtNum(c.tickets.capacity)} (${pct(c.tickets.sold, c.tickets.capacity)} %)` : ''}</small>
+          </div>` : '<small class="dash-concert-todos">🎟️ noch nicht im Vorverkauf</small>'}
           ${c.todo_open ? `<small class="dash-concert-todos">☑️ ${c.todo_open} offene 2Dos</small>` : ''}
         </div>
       </button>`;
@@ -5989,14 +6003,15 @@
           </div>
           <div class="card tickets-card">
             <div class="section-card-head"><h3>🎟️ Ticketverkauf</h3>
-              ${t && t.sources.some(x => x.source === 'kreatief') ? '<button type="button" class="ghost" data-tickets-refresh title="Jetzt von der Homepage abfragen (sonst stündlich)">↻ Aktualisieren</button>' : ''}</div>
+              ${t && t.sources.some(x => x.source === 'kreatief') ? '<button type="button" class="ghost" data-tickets-refresh title="Jetzt von der Homepage abfragen (sonst alle 30 Minuten)">↻ Aktualisieren</button>' : ''}</div>
             ${t ? `
-              <div class="ticket-big"><strong>${fmtNum(t.sold)}</strong><span>${t.capacity ? `von ${fmtNum(t.capacity)} verkauft · ${pct(t.sold, t.capacity)} %` : 'verkauft'}</span></div>
+              <div class="ticket-big"><strong>${t.sold_known ? fmtNum(t.sold) : '?'}</strong><span>${t.capacity ? `von ${fmtNum(t.capacity)} verkauft · ${pct(t.sold, t.capacity)} %` : 'verkauft'}${t.available !== null ? ` · <strong>${fmtNum(t.available)}</strong> frei` : ''}</span></div>
+              ${!t.sold_known ? '<p class="hint">Die Homepage meldet nur freie Plätze – für die verkauften Tickets bitte das Kontingent eintragen.</p>' : ''}
               ${t.capacity ? `<div class="progress-bar progress-tickets progress-big"><span style="width:${pct(t.sold, t.capacity)}%"></span>${be && be.tickets ? `<i class="be-marker" style="left:${pct(be.tickets, t.capacity)}%" title="Kostendeckung"></i>` : ''}</div>` : ''}
-              ${be ? `<p class="ticket-be ${t.sold >= be.tickets ? 'is-ok' : ''}">${be.tickets === 0 ? '✓ Kosten laut Kalkulation schon ohne Tickets gedeckt'
+              ${!t.sold_known ? '' : be ? `<p class="ticket-be ${t.sold >= be.tickets ? 'is-ok' : ''}">${be.tickets === 0 ? '✓ Kosten laut Kalkulation schon ohne Tickets gedeckt'
                 : t.sold >= be.tickets ? `✓ Kostendeckung erreicht (ab ${fmtNum(be.tickets)} Tickets)` : `Noch <strong>${fmtNum(be.tickets - t.sold)}</strong> Tickets bis zur Kostendeckung (${fmtNum(be.tickets)} bei Ø ${fmtEuro(be.avg)})`}</p>`
                 : '<p class="hint">Ticketpreise in der Kalkulation eintragen, dann zeigt das Tool, ab wann die Kosten gedeckt sind.</p>'}
-              ${guests ? `<p class="hint">Dazu ${fmtNum(guests)} Freikarten laut Gästeliste → erwartet ${fmtNum(t.sold + guests)} Besucher</p>` : ''}
+              ${guests && t.sold_known ? `<p class="hint">Dazu ${fmtNum(guests)} Freikarten laut Gästeliste → erwartet ${fmtNum(t.sold + guests)} Besucher</p>` : ''}
               ${sparklineSvg(t.history)}
               <div class="ticket-sources">
                 ${t.sources.map(s => `
@@ -6077,7 +6092,7 @@
                 <div class="share-sections">${Object.entries(c.share_sections).map(([k, v]) => `
                   <label class="checkbox-label"><input type="checkbox" name="share-section" value="${k}" ${k !== 'files' ? 'checked' : ''}> <span>${escapeHtml(v)}</span></label>`).join('')}</div>
                 <div class="share-files hidden" id="share-files">${files.length ? files.map(f => `
-                  <label class="checkbox-label"><input type="checkbox" name="share-file" value="${f.id}" ${f.category === 'Technik/Rider' ? 'checked' : ''}> <span>${escapeHtml(f.filename)} <small>${escapeHtml(f.category || '')}</small></span></label>`).join('') : '<p class="hint">Noch keine Dateien im Projekt.</p>'}</div>
+                  <label class="checkbox-label"><input type="checkbox" name="share-file" value="${f.id}" ${f.category === 'Technik/Rider' ? 'checked' : ''}> <span>${escapeHtml(f.filename)} <small>${escapeHtml(f.category || '')}</small></span></label>`).join('') : '<p class="hint">Noch keine Dateien im Event.</p>'}</div>
                 <textarea id="share-message" rows="2" placeholder="Nachricht oben auf der Seite, z.B. Anfahrt, Parken, Künstlereingang"></textarea>
                 <label class="share-expiry">gültig bis (optional) <input type="date" id="share-expires" value="${c.date ? (() => { const d = isoToDate(c.date); d.setDate(d.getDate() + 7); return isoDate(d); })() : ''}"></label>
                 <button type="submit">Link erstellen</button>

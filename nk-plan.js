@@ -148,11 +148,8 @@ function dashboard(req) {
 
 function ticketTotals(concertId) {
   try {
-    const rows = db.prepare('SELECT * FROM nk_ticket_sources WHERE concert_id = ?').all(concertId);
-    if (!rows.length) return null;
-    const sold = rows.reduce((s, r) => s + (r.sold || 0), 0);
-    const capacity = rows.every(r => r.capacity) ? rows.reduce((s, r) => s + r.capacity, 0) : null;
-    return { sold, capacity };
+    const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(concertId);
+    return c ? require('./nk-tickets').ticketSummary(c) : null;
   } catch (e) { return null; }
 }
 
@@ -434,7 +431,7 @@ function register(app) {
 
   app.put('/api/nk/concerts/:id/checks/:step', (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
-    if (!c) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+    if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
     if (!STEPS.some(s => s.key === req.params.step)) return res.status(400).json({ error: 'Unbekannter Schritt' });
     if (req.body && req.body.done) {
       db.prepare('INSERT OR REPLACE INTO nk_concert_checks (concert_id, step_key, done_by) VALUES (?, ?, ?)').run(c.id, req.params.step, req.user.id);

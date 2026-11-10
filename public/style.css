@@ -184,6 +184,18 @@ h2 { font-size: 15px; }
 .topbar-row1 { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 
+/* Ticketleiste oben (wie in Lucy): ein Chip je kommendem Event, Balken = Anteil verkauft */
+.nk-ticket-bar { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
+.nk-ticket-bar::-webkit-scrollbar { display: none; }
+.nk-ticket-bar button { position: relative; flex: none; display: flex; align-items: baseline; gap: 6px; max-width: 290px; overflow: hidden;
+  background: var(--accent-soft); color: var(--ink); border: 0; border-radius: 10px; padding: 5px 10px 7px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.nk-ticket-bar button:hover { background: var(--accent-glow); }
+.nk-ticket-bar .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-weight: 600; }
+.nk-ticket-bar small { color: var(--ink-soft); font-size: 11.5px; white-space: nowrap; }
+.nk-ticket-bar b { font-size: 13.5px; white-space: nowrap; color: var(--accent-dark); }
+.nk-ticket-bar b small { font-weight: 400; }
+.nk-ticket-bar i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); border-radius: 0 2px 2px 0; }
+
 .quickstart {
   display: flex;
   align-items: center;

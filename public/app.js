@@ -4741,6 +4741,38 @@
     renderNkFinance();
     refreshNkBadges();
     setNkView(nkView);
+    renderNkTicketBar();
+  }
+
+  // Leiste oben (wie in Lucy): kommende Events mit verkauft/gesamt, Klick öffnet die Übersicht des Events
+  function renderNkTicketBar() {
+    const bar = document.getElementById('nk-ticket-bar');
+    const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+    const today = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+    const list = (nkConcerts || []).filter(c => c.date && c.date >= today && c.status !== 'Abgesagt' && c.status !== 'Abgeschlossen')
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+    bar.classList.toggle('hidden', !list.length);
+    bar.innerHTML = list.map(c => {
+      const dt = isoToDate(c.date);
+      const name = c.title.split(/ [–-] /)[0];
+      const sold = c.tickets_sold, cap = c.tickets_capacity;
+      const count = !c.tickets_linked ? '<small>kein VVK</small>'
+        : sold !== null && sold !== undefined ? `<b>${fmtNum(sold)}${cap ? `<small>/${fmtNum(cap)}</small>` : ''}</b>`
+        : `<b>?<small>${c.tickets_available !== null && c.tickets_available !== undefined ? ` · ${fmtNum(c.tickets_available)} frei` : ''}</small></b>`;
+      const width = sold && cap ? Math.min(100, Math.round(sold / cap * 100)) : 0;
+      const tip = [c.title, c.location, c.tickets_available !== null && c.tickets_available !== undefined ? `${fmtNum(c.tickets_available)} frei` : ''].filter(Boolean).join(' · ');
+      return `<button type="button" data-ticket-bar="${c.id}" title="${escapeHtml(tip)}"><span class="n">${escapeHtml(name)}</span>
+        <small>${WD_SHORT[dt.getDay()]} ${dt.getDate()}.${dt.getMonth() + 1}.</small>${count}${width ? `<i style="width:${width}%"></i>` : ''}</button>`;
+    }).join('');
+    bar.querySelectorAll('[data-ticket-bar]').forEach(b => b.addEventListener('click', async () => {
+      if (activeTab !== 'nk_projects') switchTab('nk_projects');
+      try { await openNkConcert(+b.dataset.ticketBar, 'overview'); } catch (err) { toast(err.message); }
+    }));
+  }
+  async function refreshNkTicketBar() {
+    if (!can('nk_projects')) return;
+    try { nkConcerts = await api('/api/nk/concerts'); } catch (e) { return; }
+    renderNkTicketBar();
   }
 
   // Tickets je Konzert: verkauft und frei (immer sichtbar, solange das Konzert nicht vorbei ist)
@@ -7161,6 +7193,8 @@
     }
     refreshNkBadges();
     setInterval(refreshNkBadges, 60000);
+    refreshNkTicketBar();
+    setInterval(refreshNkTicketBar, 5 * 60000);
     // Service Worker fuer Push-Mitteilungen (nur NK-Konten; ohne Offline-Cache)
     if (NK_TABS.some(can)) swRegistration();
     refreshMkBadge();

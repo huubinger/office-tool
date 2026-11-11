@@ -67,12 +67,47 @@ async function kreatiefEvents(force) {
     location: e.locationTextname || null,
     organizer: e.organizerName || null,
     remaining: Number.isFinite(e.remainingTickets) ? e.remainingTickets : null,
+    location_id: e.location || null,
+    seating: !!e.seating,
+    organizer_id: e.organizer || null,
+    musical: !!e.musical,
     online: !!e.onlinePresale,
     cancelled: !!e.cancelledReason,
     url: KREATIEF_EVENT_URL + e.id,
   }));
   kreatiefCache = { at: Date.now(), events };
   return events;
+}
+
+// ---------- Konzerte der Reihe direkt von der Homepage (auch ohne angelegtes Konzert im Tool) ----------
+// Zur Reihe zaehlen Kreatief-Veranstaltungen mit Online-Vorverkauf in der Musikschule Neckarsulm oder der Ballei
+// ab Beginn der Reihe (Weihnachts- und Musicalabende davor gehoeren nicht dazu).
+const NK_SERIES_FROM = process.env.NK_SERIES_FROM || '2027-01-01';
+const NK_SERIES_PLACES = /musikschule|ballei/i;
+const locationCache = new Map();
+async function locationCapacity(id, seating) {
+  if (!id) return null;
+  let loc = locationCache.get(id);
+  if (!loc || Date.now() - loc.at > 6 * 3600 * 1000) {
+    const res = await fetch(`https://api.kreatief-neckarsulm.de/common/location/${id}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`Ort ${id} nicht abrufbar (${res.status})`);
+    loc = { at: Date.now(), data: await res.json() };
+    locationCache.set(id, loc);
+  }
+  return (seating ? loc.data.numTicketsSeats : loc.data.numTicketsNoSeats) || null;
+}
+async function homepageSeries() {
+  const events = await kreatiefEvents();
+  const linked = new Set(db.prepare("SELECT external_id FROM nk_ticket_sources WHERE source = 'kreatief'").all().map(r => String(r.external_id)));
+  const list = events.filter(e => e.date && e.date >= today() && e.date >= NK_SERIES_FROM && !e.cancelled && e.online && !e.musical
+    && e.organizer_id === 1 && NK_SERIES_PLACES.test(e.location || '') && !linked.has(e.id));
+  const out = [];
+  for (const e of list) {
+    const capacity = await locationCapacity(e.location_id, e.seating).catch(() => null);
+    out.push({ id: e.id, title: e.name, date: e.date, time: e.time, location: e.location, url: e.url, remaining: e.remaining,
+      capacity, sold: capacity && e.remaining !== null ? Math.max(0, capacity - e.remaining) : null });
+  }
+  return out;
 }
 
 function saveSnapshot(sourceId, sold) {
@@ -230,6 +265,10 @@ function register(app) {
     try { res.json(await kreatiefEvents(!!req.query.refresh)); } catch (err) { res.status(502).json({ error: err.message }); }
   });
 
+  app.get('/api/nk/tickets/homepage', async (req, res) => {
+    try { res.json(await homepageSeries()); } catch (err) { res.status(502).json({ error: err.message }); }
+  });
+
   app.post('/api/nk/concerts/:id/tickets', async (req, res) => {
     const c = db.prepare('SELECT * FROM nk_concerts WHERE id = ?').get(req.params.id);
     if (!c) return res.status(404).json({ error: 'Event nicht gefunden' });
@@ -286,4 +325,4 @@ function register(app) {
   if (process.env.NODE_ENV !== 'test') setTimeout(sync, 20 * 1000);
 }
 
-module.exports = { register, refreshKreatief, autoLinkKreatief, ticketSummary, kreatiefEvents, kulturkalenderLookup, ticketInfo, titleMatch };
+module.exports = { register, homepageSeries, refreshKreatief, autoLinkKreatief, ticketSummary, kreatiefEvents, kulturkalenderLookup, ticketInfo, titleMatch };

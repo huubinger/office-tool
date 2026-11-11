@@ -4742,6 +4742,7 @@
     refreshNkBadges();
     setNkView(nkView);
     renderNkTicketBar();
+    loadNkHomepageEvents().then(renderNkTicketBar);
   }
 
   // Leiste oben (wie in Lucy): kommende Events mit verkauft/gesamt, Klick öffnet die Übersicht des Events
@@ -4749,7 +4750,11 @@
     const bar = document.getElementById('nk-ticket-bar');
     const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
     const today = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+    // Konzerte aus dem Tool + Konzerte der Reihe, die nur auf der Kreatief-Homepage stehen
+    const home = (nkHomepageEvents || []).map(e => ({ ...e, homepage: true, tickets_linked: true,
+      tickets_sold: e.sold, tickets_capacity: e.capacity, tickets_available: e.remaining }));
     const list = (nkConcerts || []).filter(c => c.date && c.date >= today && c.status !== 'Abgesagt' && c.status !== 'Abgeschlossen')
+      .concat(home)
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
     bar.classList.toggle('hidden', !list.length);
     bar.innerHTML = list.map(c => {
@@ -4760,7 +4765,10 @@
         : sold !== null && sold !== undefined ? `<b>${fmtNum(sold)}${cap ? `<small>/${fmtNum(cap)}</small>` : ''}</b>`
         : `<b>?<small>${c.tickets_available !== null && c.tickets_available !== undefined ? ` · ${fmtNum(c.tickets_available)} frei` : ''}</small></b>`;
       const width = sold && cap ? Math.min(100, Math.round(sold / cap * 100)) : 0;
-      const tip = [c.title, c.location, c.tickets_available !== null && c.tickets_available !== undefined ? `${fmtNum(c.tickets_available)} frei` : ''].filter(Boolean).join(' · ');
+      const tip = [c.title, c.location, c.tickets_available !== null && c.tickets_available !== undefined ? `${fmtNum(c.tickets_available)} frei` : '',
+        c.homepage ? 'von der Kreatief-Homepage – Klick öffnet die Veranstaltung' : ''].filter(Boolean).join(' · ');
+      if (c.homepage) return `<a class="nk-bar-home" href="${escapeHtml(c.url)}" target="_blank" rel="noopener" title="${escapeHtml(tip)}"><span class="n">${escapeHtml(name)}</span>
+        <small>${WD_SHORT[dt.getDay()]} ${dt.getDate()}.${dt.getMonth() + 1}.</small>${count}${width ? `<i style="width:${width}%"></i>` : ''}</a>`;
       return `<button type="button" data-ticket-bar="${c.id}" title="${escapeHtml(tip)}"><span class="n">${escapeHtml(name)}</span>
         <small>${WD_SHORT[dt.getDay()]} ${dt.getDate()}.${dt.getMonth() + 1}.</small>${count}${width ? `<i style="width:${width}%"></i>` : ''}</button>`;
     }).join('');
@@ -4769,9 +4777,14 @@
       try { await openNkConcert(+b.dataset.ticketBar, 'overview'); } catch (err) { toast(err.message); }
     }));
   }
+  let nkHomepageEvents = [];
+  async function loadNkHomepageEvents() {
+    try { nkHomepageEvents = await api('/api/nk/tickets/homepage'); } catch (e) { /* Homepage nicht erreichbar: alter Stand bleibt */ }
+  }
   async function refreshNkTicketBar() {
     if (!can('nk_projects')) return;
     try { nkConcerts = await api('/api/nk/concerts'); } catch (e) { return; }
+    await loadNkHomepageEvents();
     renderNkTicketBar();
   }
 

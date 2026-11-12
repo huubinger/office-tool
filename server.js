@@ -1977,6 +1977,7 @@ app.post('/api/contract-events/:id/jpmr', async (req, res) => {
         start: event.time || null,
         ort: event.location || null,
         notizen: event.notes || null,
+        externe_id: `office-${event.id}`, // JPMR legt denselben Termin dann nie doppelt an
       }),
     });
     const data = await r.json().catch(() => ({}));

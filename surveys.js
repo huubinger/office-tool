@@ -512,17 +512,13 @@ function register(app) {
     res.json({ ...publicData(s, token), edit_token: token });
   });
 
-  // Besetzung: gehoert keiner einzelnen Person, darf in der offenen Tabelle von allen gesetzt werden
+  // Besetzung: gehoert keiner einzelnen Person, darf in der Tabellen-Ansicht von allen gesetzt werden (ohne Login)
   app.put('/api/public/umfrage/:token/cast', (req, res) => {
     const s = bySurveyToken(req.params.token);
     if (!s) return res.status(404).json({ error: 'Diese Umfrage gibt es nicht (mehr).' });
     if (s.status !== 'offen') return res.status(403).json({ error: 'Die Umfrage ist geschlossen.' });
     if (s.layout !== 'table') return res.status(403).json({ error: 'Nur in der Tabellen-Ansicht möglich.' });
-    // nur die Darsteller dieser Rolle (erkannt am persoenlichen Schluessel) legen fest, wer spielt
-    const me = req.query.e ? db.prepare('SELECT * FROM sv_responses WHERE edit_token = ? AND survey_id = ?').get(String(req.query.e), s.id) : null;
-    if (!isCastMember(s, me) || me.role !== String((req.body || {}).role || '')) {
-      return res.status(403).json({ error: 'Das können nur die Darsteller dieser Rolle festlegen – bitte über deinen persönlichen Link öffnen.' });
-    }
+    // ohne Login: wer den Link hat, darf eintragen, wer spielt
     const err = saveCastCell(s, req.body || {});
     if (err) return res.status(400).json({ error: err });
     res.json(publicData(s, req.query.e));
@@ -533,10 +529,11 @@ function register(app) {
     const s = bySurveyToken(req.params.token);
     if (!s) return res.status(404).json({ error: 'Diese Umfrage gibt es nicht (mehr).' });
     if (s.status !== 'offen') return res.status(403).json({ error: 'Die Umfrage ist geschlossen.' });
-    if (s.layout !== 'table' || !s.open_edit) return res.status(403).json({ error: 'Nur die eigene Zeile darf geändert werden.' });
+    if (s.layout !== 'table') return res.status(403).json({ error: 'Nur die eigene Zeile darf geändert werden.' });
     const r = db.prepare('SELECT * FROM sv_responses WHERE id = ? AND survey_id = ?').get(req.params.rid, s.id);
     if (!r) return res.status(404).json({ error: 'Zeile nicht gefunden' });
-    if (isCastMember(s, r) && r.edit_token !== String(req.query.e || '')) return res.status(403).json({ error: 'Die Zeilen der Darsteller ändern nur sie selbst.' });
+    // Zeilen der Besetzung: jeder kreuzt ohne Login bei seinem Namen an; andere Zeilen nur bei offener Tabelle
+    if (!s.open_edit && !isCastMember(s, r)) return res.status(403).json({ error: 'Nur die eigene Zeile darf geändert werden.' });
     db.transaction(() => {
       db.prepare("UPDATE sv_responses SET updated_at = datetime('now') WHERE id = ?").run(r.id);
       saveAnswers(r.id, s.id, (req.body || {}).answers, !!s.allow_maybe);

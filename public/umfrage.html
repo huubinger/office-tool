@@ -48,6 +48,12 @@
   .sv-me details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 13px; }
   .sv-me textarea { width: 100%; margin-bottom: 8px; }
   .sv-legend b { padding: 0 5px; border-radius: 4px; }
+  /* Termine beim Scrollen mitnehmen: Tabelle scrollt in sich, Kopf und Namensspalte bleiben stehen */
+  .sv-tablepage .sv-table-wrap { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: auto; }
+  .sv-tablepage .sv-table thead { position: sticky; top: 0; z-index: 3; }
+  .sv-tablepage .sv-table thead th { background-color: var(--panel); }
+  .sv-tablepage .sv-table tfoot { position: sticky; bottom: 0; z-index: 3; }
+  .sv-tablepage .sv-table tfoot th, .sv-tablepage .sv-table tfoot td { background-color: var(--panel); }
 </style>
 </head>
 <body>
@@ -224,19 +230,20 @@
     const own = data.own;
     const editLink = editToken ? `${location.origin}/u/${token}?e=${editToken}` : '';
     const typedName = (document.getElementById('sv-name') || {}).value;
-    // Rollen mit Besetzung haben persoenliche Links und stehen hier nicht zur Wahl
+    // Rollen mit Besetzung stehen schon mit Namen in der Tabelle und stehen hier nicht zur Wahl
     const freeRoles = data.roles.filter(r => !(data.cast || {})[r]);
     const hasCast = freeRoles.length < data.roles.length;
     const member = own && isCastMember(data, own);
     const roleSelect = (selected) => freeRoles.length ? `<select id="sv-role"><option value="">— Rolle / Aufgabe —</option>${freeRoles.map(r => `<option ${selected === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>` : '';
+    app.classList.add('sv-tablepage');
+    const cycle = `<span class="sv-legend">leer → <b class="sv-yes">✓</b> kann → ${data.allow_maybe ? '<b class="sv-maybe">?</b> vielleicht → ' : ''}<b class="sv-no">✗</b> kann nicht → leer</span>`;
     app.innerHTML = `
       <h1>${esc(data.title)}</h1>
       ${data.description ? `<p class="sv-desc">${esc(data.description)}</p>` : ''}
       <div class="sv-meta">${data.deadline ? `Bitte eintragen bis ${fmtDate(data.deadline)}` : ''}</div>
       ${!open ? '<div class="sv-closed">Die Umfrage ist geschlossen – Änderungen sind nicht mehr möglich.</div>' : ''}
       ${open ? `<div class="card sv-me">
-        ${member ? `<p style="margin:0 0 8px">Hallo <strong>${esc(own.name)}</strong> (${esc(own.role)})! Trag in deiner Zeile ein, wann du kannst <b class="sv-yes">✓</b> und wann nicht <b class="sv-no">✗</b>. In der Zeile <strong>${esc(own.role)}</strong> legt ihr dann gemeinsam fest, wer spielt – das können nur ${esc(data.cast[own.role].join(' und '))}.</p>
-          <p class="hint" style="margin:0">Auf diesem Gerät erkennt dich die Seite wieder. Für ein anderes Gerät deinen persönlichen Link aufheben:<br><code>${esc(editLink)}</code></p>
+        ${member ? `<p style="margin:0 0 8px">Hallo <strong>${esc(own.name)}</strong> (${esc(own.role)})! Klick in deiner Zeile bei jedem Termin: ${cycle}. In der Zeile <strong>${esc(own.role)}</strong> wählt ihr aus, wer spielt.</p>
           <details style="margin-top:8px"><summary>Kommentar</summary>
             <textarea id="sv-comment" rows="2" maxlength="1000" placeholder="Kommentar (optional)">${esc(own.comment || '')}</textarea>
             <button type="button" id="sv-own-save">Speichern</button>
@@ -250,19 +257,20 @@
             <button type="button" id="sv-own-save">Speichern</button>
             <p class="hint" style="margin-top:8px">Dein persönlicher Link für andere Geräte:<br><code>${esc(editLink)}</code></p>
           </details>`
-        : `<p style="margin:0 0 8px"><strong>Trag dich ein:</strong> Name${freeRoles.length ? ' und Rolle' : ''} eingeben, dann in deiner Zeile die Termine anklicken.</p>
-          ${hasCast ? '<p class="hint" style="margin:0 0 8px">Darsteller: bitte über euren persönlichen Link öffnen – dann könnt ihr eure Zeile ausfüllen und festlegen, wer spielt.</p>' : ''}
+        : `${hasCast ? `<p style="margin:0 0 8px"><strong>So geht's – ohne Anmeldung:</strong> Such in der Tabelle deinen Namen und klick bei jedem Termin: ${cycle}.</p>
+          <p style="margin:0 0 8px">In der fett gedruckten Zeile eurer Rolle („wer spielt?“) wählt ihr per Klick aus, wer den Termin spielt. Alles wird sofort gespeichert. Die Termine oben bleiben beim Scrollen stehen.</p>` : ''}
+          ${freeRoles.length || !data.roles.length ? `<p style="margin:0 0 8px"><strong>${hasCast ? 'Nicht in der Liste? ' : ''}Trag dich ein:</strong> Name${freeRoles.length ? ' und Rolle' : ''} eingeben, dann in deiner Zeile die Termine anklicken.</p>
           <div class="sv-join">
             <input type="text" id="sv-name" maxlength="100" placeholder="Dein Name" value="${esc(typedName || '')}" autocomplete="name" aria-label="Name">${roleSelect('')}
             <button type="button" id="sv-join">Eintragen</button>
-          </div>`}
+          </div>` : ''}`}
         ${data.open_edit ? '<p class="hint" style="margin:8px 0 0">In dieser Tabelle dürfen alle alle Zeilen ändern.</p>' : ''}
         ${tableMsg ? `<p class="sv-error">${esc(tableMsg)}</p>` : ''}
       </div>` : ''}
       <div class="card">
         <h3 style="margin-top:0">Tabelle <span class="count-chip">${data.responses.length}</span></h3>
-        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || (data.open_edit && !isCastMember(data, r))),
-          canEditCast: (role) => open && member && own.role === role, claim: open && freeRoles.length > 0 })}
+        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit || isCastMember(data, r)),
+          canEditCast: () => open, claim: open && freeRoles.length > 0 })}
       </div>
       ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
     SurveyTable.fit(app);

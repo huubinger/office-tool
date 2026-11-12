@@ -49,6 +49,55 @@
   .sv-me textarea { width: 100%; margin-bottom: 8px; }
   .sv-legend b { padding: 0 5px; border-radius: 4px; }
   /* Termine beim Scrollen mitnehmen: Tabelle scrollt in sich, Kopf und Namensspalte bleiben stehen */
+  /* Handy: Meine Termine (--line-strong ist im Dunkelmodus kreisbezüglich, daher eigener Wert) */
+  .sv-page { --sv-m-line: var(--line-strong, #3a4250); }
+  .sv-m-tabs { display: flex; gap: 4px; padding: 4px; margin: 4px 0 14px; background: var(--panel-alt); border-radius: 12px; position: sticky; top: 8px; z-index: 5; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+  .sv-m-tabs button { flex: 1; padding: 10px 8px; font-size: 14px; font-weight: 700; border-radius: 9px; border: none; background: transparent; color: var(--ink-soft); box-shadow: none; }
+  .sv-m-tabs button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .sv-m-who label { display: block; font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  .sv-m-who select { width: 100%; font-size: 16px; padding: 12px; margin: 0; }
+  .sv-m-join { margin-top: 10px; font-size: 14px; }
+  .sv-m-join summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  .sv-m-join .sv-join input, .sv-m-join .sv-join select { font-size: 16px; }
+  .sv-m-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+  .sv-m-chip { padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--panel-alt); color: var(--ink-soft); }
+  .sv-m-chip.sv-m-c-yes { background: var(--ok-soft); color: var(--ok); } .sv-m-chip.sv-m-c-no { background: var(--danger-soft); color: var(--danger); }
+  .sv-m-plays { margin-left: auto; font-size: 13px; color: var(--ink-soft); }
+  .sv-m-plays b { color: var(--ink); font-size: 15px; }
+  .sv-m-allyes { width: 100%; padding: 11px; font-size: 14px; margin-bottom: 6px; }
+  .sv-m-hint { margin: 4px 0 6px; font-size: 13px; }
+  .sv-m-month { margin: 18px 0 8px; font-size: 12px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); }
+  .sv-m-opt { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
+  .sv-m-opt.sv-m-yes { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+  .sv-m-opt.sv-m-no { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+  .sv-m-ersatz { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--warn) 14%, transparent) 7px 9px); }
+  .sv-m-top { display: flex; align-items: center; gap: 10px; }
+  .sv-m-date { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .sv-m-date b { font-size: 16px; }
+  .sv-m-date span { font-size: 13px; color: var(--ink-soft); }
+  .sv-m-ersatz .sv-m-date span { color: var(--warn); font-weight: 600; }
+  .sv-m-ans { display: flex; gap: 6px; flex-shrink: 0; }
+  .sv-m-ans button { width: 52px; height: 46px; padding: 0; border-radius: 12px; border: 1.5px solid var(--sv-m-line); background: var(--panel); color: var(--ink-faint); font-size: 20px; font-weight: 800; box-shadow: none; }
+  .sv-m-ans button.on[data-v="yes"] { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .sv-m-ans button.on[data-v="maybe"] { background: var(--warn); border-color: var(--warn); color: #fff; }
+  .sv-m-ans button.on[data-v="no"] { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .sv-m-cast { margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--line); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sv-m-castlbl { font-size: 12px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .04em; }
+  .sv-m-castbtns { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  .sv-m-castbtns button { padding: 7px 12px; min-height: 38px; border-radius: 999px; font-size: 14px; font-weight: 600; border: 1.5px solid var(--sv-m-line); background: var(--panel); color: var(--ink); box-shadow: none; }
+  .sv-m-castbtns button.on { background: var(--sv-c, var(--accent)); border-color: var(--sv-c, var(--accent)); color: #fff; }
+  .sv-m-castbtns button.sv-cast-i0 { --sv-c: var(--ok); } .sv-m-castbtns button.sv-cast-i1 { --sv-c: var(--violet-ink); }
+  .sv-m-castbtns button.sv-cast-i2 { --sv-c: var(--warn); } .sv-m-castbtns button.sv-cast-i3 { --sv-c: var(--ink-soft); }
+  .sv-m-castbtns small { font-weight: 800; }
+  .sv-m-castbtns .sv-m-a-yes { color: var(--ok); } .sv-m-castbtns .sv-m-a-no { color: var(--danger); } .sv-m-castbtns .sv-m-a-maybe { color: var(--warn); }
+  .sv-m-castbtns button.on small { color: #fff; }
+  .sv-m-warn { width: 100%; font-size: 12.5px; color: var(--danger); font-weight: 600; }
+  .sv-m-empty { color: var(--ink-soft); text-align: center; padding: 24px 8px; }
+  @media (max-width: 760px) {
+    .sv-page.sv-tablepage { padding: 18px 12px 48px; }
+    .sv-tablepage h1 { font-size: 25px; }
+    .sv-page.sv-tablepage .sv-table-wrap { max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); }
+  }
   .sv-tablepage .sv-table-wrap { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: auto; }
   .sv-tablepage .sv-table thead { position: sticky; top: 0; z-index: 3; }
   .sv-tablepage .sv-table thead th { background-color: var(--panel); }
@@ -61,7 +110,7 @@
 <script src="/umfrage-table.js"></script>
 <script>
 (function () {
-  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats, hasPerson, isCastMember } = window.SurveyTable;
+  const { esc, fmtDate, weekday, sections, render, nextValue, statsHtml, bindStats, hasPerson, isCastMember, castOf, isErsatz, ordered } = window.SurveyTable;
   let statsPick = null;
   const statsId = () => (hasPerson(data, statsPick) ? statsPick : (data.own ? 'r' + data.own.id : null));
   const token = location.pathname.split('/').pop();
@@ -184,27 +233,42 @@
     return body;
   }
 
+  // Speichern je Zeile: kurz sammeln, Anfragen je Zeile nacheinander schicken (der Server ersetzt alle Antworten
+  // der Zeile), Serverstand erst übernehmen, wenn nichts mehr wartet oder läuft – sonst springen frische Klicks zurück
+  const rowChain = new Map();
+  let inflight = 0;
+  let failed = false;
   function saveRowSoon(r) {
-    clearTimeout(pendingRows.get(r.id));
-    pendingRows.set(r.id, setTimeout(async () => {
-      try {
-        let body;
-        if (data.own && data.own.id === r.id) body = await saveOwn({ answers: r.answers });
-        else {
-          const res = await fetch(`/api/public/umfrage/${token}/${r.id}` + (editToken ? `?e=${encodeURIComponent(editToken)}` : ''), {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers: r.answers }),
-          });
-          body = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+    const id = r.id;
+    clearTimeout(pendingRows.get(id));
+    const t = setTimeout(() => {
+      if (pendingRows.get(id) === t) pendingRows.delete(id);
+      inflight++;
+      const run = (rowChain.get(id) || Promise.resolve()).then(async () => {
+        const cur = data.responses.find(x => x.id === id) || r;
+        try {
+          let body;
+          if (data.own && data.own.id === id) body = await saveOwn({ answers: cur.answers });
+          else {
+            const res = await fetch(`/api/public/umfrage/${token}/${id}` + (editToken ? `?e=${encodeURIComponent(editToken)}` : ''), {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers: cur.answers }),
+            });
+            body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+          }
+          if (inflight === 1 && !pendingRows.size) { data = body; renderTablePage(); }
+        } catch (err) {
+          tableMsg = err.message;
+          failed = true;
+        } finally {
+          inflight--;
+          // nach einem Fehler neu laden, aber erst wenn nichts mehr wartet (sonst gehen lokale Klicks verloren)
+          if (failed && !inflight && !pendingRows.size) { failed = false; load(); }
         }
-        pendingRows.delete(r.id);
-        if (!pendingRows.size) { data = body; renderTablePage(); }
-      } catch (err) {
-        pendingRows.delete(r.id);
-        tableMsg = err.message;
-        load();
-      }
-    }, 500));
+      });
+      rowChain.set(id, run);
+    }, 500);
+    pendingRows.set(id, t);
   }
 
   async function join(name, role) {
@@ -225,7 +289,138 @@
     } catch (err) { tableMsg = err.message; renderTablePage(); }
   }
 
+  // ---- Handy: "Meine Termine" – eigenen Namen wählen, Termine untereinander mit großen Knöpfen ----
+  const mobileMq = window.matchMedia('(max-width: 760px)');
+  const meKey = 'umfrage_me_' + token;
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* egal */ } };
+  let mView = lsGet(meKey + '_view') === 'table' ? 'table' : 'me';
+  let mPick = lsGet(meKey);
+  mobileMq.addEventListener('change', () => { if (data && data.layout === 'table') renderTablePage(); });
+
+  // wen man auf dem Handy auswählen kann: Besetzung, eigene Zeile, bei offener Tabelle alle
+  function mobilePeople() {
+    const out = [];
+    const ok = (r) => (data.own && data.own.id === r.id) || data.open_edit || isCastMember(data, r);
+    data.roles.forEach(role => {
+      const list = castOf(data, role)
+        ? castOf(data, role).map(n => data.responses.find(r => r.role === role && r.name === n)).filter(Boolean)
+        : data.responses.filter(r => r.role === role);
+      const items = list.filter(ok);
+      if (items.length) out.push({ role, items });
+    });
+    const rest = data.responses.filter(r => (!r.role || !data.roles.includes(r.role)) && ok(r));
+    if (rest.length) out.push({ role: '', items: rest });
+    return out;
+  }
+
+  function renderMobile() {
+    app.classList.add('sv-tablepage');
+    const typed = { name: (document.getElementById('sv-name') || {}).value || '', role: (document.getElementById('sv-role') || {}).value || '', open: !!(document.querySelector('.sv-m-join') || {}).open };
+    const open = data.status === 'offen';
+    const groups = mobilePeople();
+    const all = groups.flatMap(g => g.items);
+    let me = all.find(r => String(r.id) === String(mPick)) || null;
+    if (!me && mPick == null && data.own) me = all.find(r => r.id === data.own.id) || null;
+    const freeRoles = data.roles.filter(r => !castOf(data, r));
+    const names = me && castOf(data, me.role);
+    const opts = ordered(data.options);
+    const sym = { yes: '✓', maybe: '?', no: '✗' };
+    const ansLabel = { yes: 'kann', maybe: 'vielleicht', no: 'kann nicht' };
+    const values = data.allow_maybe ? ['yes', 'maybe', 'no'] : ['yes', 'no'];
+    const partner = (n) => data.responses.find(r => r.role === me.role && r.name === n);
+    let html = `
+      <h1>${esc(data.title)}</h1>
+      ${data.description ? `<p class="sv-desc">${esc(data.description)}</p>` : ''}
+      ${data.deadline ? `<div class="sv-meta">Bitte eintragen bis ${fmtDate(data.deadline)}</div>` : ''}
+      ${!open ? '<div class="sv-closed">Die Umfrage ist geschlossen – Änderungen sind nicht mehr möglich.</div>' : ''}
+      ${mobileTabs()}
+      <div class="card sv-m-who">
+        <label for="sv-m-who">Wer bist du?</label>
+        <select id="sv-m-who"><option value="">— deinen Namen wählen —</option>${groups.map(g => `<optgroup label="${esc(g.role || 'Weitere')}">${g.items.map(r =>
+          `<option value="${r.id}" ${me && me.id === r.id ? 'selected' : ''}>${esc(r.name)}${g.role ? ` (${esc(g.role)})` : ''}</option>`).join('')}</optgroup>`).join('')}</select>
+        ${open && (freeRoles.length || !data.roles.length) && !data.own ? `<details class="sv-m-join" ${typed.open ? 'open' : ''}><summary>Nicht in der Liste? Hier eintragen</summary>
+          <div class="sv-join"><input type="text" id="sv-name" maxlength="100" placeholder="Dein Name" autocomplete="name" aria-label="Name" value="${esc(typed.name)}">${freeRoles.length ? `<select id="sv-role"><option value="">— Rolle / Aufgabe —</option>${freeRoles.map(r => `<option ${typed.role === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>` : ''}<button type="button" id="sv-join">Eintragen</button></div></details>` : ''}
+        ${tableMsg ? `<p class="sv-error">${esc(tableMsg)}</p>` : ''}
+      </div>`;
+    if (me) {
+      const count = (v) => opts.filter(o => me.answers[o.id] === v).length;
+      const openN = opts.filter(o => !me.answers[o.id]).length;
+      const plays = names ? opts.filter(o => !isErsatz(o) && castPeople(me.role, o.id).includes(me.name)).length : 0;
+      const playsE = names ? opts.filter(o => isErsatz(o) && castPeople(me.role, o.id).includes(me.name)).length : 0;
+      html += `<div class="sv-m-sum">
+          <span class="sv-m-chip sv-m-c-yes">✓ ${count('yes')}</span><span class="sv-m-chip sv-m-c-no">✗ ${count('no')}</span>${openN ? `<span class="sv-m-chip">${openN} offen</span>` : ''}
+          ${names ? `<span class="sv-m-plays">spielt <b>${plays}</b>${playsE ? ` +${playsE} Ersatz` : ''}</span>` : ''}
+        </div>
+        ${open && openN ? `<button type="button" class="ghost sv-m-allyes" id="sv-m-allyes">Alle offenen auf ✓ kann</button>` : ''}
+        <p class="hint sv-m-hint">Tippen speichert sofort.${names ? ` Unter „Wer spielt?“ legt ihr für ${esc(me.role)} fest, wer den Termin übernimmt.` : ''}</p>`;
+      let month = null;
+      html += opts.map(o => {
+        const m = (o.date || '').slice(0, 7);
+        const mh = m !== month ? `<h3 class="sv-m-month">${m ? `${['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][+m.slice(5, 7) - 1]} ${m.slice(0, 4)}` : 'ohne Datum'}</h3>` : '';
+        month = m;
+        const v = me.answers[o.id];
+        const people = names ? castPeople(me.role, o.id) : [];
+        const conflict = people.some(n => { const p = partner(n); return p && p.answers[o.id] === 'no'; });
+        const castRow = names ? `<div class="sv-m-cast${conflict ? ' sv-m-conflict' : ''}"><span class="sv-m-castlbl">Wer spielt?</span><div class="sv-m-castbtns">${names.map((n, i) => {
+            const p = partner(n); const a = p && p.answers[o.id];
+            return `<button type="button" class="sv-cast-i${i % 4}${people.length === 1 && people[0] === n ? ' on' : ''}" data-m-cast="${o.id}" data-person="${esc(n)}" ${open ? '' : 'disabled'}>${esc(n)}${a ? ` <small class="sv-m-a-${a}">${sym[a]}</small>` : ''}</button>`;
+          }).join('')}${isErsatz(o) && names.length > 1 ? `<button type="button" class="${people.length > 1 ? 'on' : ''}" data-m-cast="${o.id}" data-person="${esc(names.join('/'))}" ${open ? '' : 'disabled'}>${names.length === 2 ? 'beide' : 'alle'}</button>` : ''}</div>
+          ${conflict ? '<div class="sv-m-warn">Eingeteilt, hat aber „kann nicht“ angegeben</div>' : ''}</div>` : '';
+        return `${mh}<div class="sv-m-opt${isErsatz(o) ? ' sv-m-ersatz' : ''}${v ? ' sv-m-' + v : ''}">
+          <div class="sv-m-top">
+            <div class="sv-m-date"><b>${esc(o.date ? `${weekday(o.date).slice(0, 2)} ${fmtDate(o.date).slice(0, 6)}` : (o.label || 'Termin'))}</b><span>${esc([o.date ? o.label : '', o.time, o.note].filter(Boolean).join(' · '))}</span></div>
+            <div class="sv-m-ans">${values.map(x => `<button type="button" data-m-ans="${o.id}" data-v="${x}" class="${v === x ? 'on' : ''}" aria-label="${ansLabel[x]}" ${open ? '' : 'disabled'}>${sym[x]}</button>`).join('')}</div>
+          </div>${castRow}</div>`;
+      }).join('');
+    } else {
+      html += '<p class="sv-m-empty">Wähl oben deinen Namen – dann siehst du alle Termine untereinander und kannst sie antippen.</p>';
+    }
+    app.innerHTML = html;
+    tableMsg = '';
+    bindMobileCommon();
+    const who = document.getElementById('sv-m-who');
+    who.addEventListener('change', () => { mPick = who.value; lsSet(meKey, mPick); renderMobile(); window.scrollTo({ top: 0 }); });
+    const joinBtn = document.getElementById('sv-join');
+    if (joinBtn) joinBtn.addEventListener('click', async () => {
+      await join(document.getElementById('sv-name').value.trim(), (document.getElementById('sv-role') || {}).value);
+      if (data.own) { mPick = String(data.own.id); lsSet(meKey, mPick); renderMobile(); }
+    });
+    if (!me || !open) return;
+    const setAns = (oid, v) => { if (v) me.answers[oid] = v; else delete me.answers[oid]; if (data.own && data.own.id === me.id) data.own.answers = me.answers; };
+    app.querySelectorAll('[data-m-ans]').forEach(b => b.addEventListener('click', () => {
+      const oid = +b.dataset.mAns;
+      setAns(oid, me.answers[oid] === b.dataset.v ? null : b.dataset.v);
+      renderMobile();
+      saveRowSoon(me);
+    }));
+    const allYes = document.getElementById('sv-m-allyes');
+    if (allYes) allYes.addEventListener('click', () => { opts.forEach(o => { if (!me.answers[o.id]) setAns(o.id, 'yes'); }); renderMobile(); saveRowSoon(me); });
+    app.querySelectorAll('[data-m-cast]').forEach(b => b.addEventListener('click', async () => {
+      const oid = +b.dataset.mCast;
+      const person = b.classList.contains('on') ? '' : b.dataset.person;
+      try {
+        const res = await fetch(`/api/public/umfrage/${token}/cast` + (editToken ? `?e=${encodeURIComponent(editToken)}` : ''), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: me.role, option_id: oid, person }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+        if (!pendingRows.size && !inflight) data = body; else data.cast_cells = body.cast_cells;
+      } catch (err) { tableMsg = err.message; }
+      renderMobile();
+    }));
+  }
+  // Umschalter "Meine Termine" / "Ganze Tabelle"
+  const mobileTabs = () => `<div class="sv-m-tabs" role="tablist"><button type="button" data-m-view="me" class="${mView === 'me' ? 'on' : ''}">Meine Termine</button><button type="button" data-m-view="table" class="${mView === 'table' ? 'on' : ''}">Ganze Tabelle</button></div>`;
+  function bindMobileCommon() {
+    app.querySelectorAll('[data-m-view]').forEach(b => b.addEventListener('click', () => {
+      mView = b.dataset.mView; lsSet(meKey + '_view', mView); renderTablePage(); window.scrollTo({ top: 0 });
+    }));
+  }
+  const castPeople = (role, oid) => ((((data.cast_cells || {})[role]) || {})[oid] || '').split('/').filter(Boolean);
+
   function renderTablePage() {
+    if (mobileMq.matches && mView === 'me') return renderMobile();
     const open = data.status === 'offen';
     const own = data.own;
     const editLink = editToken ? `${location.origin}/u/${token}?e=${editToken}` : '';
@@ -241,6 +436,7 @@
       <h1>${esc(data.title)}</h1>
       ${data.description ? `<p class="sv-desc">${esc(data.description)}</p>` : ''}
       <div class="sv-meta">${data.deadline ? `Bitte eintragen bis ${fmtDate(data.deadline)}` : ''}</div>
+      ${mobileMq.matches ? mobileTabs() : ''}
       ${!open ? '<div class="sv-closed">Die Umfrage ist geschlossen – Änderungen sind nicht mehr möglich.</div>' : ''}
       ${open ? `<div class="card sv-me">
         ${member ? `<p style="margin:0 0 8px">Hallo <strong>${esc(own.name)}</strong> (${esc(own.role)})! Klick in deiner Zeile bei jedem Termin: ${cycle}. In der Zeile <strong>${esc(own.role)}</strong> wählt ihr aus, wer spielt.</p>
@@ -275,6 +471,7 @@
       ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
     SurveyTable.fit(app);
     bindStats(app, data, (rid) => { statsPick = rid; });
+    bindMobileCommon();
     tableMsg = '';
     if (!open) return;
 
@@ -305,7 +502,7 @@
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error || 'Speichern fehlgeschlagen.');
-        data = body;
+        if (!pendingRows.size && !inflight) data = body; else data.cast_cells = body.cast_cells;
       } catch (err) { tableMsg = err.message; }
       renderTablePage();
       const again = app.querySelector(`[data-sv-cast="${ri}:${oid}"]`);

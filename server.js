@@ -35,6 +35,8 @@ const surveys = require('./surveys');
 const PDFDocument = require('pdfkit');
 
 const app = express();
+// Railway-Healthcheck: vor allen Weiterleitungen/Logins, damit ein kaputter Build nicht live geht
+app.get('/healthz', (req, res) => res.type('text').send('ok'));
 // Noetig hinter einem Reverse-Proxy (Railway, Heroku, etc.), damit Express erkennt,
 // dass die urspruengliche Verbindung ueber HTTPS lief - sonst werden "secure"-Cookies
 // (siehe unten) nicht zuverlaessig gesetzt und der Login haengt sich scheinbar auf.

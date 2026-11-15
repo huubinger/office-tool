@@ -314,7 +314,8 @@
     return out;
   }
 
-  function renderMobile() {
+  function renderMobile() { keepScroll(renderMobileNow); }
+  function renderMobileNow() {
     app.classList.add('sv-tablepage');
     const typed = { name: (document.getElementById('sv-name') || {}).value || '', role: (document.getElementById('sv-role') || {}).value || '', open: !!(document.querySelector('.sv-m-join') || {}).open };
     const open = data.status === 'offen';
@@ -419,7 +420,17 @@
   }
   const castPeople = (role, oid) => ((((data.cast_cells || {})[role]) || {})[oid] || '').split('/').filter(Boolean);
 
-  function renderTablePage() {
+  // Beim Neuzeichnen Scrollposition behalten (Seite und Tabellen-Kasten), sonst springt jeder Klick nach oben
+  function keepScroll(fn) {
+    const wraps = [...app.querySelectorAll('.sv-table-wrap')].map(w => [w.scrollTop, w.scrollLeft]);
+    const x = window.scrollX, y = window.scrollY;
+    fn();
+    app.querySelectorAll('.sv-table-wrap').forEach((w, i) => { if (wraps[i]) { w.scrollTop = wraps[i][0]; w.scrollLeft = wraps[i][1]; } });
+    window.scrollTo(x, y);
+  }
+
+  function renderTablePage() { keepScroll(renderTablePageNow); }
+  function renderTablePageNow() {
     if (mobileMq.matches && mView === 'me') return renderMobile();
     const open = data.status === 'offen';
     const own = data.own;
@@ -506,7 +517,7 @@
       } catch (err) { tableMsg = err.message; }
       renderTablePage();
       const again = app.querySelector(`[data-sv-cast="${ri}:${oid}"]`);
-      if (again) again.focus();
+      if (again) again.focus({ preventScroll: true });
     }));
     app.querySelectorAll('[data-sv-cell]').forEach(td => {
       const toggle = () => {
@@ -518,7 +529,7 @@
         if (data.own && data.own.id === rid) data.own.answers = r.answers;
         renderTablePage();
         const again = app.querySelector(`[data-sv-cell="${rid}:${oid}"]`);
-        if (again) again.focus();
+        if (again) again.focus({ preventScroll: true });
         saveRowSoon(r);
       };
       td.addEventListener('click', toggle);

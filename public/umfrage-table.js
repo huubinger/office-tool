@@ -69,7 +69,7 @@
   }).join('')}</ul>`;
   const castClass = (s, role, people) => (people.length > 1 ? ' sv-cast-set sv-cast-both' : people.length ? ` sv-cast-set sv-cast-i${castOf(s, role).indexOf(people[0]) % 4}` : '');
   // Zelle der Besetzung: Name (lang/kurz je nach Spaltenbreite), bearbeitbar ueber eine unsichtbare Auswahl darueber
-  function castCellHtml(s, role, ri, o, editable, colCls = '') {
+  function castCellHtml(s, role, ri, o, editable, colCls = '', locked = false) {
     const names = castOf(s, role);
     const people = castPeople(s, role, o.id);
     const v = people.join('/');
@@ -90,7 +90,9 @@
         <option value="">–</option>${choices.map(([val, label]) => `<option value="${esc(val)}" ${v === val ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
     }
     const tip = conflict ? `${people.join(' + ')} – hat hier „kann nicht“ eingetragen` : gap ? 'Keiner kann an diesem Termin' : people.length ? people.join(' + ') : (select ? 'Auswählen, wer spielt' : '');
-    return `<td class="sv-cell sv-cast${castClass(s, role, people)}${select ? ' sv-cast-edit' : ''}${conflict ? ' sv-cast-conflict' : ''}${gap ? ' sv-cast-gap' : ''} ${colCls}" title="${esc(tip)}"><div class="sv-cc">${v
+    // gesperrt: Antippen fragt erst nach, ob man die Besetzung wirklich aendern will (Schutz beim Wischen)
+    const lockAttr = locked && !select && o.id ? ` data-sv-lockcast="${ri}"` : '';
+    return `<td class="sv-cell sv-cast${castClass(s, role, people)}${select ? ' sv-cast-edit' : ''}${lockAttr ? ' sv-locked' : ''}${conflict ? ' sv-cast-conflict' : ''}${gap ? ' sv-cast-gap' : ''} ${colCls}" title="${esc(tip)}"${lockAttr}><div class="sv-cc">${v
       ? `<span class="sv-cc-full">${esc(full)}</span><span class="sv-cc-short">${esc(short)}</span>` : '<span class="sv-cc-empty"></span>'}${select}</div></td>`;
   }
 
@@ -174,17 +176,19 @@
       const body = people.length ? people.map(p => {
         if (p.cast) {
           const canCast = typeof opts.canEditCast === 'function' ? opts.canEditCast(p.role) : !!opts.canEditCast;
-          return `<tr class="sv-cast-row"><th class="sv-name"><div class="sv-role">${esc(p.role)}</div><div class="sv-role-sub">wer spielt?</div></th>
-            ${os.map(o => castCellHtml(s, p.role, p.ri, o, canCast, cc.get(o))).join('')}</tr>`;
+          const lockCast = !canCast && opts.lockedCast && opts.lockedCast(p.role);
+          return `<tr class="sv-cast-row"><th class="sv-name"><div class="sv-role">${esc(p.role)}</div><div class="sv-role-sub">wer spielt?${lockCast ? ' <span class="sv-lock" title="gesperrt – antippen zum Ändern">🔒</span>' : ''}</div></th>
+            ${os.map(o => castCellHtml(s, p.role, p.ri, o, canCast, cc.get(o), lockCast)).join('')}</tr>`;
         }
         const r = p.response;
         if (p.member) {
           const own = opts.ownId === r.id ? ' sv-own' : '';
           const editable = opts.canEdit && opts.canEdit(r);
-          return `<tr class="sv-member-row${editable ? ' sv-row-edit' : ''}"><th class="sv-name${own}">${memberLabelHtml(s, p.role, p.name, p.mi)}${r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}</th>
+          const locked = !editable && opts.locked && opts.locked(r);
+          return `<tr class="sv-member-row${editable ? ' sv-row-edit' : ''}"><th class="sv-name${own}">${memberLabelHtml(s, p.role, p.name, p.mi, locked ? ' <span class="sv-lock" title="gesperrt – antippen zum Ändern">🔒</span>' : '')}${r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}</th>
             ${os.map(o => {
               const v = r.answers[o.id];
-              return `<td class="sv-cell sv-avail ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''} ${cc.get(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
+              return `<td class="sv-cell sv-avail ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''}${locked ? ' sv-locked' : ''} ${cc.get(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : locked ? ` data-sv-locked="${r.id}"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
             }).join('')}</tr>`;
         }
         // opts.clickable: Name oeffnet die Antwort; opts.canEdit(r): Zellen per Klick umschalten;
@@ -192,11 +196,12 @@
         const nameAttrs = r && opts.clickable ? ` data-sv-response="${r.id}" tabindex="0"` : '';
         const own = r && opts.ownId === r.id ? ' sv-own' : '';
         const editable = r && opts.canEdit && opts.canEdit(r);
+        const locked = r && !editable && opts.locked && opts.locked(r);
         return `<tr class="${editable ? 'sv-row-edit' : ''}">
-          <th class="sv-name${r ? '' : ' sv-open'}${own}${nameAttrs ? ' sv-click' : ''}"${nameAttrs}>${p.role ? `<div class="sv-role">${esc(p.role)}</div>` : ''}${p.name ? `<span class="sv-person">${esc(p.name)}</span>` : ''}${r && r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}${!r && opts.claim ? ` <button type="button" class="sv-claim" data-sv-claim="${esc(p.role)}">eintragen</button>` : ''}</th>
+          <th class="sv-name${r ? '' : ' sv-open'}${own}${nameAttrs ? ' sv-click' : ''}"${nameAttrs}>${p.role ? `<div class="sv-role">${esc(p.role)}</div>` : ''}${p.name ? `<span class="sv-person">${esc(p.name)}</span>` : ''}${locked ? ' <span class="sv-lock" title="gesperrt – antippen zum Ändern">🔒</span>' : ''}${r && r.comment ? ` <span class="sv-comment" title="${esc(r.comment)}">💬</span>` : ''}${!r && opts.claim ? ` <button type="button" class="sv-claim" data-sv-claim="${esc(p.role)}">eintragen</button>` : ''}</th>
           ${os.map(o => {
             const v = r ? r.answers[o.id] : null;
-            return `<td class="sv-cell ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''} ${cc.get(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
+            return `<td class="sv-cell ${v ? 'sv-' + v : ''}${editable ? ' sv-editable' : ''}${locked ? ' sv-locked' : ''} ${cc.get(o)}"${editable ? ` data-sv-cell="${r.id}:${o.id}" tabindex="0"` : locked ? ` data-sv-locked="${r.id}"` : ''}>${v ? SYMBOL[v] : ''}</td>`;
           }).join('')}
         </tr>`;
       }).join('') : `<tr><th class="sv-name sv-open">Noch keine Antworten</th>${os.map(o => `<td class="${cc.get(o)}"></td>`).join('')}</tr>`;

@@ -103,6 +103,15 @@
   .sv-tablepage .sv-table thead th { background-color: var(--panel); }
   .sv-tablepage .sv-table tfoot { position: sticky; bottom: 0; z-index: 3; }
   .sv-tablepage .sv-table tfoot th, .sv-tablepage .sv-table tfoot td { background-color: var(--panel); }
+  /* Zeilen anderer sind gesperrt: erst nach Rückfrage änderbar (Schutz vor versehentlichem Tippen beim Wischen) */
+  .sv-table td.sv-locked { cursor: pointer; }
+  .sv-lock { font-size: 10px; opacity: .55; }
+  .sv-lockbar { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 20; max-width: 560px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.25); padding: 12px 14px; }
+  .sv-lockbar p { margin: 0 0 10px; }
+  .sv-lockbar .sv-lb-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sv-lockbar button { margin: 0; }
+  .sv-iam { margin: 0 0 8px; }
+  .sv-iam button { margin: 0 0 0 6px; padding: 2px 8px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -272,7 +281,7 @@
   }
 
   async function join(name, role) {
-    if (!name) { tableMsg = 'Bitte zuerst deinen Namen eingeben.'; renderTablePage(); document.getElementById('sv-name').focus(); return; }
+    if (!name) { tableMsg = 'Bitte zuerst deinen Namen eingeben.'; renderTablePage(); const n = document.getElementById('sv-name'); if (n) n.focus(); return; }
     if (data.roles.some(r => !(data.cast || {})[r]) && !role) { tableMsg = 'Bitte deine Rolle / Aufgabe wählen.'; renderTablePage(); return; }
     try {
       const res = await fetch(`/api/public/umfrage/${token}`, {
@@ -429,6 +438,34 @@
     window.scrollTo(x, y);
   }
 
+  // ---- Sperre: nur die eigene Zeile ist direkt änderbar, fremde Zeilen erst nach Rückfrage ----
+  // "Ich bin …" (mPick, wie auf dem Handy) bleibt gespeichert; "nur diese Zeile" gilt bis zum Neuladen.
+  const freeRows = new Set();
+  const unlockedRoles = new Set();
+  let lockAsk = null; // { type: 'row', id } | { type: 'cast', role }
+  const meRow = () => (mPick ? data.responses.find(r => String(r.id) === String(mPick)) || null : null);
+  const mayEdit = (r) => (data.own && data.own.id === r.id) || data.open_edit || isCastMember(data, r);
+  const rowFree = (r) => (data.own && data.own.id === r.id) || String(r.id) === String(mPick) || freeRows.has(r.id);
+  const castFree = (role) => { const m = meRow(); return unlockedRoles.has(role) || (m && m.role === role) || (data.own && data.own.role === role && isCastMember(data, data.own)); };
+  function lockBarHtml() {
+    if (!lockAsk) return '';
+    if (lockAsk.type === 'cast') return `<div class="sv-lockbar" role="dialog"><p>Die Zeile <strong>${esc(lockAsk.role)}</strong> („wer spielt?“) ist gesperrt, damit beim Wischen nichts aus Versehen geändert wird. Jetzt ändern?</p>
+      <div class="sv-lb-btns"><button type="button" data-lb="cast">Ja, freigeben</button><button type="button" class="ghost" data-lb="cancel">Abbrechen</button></div></div>`;
+    const r = data.responses.find(x => x.id === lockAsk.id);
+    if (!r) return '';
+    return `<div class="sv-lockbar" role="dialog"><p>Das ist die Zeile von <strong>${esc(r.name)}</strong>${r.role ? ` (${esc(r.role)})` : ''}. Sie ist gesperrt, damit beim Wischen nichts aus Versehen geändert wird.</p>
+      <div class="sv-lb-btns"><button type="button" data-lb="me">Das bin ich</button><button type="button" class="ghost" data-lb="row">Trotzdem ändern</button><button type="button" class="ghost" data-lb="cancel">Abbrechen</button></div></div>`;
+  }
+  // Tippen kurz nach dem Wischen/Scrollen zählt nicht (sonst ändert man beim Durchwischen Zellen)
+  let lastScroll = 0;
+  // nur echte Wisch-/Scrollbewegungen zählen (nicht das Zurücksetzen der Scrollposition beim Neuzeichnen)
+  const markScroll = () => { lastScroll = Date.now(); };
+  document.addEventListener('touchmove', markScroll, { capture: true, passive: true });
+  document.addEventListener('wheel', markScroll, { capture: true, passive: true });
+  document.addEventListener('click', (ev) => {
+    if (Date.now() - lastScroll < 300 && ev.target.closest && ev.target.closest('.sv-table td')) { ev.preventDefault(); ev.stopPropagation(); }
+  }, true);
+
   function renderTablePage() { keepScroll(renderTablePageNow); }
   function renderTablePageNow() {
     if (mobileMq.matches && mView === 'me') return renderMobile();
@@ -464,7 +501,8 @@
             <button type="button" id="sv-own-save">Speichern</button>
             <p class="hint" style="margin-top:8px">Dein persönlicher Link für andere Geräte:<br><code>${esc(editLink)}</code></p>
           </details>`
-        : `${hasCast ? `<p style="margin:0 0 8px"><strong>So geht's – ohne Anmeldung:</strong> Such in der Tabelle deinen Namen und klick bei jedem Termin: ${cycle}.</p>
+        : meRow() ? `<p class="sv-iam">Du bist <strong>${esc(meRow().name)}</strong>${meRow().role ? ` (${esc(meRow().role)})` : ''} – klick in deiner Zeile bei jedem Termin: ${cycle}. Die Zeilen der anderen sind gesperrt 🔒.<button type="button" class="ghost" id="sv-notme">Ich bin jemand anderes</button></p>`
+        : `${hasCast ? `<p style="margin:0 0 8px"><strong>So geht's – ohne Anmeldung:</strong> Such in der Tabelle deinen Namen und klick bei jedem Termin: ${cycle}. Beim ersten Klick fragen wir, ob das deine Zeile ist – die Zeilen der anderen bleiben gesperrt 🔒, damit beim Wischen nichts verrutscht.</p>
           <p style="margin:0 0 8px">In der fett gedruckten Zeile eurer Rolle („wer spielt?“) wählt ihr per Klick aus, wer den Termin spielt. Alles wird sofort gespeichert. Die Termine oben bleiben beim Scrollen stehen.</p>` : ''}
           ${freeRoles.length || !data.roles.length ? `<p style="margin:0 0 8px"><strong>${hasCast ? 'Nicht in der Liste? ' : ''}Trag dich ein:</strong> Name${freeRoles.length ? ' und Rolle' : ''} eingeben, dann in deiner Zeile die Termine anklicken.</p>
           <div class="sv-join">
@@ -476,16 +514,30 @@
       </div>` : ''}
       <div class="card">
         <h3 style="margin-top:0">Tabelle <span class="count-chip">${data.responses.length}</span></h3>
-        ${render(data, { ownId: own && own.id, canEdit: (r) => open && ((own && own.id === r.id) || data.open_edit || isCastMember(data, r)),
-          canEditCast: () => open, claim: open && freeRoles.length > 0 })}
+        ${render(data, { ownId: own && own.id, canEdit: (r) => open && mayEdit(r) && rowFree(r), locked: (r) => open && mayEdit(r) && !rowFree(r),
+          canEditCast: (role) => open && castFree(role), lockedCast: (role) => open && !castFree(role), claim: open && freeRoles.length > 0 && (!!own || !meRow()) })}
       </div>
-      ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}`;
+      ${statsHtml(data, statsId()) ? `<div class="card">${statsHtml(data, statsId())}</div>` : ''}
+      ${open ? lockBarHtml() : ''}`;
     SurveyTable.fit(app);
     bindStats(app, data, (rid) => { statsPick = rid; });
     bindMobileCommon();
     tableMsg = '';
     if (!open) return;
 
+    const notMe = document.getElementById('sv-notme');
+    if (notMe) notMe.addEventListener('click', () => { mPick = null; lsSet(meKey, null); renderTablePage(); });
+    // gesperrte Zelle angetippt: nachfragen
+    app.querySelectorAll('[data-sv-locked]').forEach(td => td.addEventListener('click', () => { lockAsk = { type: 'row', id: +td.dataset.svLocked }; renderTablePage(); }));
+    app.querySelectorAll('[data-sv-lockcast]').forEach(td => td.addEventListener('click', () => { lockAsk = { type: 'cast', role: data.roles[+td.dataset.svLockcast] }; renderTablePage(); }));
+    app.querySelectorAll('[data-lb]').forEach(b => b.addEventListener('click', () => {
+      const a = b.dataset.lb;
+      if (a === 'me') { mPick = String(lockAsk.id); lsSet(meKey, mPick); }
+      else if (a === 'row') freeRows.add(lockAsk.id);
+      else if (a === 'cast') unlockedRoles.add(lockAsk.role);
+      lockAsk = null;
+      renderTablePage();
+    }));
     const joinBtn = document.getElementById('sv-join');
     if (joinBtn) joinBtn.addEventListener('click', () => join(document.getElementById('sv-name').value.trim(), (document.getElementById('sv-role') || {}).value));
     const ownSave = document.getElementById('sv-own-save');
@@ -500,7 +552,7 @@
     });
     // "eintragen" in einer freien Rollen-Zeile: mit eingegebenem Namen eintragen bzw. eigene Zeile dorthin verschieben
     app.querySelectorAll('[data-sv-claim]').forEach(b => b.addEventListener('click', () => {
-      const name = own ? own.name : (document.getElementById('sv-name') || {}).value.trim();
+      const name = own ? own.name : ((document.getElementById('sv-name') || {}).value || '').trim();
       join(name, b.dataset.svClaim);
     }));
     // Besetzung: in der Rollen-Zeile auswaehlen, wer den Termin spielt

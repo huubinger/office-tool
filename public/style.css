@@ -3091,3 +3091,72 @@ tr.drop-hover td { background: color-mix(in srgb, var(--accent) 10%, transparent
 .report-saldo-zeile.negative strong { color: var(--danger); }
 .wd-extra { color: var(--ink-soft); font-style: italic; }
 .report-multi-table td.leise, .report-saldo-zeile .leise { color: var(--ink-soft); }
+
+/* ===== NK: Programm (bearbeitbare Event-Tabelle) ===== */
+main:has(#tab-nk_projects.active #nk-view-program:not(.hidden)) { max-width: 1560px; }
+.prog-card { padding: 0; overflow: hidden; }
+.prog-scroll { overflow-x: auto; }
+.prog-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 980px; table-layout: fixed; }
+.prog-table thead th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em;
+  padding: 10px 8px; border-bottom: 1px solid var(--line-strong); background: var(--panel-alt); }
+.prog-table thead th:nth-child(1) { width: 172px; }
+.prog-table thead th:nth-child(2) { width: 30%; }
+.prog-table thead th:nth-child(3) { width: 196px; }
+.prog-table thead th:nth-child(4) { width: 180px; }
+.prog-table thead th:nth-child(6) { width: 44px; }
+.prog-table td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.prog-group th { text-align: left; padding: 16px 12px 6px; font-size: 15px; color: var(--ink); background: var(--panel); border-bottom: 1px solid var(--line-strong); }
+.prog-table input, .prog-table select, .prog-table textarea { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid transparent; background: transparent;
+  border-radius: 6px; padding: 4px 6px; font: inherit; color: var(--ink); resize: none; }
+.prog-table input:hover, .prog-table select:hover, .prog-table textarea:hover { border-color: var(--line-strong); background: var(--field-bg); }
+.prog-table input:focus, .prog-table select:focus, .prog-table textarea:focus { outline: none; border-color: var(--accent); background: var(--field-bg); box-shadow: 0 0 0 3px var(--accent-glow); }
+.prog-kv { display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; font-size: 12.5px; }
+.prog-kv > span { color: var(--ink-faint); padding-left: 6px; }
+.prog-kv input, .prog-kv select { color: var(--ink-soft); font-size: 12.5px; }
+.prog-date { display: flex; align-items: center; }
+.prog-wd { width: 24px; flex: none; color: var(--ink-soft); font-weight: 600; padding-left: 6px; }
+.prog-date input { font-weight: 600; }
+.prog-title-cell input[data-f="title"] { font-weight: 600; font-size: 14.5px; text-overflow: ellipsis; }
+.prog-sub { color: var(--ink-soft); font-size: 12.5px; }
+.prog-open textarea, .prog-table textarea[data-f="prices"] { color: var(--ink-soft); font-size: 12.5px; line-height: 1.45; overflow: hidden; }
+.prog-table textarea[data-f="prices"] { color: var(--ink); }
+.prog-row td:first-child { border-left: 4px solid transparent; }
+.prog-bestätigt td:first-child { border-left-color: var(--ok); }
+.prog-planung td:first-child { border-left-color: var(--warn); }
+.prog-idee td:first-child { border-left-color: var(--line-strong); }
+.prog-abgeschlossen td:first-child { border-left-color: var(--ink-faint); }
+.prog-muted .prog-row { opacity: .55; }
+.prog-muted .prog-row input[data-f="title"] { text-decoration: line-through; }
+.prog-state .status-select { width: 100%; margin-bottom: 2px; }
+.prog-contract.cs-unterschrieben { color: var(--ok) !important; font-weight: 600; }
+.prog-contract.cs-liegtvor { color: var(--violet-ink) !important; font-weight: 600; }
+.prog-contract.cs-zugesagt { color: var(--accent-dark) !important; }
+.prog-contract.cs-angefragt, .prog-contract.cs-offen { color: var(--warn) !important; }
+.prog-row td { transition: background .8s; }
+.prog-row.prog-saved td { background: var(--ok-soft); transition: background .2s; }
+.prog-table td.prog-actions { text-align: center; }
+.prog-add { margin: 10px 12px 12px; }
+.prog-notes { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; line-height: 1.5; padding: 10px 12px; border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm); background: var(--field-bg); color: var(--ink); resize: vertical; }
+
+@media (max-width: 760px) {
+  .prog-card { background: transparent; border: 0; box-shadow: none; }
+  .prog-table { min-width: 0; display: block; table-layout: auto; }
+  .prog-table thead { display: none; }
+  .prog-table tbody, .prog-table td { display: block; }
+  .prog-group th { display: block; padding: 16px 2px 8px; background: transparent; border: 0; }
+  .prog-row { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line-strong);
+    border-radius: var(--radius); margin-bottom: 10px; padding: 8px 8px 6px; position: relative; }
+  .prog-row.prog-bestätigt { border-left-color: var(--ok); }
+  .prog-row.prog-planung { border-left-color: var(--warn); }
+  .prog-row.prog-idee { border-left-color: var(--line-strong); }
+  .prog-row.prog-abgeschlossen { border-left-color: var(--ink-faint); }
+  .prog-row td { border: 0 !important; padding: 2px 0; }
+  .prog-row td.prog-title-cell { order: -1; padding-right: 40px; }
+  .prog-row td.prog-title-cell input[data-f="title"] { font-size: 17px; }
+  .prog-row td.prog-actions { position: absolute; top: 8px; right: 6px; }
+  .prog-row td[data-label="Preise"]::before, .prog-row td.prog-open::before { content: attr(data-label); display: block; font-size: 11.5px; color: var(--ink-faint); padding: 6px 6px 0; }
+  .prog-row td.prog-when { display: grid; grid-template-columns: 1fr 1fr; }
+  .prog-row td.prog-when .prog-date { grid-column: 1 / -1; }
+  .prog-table input, .prog-table select, .prog-table textarea, .prog-kv input, .prog-kv select { font-size: 16px; }
+}

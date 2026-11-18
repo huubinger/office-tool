@@ -5647,7 +5647,7 @@
   let nkStats = null;
   let nkPlanYear = String(new Date().getFullYear());
   let nkStatsYear = '';
-  const NK_VIEWS = ['overview', 'list', 'year', 'stats'];
+  const NK_VIEWS = ['overview', 'program', 'list', 'year', 'stats'];
 
   function daysUntilLabel(iso) {
     const d = Math.round((isoToDate(iso) - isoToDate(todayIsoLocal())) / 86400000);
@@ -5665,6 +5665,7 @@
     document.querySelectorAll('[data-nk-view]').forEach(b => b.classList.toggle('active', b.dataset.nkView === nkView));
     NK_VIEWS.forEach(k => document.getElementById('nk-view-' + k).classList.toggle('hidden', k !== nkView));
     if (nkView === 'overview') loadNkDashboard();
+    if (nkView === 'program') loadNkProgram();
     if (nkView === 'year') loadNkStats().then(renderNkYear);
     if (nkView === 'stats') loadNkStats().then(renderNkStats);
   }
@@ -5771,6 +5772,114 @@
     }));
     const quick = box.querySelector('[data-dash-notify]');
     if (quick) quick.addEventListener('click', () => document.getElementById('notify-settings-btn').click());
+  }
+
+  // ---- Programm: Arbeitsübersicht aller Events als bearbeitbare Tabelle ----
+  let nkProgram = null;
+  async function loadNkProgram() {
+    try { nkProgram = await api('/api/nk/program'); } catch (err) { toast(err.message); return; }
+    renderNkProgram();
+  }
+  function renderNkProgram() {
+    const box = document.getElementById('nk-view-program');
+    if (!nkProgram) { box.innerHTML = ''; return; }
+    const { rows, notes, statuses, contract_states: cs } = nkProgram;
+    const opt = (list, v, empty) => (empty ? `<option value="">${empty}</option>` : '') +
+      list.map(x => `<option ${x === v ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('');
+    const wd = (iso) => (iso ? WD_SHORT[isoToDate(iso).getDay()] : '');
+    const rowHtml = (r) => `
+      <tr class="prog-row prog-${(r.status || 'Planung').toLowerCase().replace(/[^a-zäöü]/g, '')}" data-prog-row="${r.id}">
+        <td data-label="Datum" class="prog-when">
+          <span class="prog-date"><small class="prog-wd">${wd(r.date)}</small><input type="date" data-f="date" value="${r.date || ''}"></span>
+          <label class="prog-kv"><span>Beginn</span><input type="time" data-f="time" value="${(r.time || '').slice(0, 5)}"></label>
+          <label class="prog-kv"><span>Einlass</span><input type="time" data-f="doors" value="${(r.doors || '').slice(0, 5)}"></label>
+        </td>
+        <td data-label="Veranstaltung" class="prog-title-cell">
+          <input type="text" data-f="title" value="${escapeHtml(r.title)}" title="${escapeHtml(r.title)}">
+          <input type="text" data-f="location" list="prog-locations" placeholder="Ort" value="${escapeHtml(r.location || '')}" class="prog-sub">
+          <label class="prog-kv"><span>Zuständig</span><input type="text" data-f="owner" list="prog-owners" value="${escapeHtml(r.owner || '')}"></label>
+        </td>
+        <td data-label="Stand" class="prog-state">
+          <select data-f="status" class="status-select">${opt(statuses, r.status)}</select>
+          <label class="prog-kv"><span>Künstler</span><select data-f="artist_contract" class="prog-contract cs-${(r.artist_contract || '').replace(/[^a-zäöü]/g, '')}">${opt(cs, r.artist_contract, '–')}</select></label>
+          <label class="prog-kv"><span>Saal</span><select data-f="venue_contract" class="prog-contract cs-${(r.venue_contract || '').replace(/[^a-zäöü]/g, '')}">${opt(cs, r.venue_contract, '–')}</select></label>
+        </td>
+        <td data-label="Preise"><textarea data-f="prices" rows="1" placeholder="VVK / AK">${escapeHtml(r.prices || '')}</textarea></td>
+        <td data-label="Offene Punkte" class="prog-open"><textarea data-f="open_points" rows="1" placeholder="—">${escapeHtml(r.open_points || '')}</textarea></td>
+        <td class="prog-actions"><button type="button" class="icon-btn" data-prog-open="${r.id}" title="Konzert-Ordner öffnen (Verträge, 2Dos, Kalkulation …)">↗</button></td>
+      </tr>`;
+    const groups = [];
+    const active = rows.filter(r => r.status !== 'Abgesagt');
+    [...new Set(active.filter(r => r.date).map(r => r.date.slice(0, 4)))].forEach(y =>
+      groups.push({ title: y, rows: active.filter(r => r.date && r.date.startsWith(y)) }));
+    const undated = active.filter(r => !r.date);
+    if (undated.length) groups.push({ title: 'Ohne festes Datum · Ideen', rows: undated });
+    const cancelled = rows.filter(r => r.status === 'Abgesagt');
+    if (cancelled.length) groups.push({ title: 'Abgesagt', rows: cancelled, muted: true });
+    const owners = [...new Set(rows.flatMap(r => (r.owner || '').split(/,\s*/)).filter(Boolean).concat(['Franz', 'Markus', 'Martin']))];
+    const locations = [...new Set(rows.map(r => r.location).filter(Boolean).concat(['Städtische Musikschule Neckarsulm', 'Kultursaal Ballei']))];
+    const updated = notes.updated_at ? `zuletzt geändert ${fmtDateDE(notes.updated_at.slice(0, 10))}${notes.updated_by ? ' · ' + escapeHtml(notes.updated_by) : ''}` : '';
+    box.innerHTML = `
+      <p class="section-intro">Alle Events der Reihe auf einen Blick – jede Zelle direkt bearbeiten, gespeichert wird beim Verlassen des Feldes. ↗ öffnet den Konzert-Ordner mit Verträgen, 2Dos und Kalkulation.</p>
+      <datalist id="prog-owners">${owners.map(o => `<option value="${escapeHtml(o)}">`).join('')}</datalist>
+      <datalist id="prog-locations">${locations.map(o => `<option value="${escapeHtml(o)}">`).join('')}</datalist>
+      <div class="card prog-card">
+        <div class="prog-scroll">
+          <table class="prog-table">
+            <thead><tr><th>Datum · Zeit</th><th>Veranstaltung · Ort · Zuständig</th><th>Status · Verträge</th><th>Preise</th><th>Offene Punkte</th><th></th></tr></thead>
+            ${groups.map(g => `<tbody class="${g.muted ? 'prog-muted' : ''}">
+              <tr class="prog-group"><th colspan="6">${escapeHtml(g.title)} <span class="count-chip">${g.rows.length}</span></th></tr>
+              ${g.rows.map(rowHtml).join('')}
+            </tbody>`).join('')}
+          </table>
+        </div>
+        <button type="button" class="ghost prog-add" id="prog-add">+ Event hinzufügen</button>
+      </div>
+      <div class="card">
+        <div class="section-card-head"><h3>📝 Notizen zur Reihe</h3><small class="task-meta" id="prog-notes-meta">${updated}</small></div>
+        <textarea id="prog-notes" class="prog-notes" rows="14" placeholder="Termine, Absprachen, Tickets, Werbung …">${escapeHtml(notes.text || '')}</textarea>
+      </div>`;
+    const grow = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
+    box.querySelectorAll('.prog-table textarea, #prog-notes').forEach(ta => { grow(ta); ta.addEventListener('input', () => grow(ta)); });
+    // Datum erst beim Verlassen speichern (Chrome meldet beim Tippen jeden Zwischenstand als change).
+    // Kein Neuzeichnen während der Bearbeitung – neue Sortierung/Gruppen beim nächsten Laden.
+    box.querySelectorAll('[data-prog-row] [data-f]').forEach(el => el.addEventListener(el.dataset.f === 'date' ? 'blur' : 'change', async () => {
+      const tr = el.closest('[data-prog-row]');
+      const id = +tr.dataset.progRow;
+      const before = nkProgram.rows.find(r => r.id === id);
+      if (el.dataset.f === 'date' && before && (before.date || '') === el.value) return;
+      try {
+        const row = await api(`/api/nk/program/${id}`, { method: 'PUT', body: JSON.stringify({ field: el.dataset.f, value: el.value }) });
+        const i = nkProgram.rows.findIndex(r => r.id === id);
+        if (i >= 0) nkProgram.rows[i] = row;
+        if (el.dataset.f === 'date') { el.value = row.date || ''; tr.querySelector('.prog-wd').textContent = wd(row.date); }
+        if (el.dataset.f === 'status') tr.className = `prog-row prog-${row.status.toLowerCase().replace(/[^a-zäöü]/g, '')}`;
+        if (el.classList.contains('prog-contract')) el.className = `prog-contract cs-${(row[el.dataset.f] || '').replace(/[^a-zäöü]/g, '')}`;
+        if ((el.dataset.f === 'time' || el.dataset.f === 'doors') && !row[el.dataset.f]) el.value = '';
+        tr.classList.add('prog-saved');
+        setTimeout(() => tr.classList.remove('prog-saved'), 900);
+      } catch (err) {
+        toast(err.message);
+        if (before && el.dataset.f !== 'title' && !['prices', 'open_points', 'owner', 'location'].includes(el.dataset.f)) el.value = (before[el.dataset.f] || '').slice(0, el.type === 'time' ? 5 : undefined);
+      }
+    }));
+    box.querySelectorAll('[data-prog-open]').forEach(b => b.addEventListener('click', () => openNkConcert(+b.dataset.progOpen, 'overview')));
+    document.getElementById('prog-add').addEventListener('click', async () => {
+      try {
+        const row = await api('/api/nk/program', { method: 'POST', body: JSON.stringify({ title: 'Neues Event' }) });
+        nkProgram.rows.push(row);
+        renderNkProgram();
+        const input = box.querySelector(`[data-prog-row="${row.id}"] [data-f="title"]`);
+        if (input) { input.focus(); input.select(); }
+      } catch (err) { toast(err.message); }
+    });
+    const notesEl = document.getElementById('prog-notes');
+    notesEl.addEventListener('change', async () => {
+      try {
+        nkProgram.notes = await api('/api/nk/program-notes', { method: 'PUT', body: JSON.stringify({ text: notesEl.value, base_updated_at: nkProgram.notes.updated_at }) });
+        document.getElementById('prog-notes-meta').textContent = `gespeichert · ${nkProgram.notes.updated_by || ''}`;
+      } catch (err) { toast(err.message); }
+    });
   }
 
   // ---- Jahresplanung ----

@@ -27,6 +27,7 @@ const nkContacts = require('./nk-contacts');
 const nkEvening = require('./nk-evening');
 const nkShare = require('./nk-share');
 const nkReport = require('./nk-report');
+const nkProgram = require('./nk-program');
 const diktat = require('./diktat');
 const finder = require('./finder');
 const marketing = require('./marketing');
@@ -116,6 +117,7 @@ const API_TAB_RULES = [
   ['/api/nk/stats', ['nk_projects']],
   ['/api/nk/report', ['nk_projects']],
   ['/api/nk/tickets', ['nk_projects']],
+  ['/api/nk/program', ['nk_projects']],
   ['/api/nk/', ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts']],
   ['/api/push/', ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts']],
   ['/api/tasks', ['tasks', 'calendar', 'contracts']],
@@ -2057,6 +2059,7 @@ nkTickets.register(app);
 nkContacts.register(app);
 nkEvening.register(app);
 nkShare.register(app);
+nkProgram.register(app);
 nkReport.register(app);
 diktat.register(app);
 nk.backfillFileText();

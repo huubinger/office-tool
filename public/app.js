@@ -109,8 +109,60 @@
 
   function sidebarBtn(tab) { return document.querySelector(`.sidebar .tab-btn[data-tab="${tab}"]`); }
 
+  // ---- Browser-Zurück innerhalb der App ----
+  // Ohne eigene Verlaufseinträge sprang „Zurück“ aus der App heraus auf die Login-Seite.
+  // Reiter und Detailansichten (Event, Umfrage, NK-Konzert …) legen deshalb Einträge an;
+  // „Zurück“ schließt zuerst die offene Detailansicht, dann geht es zum vorigen Reiter.
+  let navFromHistory = false;
+  const DETAIL_VIEWS = [
+    ['events', 'ev-detail-view', 'ev-back'],
+    ['surveys', 'sv-detail-view', 'sv-back'],
+    ['nk_projects', 'nk-concert-detail-view', 'nk-concert-back'],
+    ['nk_sponsors', 'nk-sponsor-detail-view', 'nk-sponsor-back'],
+    ['nk_contacts', 'nk-contact-detail-view', 'nk-contact-back'],
+    ['nk_polls', 'nk-poll-detail-view', 'nk-poll-back'],
+  ];
+  function openDetailView() {
+    return DETAIL_VIEWS.find(([t, v]) => { const el = document.getElementById(v); return t === activeTab && el && !el.classList.contains('hidden'); });
+  }
+  function initHistoryNav() {
+    history.replaceState({ tab: activeTab }, '');
+    DETAIL_VIEWS.forEach(([tab, viewId]) => {
+      const el = document.getElementById(viewId);
+      if (!el) return;
+      let visible = !el.classList.contains('hidden');
+      new MutationObserver(() => {
+        const now = !el.classList.contains('hidden');
+        if (now === visible) return;
+        visible = now;
+        if (navFromHistory) return;
+        const st = history.state || {};
+        if (now && st.detail !== viewId) history.pushState({ tab, detail: viewId }, '');
+        // Detail über den eigenen Zurück-Knopf geschlossen: Verlaufseintrag mit zurücknehmen
+        else if (!now && st.detail === viewId) history.back();
+      }).observe(el, { attributes: true, attributeFilter: ['class'] });
+    });
+    window.addEventListener('popstate', (e) => {
+      const st = e.state || {};
+      navFromHistory = true;
+      try {
+        const d = openDetailView();
+        if (d && st.detail !== d[1]) {
+          const btn = document.getElementById(d[2]);
+          if (btn) btn.click();
+        }
+        if (st.tab && st.tab !== activeTab && can(st.tab)) switchTab(st.tab);
+      } finally {
+        // MutationObserver laufen als Microtask – erst danach wieder normal mitschreiben
+        setTimeout(() => { navFromHistory = false; }, 0);
+      }
+    });
+  }
+
   function switchTab(tab, opts = {}) {
     if (!document.getElementById('tab-' + tab)) return;
+    // Browser-Zurück: jeder Reiterwechsel bekommt einen eigenen Verlaufseintrag
+    if (!opts.restore && !navFromHistory && (history.state || {}).tab !== tab) history.pushState({ tab }, '');
     activeTab = tab;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     const moreBtn = document.getElementById('bottom-nav-more');
@@ -7335,9 +7387,9 @@
       const start = last && can(last) ? last : sidebarOrder[0];
       switchTab(start, { restore: true, noScroll: true });
       if (mkConnect) mkHandleConnectReturn(urlParams);
-      if (linkTab || linkView) history.replaceState(null, '', window.location.pathname);
+      if (linkTab || linkView || linkConcert || linkPoll) history.replaceState(null, '', window.location.pathname);
+      initHistoryNav();
       if (linkConcert || linkPoll) {
-        history.replaceState(null, '', window.location.pathname);
         try {
           if (linkConcert && can('nk_projects')) await openNkConcert(linkConcert, urlParams.get('folder'));
           else if (linkPoll && can('nk_polls')) await openNkPoll(linkPoll);

@@ -2,6 +2,14 @@
   'use strict';
   const form = document.getElementById('login-form');
   const errorBox = document.getElementById('login-error');
+  const target = () => {
+    const next = new URLSearchParams(window.location.search).get('next');
+    return window.NK_MODE ? '/nk' + window.location.search : (next === '/diktat' ? '/diktat' : '/');
+  };
+  // Schon angemeldet (z. B. per „Zurück“ oder aus dem Browser-Cache hierher gekommen): direkt weiter
+  window.addEventListener('pageshow', () => {
+    fetch('/api/me', { cache: 'no-store' }).then(r => { if (r.ok) window.location.replace(target()); }).catch(() => {});
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -21,8 +29,8 @@
         return;
       }
       // Im NK-Einstieg zurueck nach /nk (inkl. Ziel wie ?concert=3), sonst ins Office-Tool
-      const next = new URLSearchParams(window.location.search).get('next');
-      window.location.href = window.NK_MODE ? '/nk' + window.location.search : (next === '/diktat' ? '/diktat' : '/');
+      // replace statt href: Login-Seite nicht im Verlauf lassen, sonst landet „Zurück“ wieder hier
+      window.location.replace(target());
     } catch (err) {
       errorBox.textContent = 'Verbindung zum Server fehlgeschlagen.';
       errorBox.classList.remove('hidden');

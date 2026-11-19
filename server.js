@@ -347,6 +347,12 @@ app.get('/nk/login', (req, res) => {
   res.type('html').send(nkVariant('login.html'));
 });
 
+// Schon angemeldet: Login-Seite überspringen (sonst wirkt „Zurück“ wie ein Abmelden)
+app.get('/login.html', (req, res, next) => {
+  if (!(req.session && req.session.userId)) return next();
+  res.redirect(req.query.next === '/diktat' ? '/diktat' : '/');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;

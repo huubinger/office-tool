@@ -4941,7 +4941,7 @@
   async function openNkConcert(id, folder) {
     nkConcertDetail = await api(`/api/nk/concerts/${id}`);
     nkConcertFolder = NK_FOLDERS[folder] ? folder : 'overview';
-    if (folder === 'budget' && !nkConcertDetail.budgets[nkBudgetKind]) nkBudgetKind = nkConcertDetail.budgets.ist ? 'ist' : 'plan';
+    if (folder === 'budget' && !(nkBudgetKind === 'compare' ? nkConcertDetail.budgets.plan && nkConcertDetail.budgets.ist : nkConcertDetail.budgets[nkBudgetKind])) nkBudgetKind = nkConcertDetail.budgets.ist ? 'ist' : 'plan';
     document.getElementById('nk-projects-list-view').classList.add('hidden');
     document.getElementById('nk-concert-detail-view').classList.remove('hidden');
     renderNkConcertDetail();
@@ -5328,7 +5328,136 @@
   }
 
   // ---- Kalkulation (Plan) / Abrechnung (Ist) ----
+  // Umschalter Kalkulation / Abrechnung / Vergleich (Vergleich nur, wenn beides gespeichert ist)
+  function budgetKindToggleHtml(c) {
+    const canCompare = !!(c.budgets.plan && c.budgets.ist);
+    return `<div class="seg-toggle" role="tablist">
+      ${Object.entries(BUDGET_KINDS).map(([k, label]) => `
+        <button type="button" class="${k === nkBudgetKind ? 'active' : ''}" data-budget-kind="${k}">${label}${c.budgets[k] ? ' ✓' : ''}</button>`).join('')}
+      <button type="button" class="${nkBudgetKind === 'compare' ? 'active' : ''}" data-budget-kind="compare" ${canCompare ? '' : 'disabled title="Erst Kalkulation und Abrechnung speichern"'}>Plan ↔ Ist</button>
+    </div>`;
+  }
+
+  // ---- Gegenüberstellung Plan / Ist ----
+  // Posten werden über die Bezeichnung zugeordnet (Groß-/Kleinschreibung egal); Posten, die nur
+  // in einer der beiden Tabellen stehen, erscheinen trotzdem (mit „–“ auf der anderen Seite).
+  // Gleiche Bezeichnung mehrfach: n-te Plan-Zeile mit n-ter Ist-Zeile paaren
+  function pairByLabel(planRows, istRows, make, fill) {
+    const key = (l) => String(l || '').trim().toLowerCase();
+    const out = [], lists = new Map();
+    planRows.forEach((r, i) => {
+      const row = make(r); fill(row, r, 'plan'); out.push(row);
+      const k = key(r.label) || `#p${i}`;
+      if (!lists.has(k)) lists.set(k, []);
+      lists.get(k).push(row);
+    });
+    istRows.forEach((r, i) => {
+      const k = key(r.label) || `#i${i}`;
+      const free = lists.get(k) && lists.get(k).shift();
+      const row = free || make(r);
+      if (!free) out.push(row);
+      fill(row, r, 'ist');
+    });
+    return out;
+  }
+  function budgetCompareRows(planRows, istRows) {
+    const keep = (r) => r.label || (r.amount !== null && r.amount !== undefined);
+    return pairByLabel(planRows.filter(keep), istRows.filter(keep),
+      (r) => ({ label: r.label, plan: null, ist: null, note: '' }),
+      (row, r, side) => { row[side] = r.amount ?? null; if (r.note && (side === 'ist' || !row.note)) row.note = r.note; })
+      .filter(r => r.plan !== null || r.ist !== null);
+  }
+  // good: +1 = mehr ist besser (Einnahmen, Ergebnis), -1 = weniger ist besser (Ausgaben)
+  function budgetDiffCells(plan, ist, good) {
+    if (plan === null && ist === null) return '<td class="num">–</td><td class="num">–</td>';
+    const d = Math.round(((ist || 0) - (plan || 0)) * 100) / 100;
+    const cls = d === 0 ? '' : ((d > 0) === (good > 0) ? 'amount-pos' : 'amount-neg');
+    const pct = plan ? Math.round(d / Math.abs(plan) * 100) : null;
+    return `<td class="num ${cls}">${d === 0 ? '±0' : (d > 0 ? '+' : '−') + fmtEuro(Math.abs(d))}</td>
+      <td class="num ${cls}">${!pct ? '' : (d > 0 ? '+' : '−') + Math.abs(pct) + ' %'}</td>`;
+  }
+  function budgetCompareHtml(c) {
+    const P = c.budgets.plan, I = c.budgets.ist;
+    const section = (key, title, good) => {
+      const rows = budgetCompareRows(P.data[key] || [], I.data[key] || []);
+      const sp = sumRows(P.data[key] || []), si = sumRows(I.data[key] || []);
+      return `
+        <tbody>
+          <tr class="cmp-head"><th colspan="5">${title}</th></tr>
+          ${rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.label || '(ohne Bezeichnung)')}${r.note ? `<small>${escapeHtml(r.note)}</small>` : ''}</td>
+              <td class="num">${fmtEuro(r.plan)}</td>
+              <td class="num">${fmtEuro(r.ist)}</td>
+              ${budgetDiffCells(r.plan, r.ist, good)}
+            </tr>`).join('')}
+          <tr class="cmp-sum">
+            <td>Summe ${title}</td><td class="num">${fmtEuro(sp)}</td><td class="num">${fmtEuro(si)}</td>${budgetDiffCells(sp, si, good)}
+          </tr>
+        </tbody>`;
+    };
+    const rp = P.totals.result, ri = I.totals.result;
+    const perHead = (t, v) => v ? Math.round(t.result / v * 100) / 100 : null;
+    const tiers = budgetCompareTiers(P.data.tickets || [], I.data.tickets || []);
+    return `
+      <div class="card budget-card">
+        <div class="section-card-head">
+          ${budgetKindToggleHtml(c)}
+          <span class="hint budget-meta">Kalkulation vom ${fmtTimestamp(P.updated_at)} · Abrechnung vom ${fmtTimestamp(I.updated_at)}</span>
+        </div>
+        <div class="budget-totals cmp-totals">
+          <div><span>Einnahmen</span><strong>${fmtEuro(I.totals.income)}</strong><small>Plan ${fmtEuro(P.totals.income)}</small></div>
+          <div><span>Ausgaben</span><strong>${fmtEuro(I.totals.expense)}</strong><small>Plan ${fmtEuro(P.totals.expense)}</small></div>
+          <div class="budget-result"><span>Ergebnis</span><strong class="${resultClass(ri)}">${fmtEuro(ri)}</strong><small>Plan ${fmtEuro(rp)} · ${(() => { const d = Math.round((ri - rp) * 100) / 100; return d === 0 ? 'wie geplant' : `<b class="${d > 0 ? 'amount-pos' : 'amount-neg'}">${d > 0 ? 'besser' : 'schlechter'} um ${fmtEuro(Math.abs(d))}</b>`; })()}</small></div>
+          ${(P.visitors || I.visitors) ? `<div><span>Besucher</span><strong>${fmtNum(I.visitors)}</strong><small>Plan ${fmtNum(P.visitors)}</small></div>` : ''}
+        </div>
+        <div class="table-scroll">
+          <table class="budget-compare">
+            <thead><tr><th>Posten</th><th class="num">Plan</th><th class="num">Ist</th><th class="num">Abweichung</th><th class="num">%</th></tr></thead>
+            ${section('income', 'Einnahmen', 1)}
+            ${section('expense', 'Ausgaben', -1)}
+            <tbody>
+              <tr class="cmp-result"><td>Ergebnis</td><td class="num ${resultClass(rp)}">${fmtEuro(rp)}</td><td class="num ${resultClass(ri)}">${fmtEuro(ri)}</td>${budgetDiffCells(rp, ri, 1)}</tr>
+              ${(P.visitors || I.visitors) ? `
+                <tr><td>Besucher</td><td class="num">${fmtNum(P.visitors)}</td><td class="num">${fmtNum(I.visitors)}</td>
+                  <td class="num">${P.visitors && I.visitors ? ((I.visitors - P.visitors) > 0 ? '+' : (I.visitors - P.visitors) < 0 ? '−' : '±') + fmtNum(Math.abs(I.visitors - P.visitors)) : ''}</td>
+                  <td class="num">${P.visitors && I.visitors && I.visitors !== P.visitors ? ((I.visitors > P.visitors) ? '+' : '−') + Math.abs(Math.round((I.visitors - P.visitors) / P.visitors * 100)) + ' %' : ''}</td></tr>
+                <tr><td>Ergebnis pro Besucher</td><td class="num">${fmtEuro(perHead(P.totals, P.visitors))}</td><td class="num">${fmtEuro(perHead(I.totals, I.visitors))}</td>
+                  ${perHead(P.totals, P.visitors) !== null && perHead(I.totals, I.visitors) !== null ? budgetDiffCells(perHead(P.totals, P.visitors), perHead(I.totals, I.visitors), 1) : '<td></td><td></td>'}</tr>` : ''}
+            </tbody>
+          </table>
+        </div>
+        ${tiers.length ? `
+          <div class="table-scroll">
+            <table class="budget-compare">
+              <thead><tr><th>🎟️ Preisstufe</th><th class="num">Plan</th><th class="num">verkauft</th><th class="num">Abweichung</th><th class="num">%</th></tr></thead>
+              <tbody>${tiers.map(t => `
+                <tr><td>${escapeHtml(t.label || '(ohne Bezeichnung)')}<small>${t.priceText}</small></td>
+                  <td class="num">${fmtNum(t.plan)}</td><td class="num">${fmtNum(t.ist)}</td>
+                  <td class="num">${t.plan !== null && t.ist !== null ? (t.ist - t.plan > 0 ? '+' : t.ist - t.plan < 0 ? '−' : '±') + fmtNum(Math.abs(t.ist - t.plan)) : ''}</td>
+                  <td class="num">${t.plan && t.ist !== null && t.ist !== t.plan ? (t.ist > t.plan ? '+' : '−') + Math.abs(Math.round((t.ist - t.plan) / t.plan * 100)) + ' %' : ''}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : ''}
+        <p class="hint">Grün = besser als geplant (mehr Einnahmen, weniger Ausgaben), Rot = schlechter. Posten werden über ihre Bezeichnung zugeordnet – zum Ändern in „Kalkulation“ oder „Abrechnung“ wechseln.</p>
+      </div>`;
+  }
+  function budgetCompareTiers(planT, istT) {
+    const out = pairByLabel(planT, istT,
+      (t) => ({ label: t.label, plan: null, ist: null, pricePlan: null, priceIst: null }),
+      (row, t, side) => { row[side] = t.count ?? null; row[side === 'plan' ? 'pricePlan' : 'priceIst'] = t.price ?? null; });
+    return out.filter(r => r.plan !== null || r.ist !== null).map(r => ({
+      ...r,
+      priceText: r.pricePlan !== null && r.priceIst !== null && r.pricePlan !== r.priceIst
+        ? `Preis Plan ${fmtEuro(r.pricePlan)}, Ist ${fmtEuro(r.priceIst)}` : (r.priceIst ?? r.pricePlan) !== null ? fmtEuro(r.priceIst ?? r.pricePlan) : '',
+    }));
+  }
+
   function budgetPanelHtml(c) {
+    if (nkBudgetKind === 'compare') {
+      if (c.budgets.plan && c.budgets.ist) return budgetCompareHtml(c);
+      nkBudgetKind = c.budgets.ist ? 'ist' : 'plan';
+    }
     const b = currentBudget(c);
     const plan = c.budgets.plan;
     const isIst = nkBudgetKind === 'ist';
@@ -5358,10 +5487,7 @@
     return `
       <div class="card budget-card">
         <div class="section-card-head">
-          <div class="seg-toggle" role="tablist">
-            ${Object.entries(BUDGET_KINDS).map(([k, label]) => `
-              <button type="button" class="${k === nkBudgetKind ? 'active' : ''}" data-budget-kind="${k}">${label}${c.budgets[k] ? ' ✓' : ''}</button>`).join('')}
-          </div>
+          ${budgetKindToggleHtml(c)}
           <span class="hint budget-meta">${b.dirty ? '<strong class="budget-dirty">● Nicht gespeichert</strong>' : (c.budgets[nkBudgetKind]
             ? `Gespeichert ${fmtTimestamp(c.budgets[nkBudgetKind].updated_at)}${c.budgets[nkBudgetKind].updated_by ? ' von ' + escapeHtml(c.budgets[nkBudgetKind].updated_by.short) : ''}${b.source ? ' · ' + escapeHtml(b.source) : ''}`
             : 'Noch nicht angelegt – Vorlage ausfüllen oder Excel einlesen')}</span>
@@ -5441,6 +5567,14 @@
 
   function bindBudgetPanel(c, refresh) {
     const view = document.getElementById('nk-concert-detail-view');
+    if (nkBudgetKind === 'compare') {
+      view.querySelectorAll('[data-budget-kind]').forEach(btn => btn.addEventListener('click', () => {
+        nkBudgetDraft = null;
+        nkBudgetKind = btn.dataset.budgetKind;
+        renderNkConcertDetail();
+      }));
+      return;
+    }
     const b = currentBudget(c);
     const markDirty = () => {
       if (!b.dirty) {

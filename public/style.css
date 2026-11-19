@@ -2265,6 +2265,18 @@ button.finance-row:hover { background: var(--panel-alt); filter: none; }
 .budget-totals small { font-size: 11.5px; color: var(--ink-faint); }
 .budget-totals .budget-result { background: var(--violet-soft); }
 .budget-totals .budget-result strong { font-size: 20px; }
+/* Gegenüberstellung Plan / Ist */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.cmp-totals { margin: 4px 0 14px; }
+.budget-compare { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-bottom: 14px; }
+.budget-compare th, .budget-compare td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.budget-compare thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 700; }
+.budget-compare .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.budget-compare td small { display: block; font-size: 11.5px; color: var(--ink-faint); }
+.budget-compare .cmp-head th { background: var(--panel-alt); font-size: 12.5px; color: var(--ink-soft); }
+.budget-compare .cmp-sum td { font-weight: 700; }
+.budget-compare .cmp-result td { font-weight: 700; font-size: 15px; background: var(--violet-soft); }
+.seg-toggle button:disabled { opacity: 0.4; cursor: not-allowed; }
 .budget-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .budget-import { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .budget-import > div { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }

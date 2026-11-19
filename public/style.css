@@ -2571,6 +2571,10 @@ button.finance-row:hover { background: var(--panel-alt); filter: none; }
   background: var(--field-bg); color: var(--ink); font-size: 13px; font-family: inherit;
 }
 .ticket-num input { width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+.ticket-holds { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.ticket-holds h4 { margin: 0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.ticket-holds h4 small { font-weight: 400; }
+.ticket-holds .ticket-source-main input { width: 100%; }
 .ticket-add { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .ticket-add select, .ticket-add input { flex: 1 1 140px; }
 #ticket-add-event { flex: 3 1 220px; }

@@ -4762,10 +4762,11 @@
       const name = c.title.split(/ [–-] /)[0];
       const sold = c.tickets_sold, cap = c.tickets_capacity;
       const count = !c.tickets_linked ? '<small>kein VVK</small>'
-        : sold !== null && sold !== undefined ? `<b>${fmtNum(sold)}${cap ? `<small>/${fmtNum(cap)}</small>` : ''}</b>`
+        : sold !== null && sold !== undefined ? `<b>${fmtNum(sold)}${c.tickets_reserved ? `<small> (${fmtNum(c.tickets_reserved)})</small>` : ''}${cap ? `<small>/${fmtNum(cap)}</small>` : ''}</b>`
         : `<b>?<small>${c.tickets_available !== null && c.tickets_available !== undefined ? ` · ${fmtNum(c.tickets_available)} frei` : ''}</small></b>`;
       const width = sold && cap ? Math.min(100, Math.round(sold / cap * 100)) : 0;
       const tip = [c.title, c.location, c.tickets_available !== null && c.tickets_available !== undefined ? `${fmtNum(c.tickets_available)} frei` : '',
+        c.tickets_reserved ? `in Klammern zurückgelegt: ${c.tickets_reserved_detail}` : '',
         c.homepage ? 'von der Kreatief-Homepage – Klick öffnet die Veranstaltung' : ''].filter(Boolean).join(' · ');
       if (c.homepage) return `<a class="nk-bar-home" href="${escapeHtml(c.url)}" target="_blank" rel="noopener" title="${escapeHtml(tip)}"><span class="n">${escapeHtml(name)}</span>
         <small>${WD_SHORT[dt.getDay()]} ${dt.getDate()}.${dt.getMonth() + 1}.</small>${count}${width ? `<i style="width:${width}%"></i>` : ''}</a>`;
@@ -4789,9 +4790,9 @@
   }
 
   // Tickets je Konzert: verkauft und frei (immer sichtbar, solange das Konzert nicht vorbei ist)
-  function nkTicketText(sold, available, capacity) {
+  function nkTicketText(sold, available, capacity, reserved) {
     const parts = [];
-    if (sold !== null && sold !== undefined) parts.push(`${fmtNum(sold)} verkauft`);
+    if (sold !== null && sold !== undefined) parts.push(`${fmtNum(sold)} verkauft${reserved ? ` (+${fmtNum(reserved)} zurückgelegt)` : ''}`);
     if (available !== null && available !== undefined) parts.push(`${fmtNum(available)} frei`);
     if (!parts.length) return capacity ? `${fmtNum(capacity)} Plätze` : 'keine Zahlen';
     return parts.join(' · ');
@@ -4799,7 +4800,7 @@
   function nkTicketChip(c) {
     const archived = c.status === 'Abgeschlossen' || c.status === 'Abgesagt' || (c.date && c.date < isoDate(new Date()));
     if (!c.tickets_linked) return archived ? '' : '<span class="muted-chip">🎟️ Tickets <em>noch nicht im Vorverkauf</em></span>';
-    return `<span>🎟️ Tickets <em>${nkTicketText(c.tickets_sold, c.tickets_available, c.tickets_capacity)}</em></span>`;
+    return `<span>🎟️ Tickets <em>${nkTicketText(c.tickets_sold, c.tickets_available, c.tickets_capacity, c.tickets_reserved)}</em></span>`;
   }
 
   function nkConcertCardHtml(c) {
@@ -5702,7 +5703,7 @@
           </div>
           ${c.tickets ? `<div class="progress-line tickets-line">
             <div class="progress-bar progress-tickets"><span style="width:${pct(c.tickets.sold, c.tickets.capacity)}%"></span></div>
-            <small>🎟️ ${nkTicketText(c.tickets.sold, c.tickets.available, c.tickets.capacity)}${c.tickets.capacity && c.tickets.sold !== null ? ` von ${fmtNum(c.tickets.capacity)} (${pct(c.tickets.sold, c.tickets.capacity)} %)` : ''}</small>
+            <small>🎟️ ${nkTicketText(c.tickets.sold, c.tickets.available, c.tickets.capacity, c.tickets.reserved)}${c.tickets.capacity && c.tickets.sold !== null ? ` von ${fmtNum(c.tickets.capacity)} (${pct(c.tickets.sold, c.tickets.capacity)} %)` : ''}</small>
           </div>` : '<small class="dash-concert-todos">🎟️ noch nicht im Vorverkauf</small>'}
           ${c.todo_open ? `<small class="dash-concert-todos">☑️ ${c.todo_open} offene 2Dos</small>` : ''}
         </div>
@@ -6159,7 +6160,7 @@
             <div class="section-card-head"><h3>🎟️ Ticketverkauf</h3>
               ${t && t.sources.some(x => x.source === 'kreatief') ? '<button type="button" class="ghost" data-tickets-refresh title="Jetzt von der Homepage abfragen (sonst alle 30 Minuten)">↻ Aktualisieren</button>' : ''}</div>
             ${t ? `
-              <div class="ticket-big"><strong>${t.sold_known ? fmtNum(t.sold) : '?'}</strong><span>${t.capacity ? `von ${fmtNum(t.capacity)} verkauft · ${pct(t.sold, t.capacity)} %` : 'verkauft'}${t.available !== null ? ` · <strong>${fmtNum(t.available)}</strong> frei` : ''}</span></div>
+              <div class="ticket-big"><strong>${t.sold_known ? fmtNum(t.sold) : '?'}</strong><span>${t.capacity ? `von ${fmtNum(t.capacity)} verkauft · ${pct(t.sold, t.capacity)} %` : 'verkauft'}${t.reserved ? ` · <strong>(${fmtNum(t.reserved)})</strong> zurückgelegt` : ''}${t.available !== null ? ` · <strong>${fmtNum(t.available)}</strong> frei` : ''}</span></div>
               ${!t.sold_known ? '<p class="hint">Die Homepage meldet nur freie Plätze – für die verkauften Tickets bitte das Kontingent eintragen.</p>' : ''}
               ${t.capacity ? `<div class="progress-bar progress-tickets progress-big"><span style="width:${pct(t.sold, t.capacity)}%"></span>${be && be.tickets ? `<i class="be-marker" style="left:${pct(be.tickets, t.capacity)}%" title="Kostendeckung"></i>` : ''}</div>` : ''}
               ${!t.sold_known ? '' : be ? `<p class="ticket-be ${t.sold >= be.tickets ? 'is-ok' : ''}">${be.tickets === 0 ? '✓ Kosten laut Kalkulation schon ohne Tickets gedeckt'
@@ -6180,6 +6181,21 @@
                     <label class="ticket-num">Kontingent<input type="number" min="0" data-ticket-field="capacity" value="${s.capacity ?? ''}" inputmode="numeric"></label>
                     <button type="button" class="icon-btn" data-ticket-delete="${s.id}" title="Quelle entfernen">✕</button>
                   </div>`).join('')}
+              </div>
+              <div class="ticket-holds">
+                <h4>Zurückgelegt <small class="hint">auf der Homepage schon blockiert, aber noch nicht verkauft – wird abgezogen</small></h4>
+                ${t.holds.map(h => `
+                  <div class="ticket-source" data-ticket-hold="${h.id}">
+                    <div class="ticket-source-main"><input type="text" data-hold-field="label" value="${escapeHtml(h.label)}" aria-label="Bezeichnung"></div>
+                    <label class="ticket-num">Anzahl<input type="number" min="0" data-hold-field="count" value="${h.count}" inputmode="numeric"></label>
+                    <label class="ticket-num">davon verkauft<input type="number" min="0" max="${h.count}" data-hold-field="sold" value="${h.sold}" inputmode="numeric"></label>
+                    <button type="button" class="icon-btn" data-hold-delete="${h.id}" title="Kontingent entfernen">✕</button>
+                  </div>`).join('')}
+                <form class="ticket-add" id="ticket-hold-form">
+                  <input type="text" id="ticket-hold-label" placeholder="z.B. Schülerkarten Musikschule">
+                  <input type="number" id="ticket-hold-count" placeholder="Anzahl" min="1" inputmode="numeric">
+                  <button type="submit">+ Zurücklegen</button>
+                </form>
               </div>` : '<p class="empty-state">Noch keine Ticketquelle verknüpft.</p>'}
             <form class="ticket-add" id="ticket-add-form">
               <select id="ticket-add-source">${Object.entries(c.ticket_source_types).map(([k, v]) => `<option value="${k}">${escapeHtml(v)}</option>`).join('')}</select>
@@ -6284,6 +6300,21 @@
       if (!confirm('Diese Ticketquelle entfernen? Der Verlauf geht dabei verloren.')) return;
       refresh(api(`/api/nk/concerts/${c.id}/tickets/${b.dataset.ticketDelete}`, { method: 'DELETE' }));
     }));
+    view.querySelectorAll('[data-ticket-hold]').forEach(row => row.querySelectorAll('[data-hold-field]').forEach(inp => inp.addEventListener('change', () => {
+      const f = inp.dataset.holdField;
+      refresh(api(`/api/nk/concerts/${c.id}/ticket-holds/${row.dataset.ticketHold}`, { method: 'PUT', body: JSON.stringify({ [f]: f === 'label' ? inp.value : (inp.value === '' ? 0 : +inp.value) }) }));
+    })));
+    view.querySelectorAll('[data-hold-delete]').forEach(b => b.addEventListener('click', () =>
+      refresh(api(`/api/nk/concerts/${c.id}/ticket-holds/${b.dataset.holdDelete}`, { method: 'DELETE' }))));
+    const holdForm = document.getElementById('ticket-hold-form');
+    if (holdForm) holdForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const label = document.getElementById('ticket-hold-label').value.trim();
+      const count = document.getElementById('ticket-hold-count').value;
+      if (!label || !count) { toast('Bitte Bezeichnung und Anzahl eintragen'); return; }
+      await refresh(api(`/api/nk/concerts/${c.id}/ticket-holds`, { method: 'POST', body: JSON.stringify({ label, count: +count }) }));
+      toast('Kontingent zurückgelegt');
+    });
     const srcSel = document.getElementById('ticket-add-source');
     const evSel = document.getElementById('ticket-add-event');
     const label = document.getElementById('ticket-add-label');

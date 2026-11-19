@@ -87,7 +87,7 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'surveys', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_sponsors', 'nk_polls', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'surveys', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
     yearcalendar: 'Jahr', contracts: 'Verträge', events: 'Events', surveys: 'Umfragen', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
@@ -95,7 +95,7 @@
   let activeTab = null;
   // Eigener Einstieg /nk ("NK Konzerte" als App auf dem Home-Bildschirm): nur die NK-Reiter
   const NK_MODE = !!window.NK_MODE;
-  const NK_TABS = ['nk_projects', 'nk_polls', 'nk_sponsors', 'nk_contacts'];
+  const NK_TABS = ['nk_projects', 'nk_sponsors', 'nk_polls', 'nk_contacts'];
 
   function can(tab) {
     if (NK_MODE && !NK_TABS.includes(tab)) return false;
@@ -3616,11 +3616,11 @@
   const TAB_LABELS = [
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'], ['events', 'Events'], ['surveys', 'Umfragen'],
-    ['nk_polls', 'NK · Terminfindung'], ['nk_projects', 'NK · Events'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_contacts', 'NK · Kontakte'],
+    ['nk_projects', 'NK · Events'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_polls', 'NK · Terminfindung'], ['nk_contacts', 'NK · Kontakte'],
     ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
-    nk: ['nk_polls', 'nk_projects', 'nk_sponsors', 'nk_contacts'],
+    nk: ['nk_projects', 'nk_sponsors', 'nk_polls', 'nk_contacts'],
     office: ['tasks', 'calendar', 'people', 'timetracking', 'yearcalendar', 'contracts', 'events', 'surveys'],
     all: TAB_LABELS.map(t => t[0]),
   };

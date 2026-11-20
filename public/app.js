@@ -10325,7 +10325,7 @@
   let locMode = 'dates';
   let locFilter = { q: '', status: '' };
   try { locMode = localStorage.getItem('office_loc_mode') || 'dates'; } catch (e) { /* egal */ }
-  if (!['dates', 'venues'].includes(locMode)) locMode = 'dates';
+  if (!['dates', 'venues', 'map'].includes(locMode)) locMode = 'dates';
 
   document.querySelectorAll('[data-loc-mode]').forEach(b => b.addEventListener('click', () => {
     locMode = b.dataset.locMode;
@@ -10370,7 +10370,8 @@
     document.querySelectorAll('[data-loc-mode]').forEach(b => b.classList.toggle('active', b.dataset.locMode === locMode));
     const box = document.getElementById('loc-view');
     if (!locData) { box.innerHTML = ''; return; }
-    if (locMode === 'dates') renderLocDates(box); else renderLocVenues(box);
+    if (locMap && locMode !== 'map') { locMap.remove(); locMap = null; }
+    if (locMode === 'dates') renderLocDates(box); else if (locMode === 'map') { renderLocMap(box); return; } else renderLocVenues(box);
     const grow = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
     box.querySelectorAll('textarea').forEach(ta => { grow(ta); ta.addEventListener('input', () => grow(ta)); });
   }
@@ -10521,6 +10522,131 @@
       } catch (err) { toast(err.message); }
     });
   }
+  // ---- Karte: Locations, 50-km-Kreis, Pfeile zu den geplanten Konzerten, Abdeckung je Himmelsrichtung ----
+  let leafletLoading = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (leafletLoading) return leafletLoading;
+    leafletLoading = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet'; css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+      js.onload = () => resolve(); js.onerror = () => { leafletLoading = null; reject(new Error('Karte konnte nicht geladen werden')); };
+      document.head.appendChild(js);
+    });
+    return leafletLoading;
+  }
+  const LOC_DIRS = [['N', 'Nord'], ['O', 'Ost'], ['S', 'Süd'], ['W', 'West']];
+  function locBearing(h, p) {
+    const toR = (d) => d * Math.PI / 180;
+    const y = Math.sin(toR(p.lng - h.lng)) * Math.cos(toR(p.lat));
+    const x = Math.cos(toR(h.lat)) * Math.sin(toR(p.lat)) - Math.sin(toR(h.lat)) * Math.cos(toR(p.lat)) * Math.cos(toR(p.lng - h.lng));
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  function locDistKm(h, p) {
+    const toR = (d) => d * Math.PI / 180;
+    const a = Math.sin(toR(p.lat - h.lat) / 2) ** 2 + Math.cos(toR(h.lat)) * Math.cos(toR(p.lat)) * Math.sin(toR(p.lng - h.lng) / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.sqrt(a));
+  }
+  const locDir = (b) => (b >= 315 || b < 45 ? 'N' : b < 135 ? 'O' : b < 225 ? 'S' : 'W');
+  let locMap = null;
+
+  async function renderLocMap(box) {
+    const { venues, dates, home } = locData;
+    const planned = dates.filter(d => d.venue_id && !['abgesagt', 'Probentag'].includes(d.status));
+    const byVenue = {};
+    planned.forEach(d => { (byVenue[d.venue_id] = byVenue[d.venue_id] || []).push(d); });
+    const cover = { N: [], O: [], S: [], W: [] };
+    planned.forEach(d => {
+      const v = venues.find(x => x.id === d.venue_id);
+      if (v && v.lat != null) cover[locDir(locBearing(home, v))].push(d);
+    });
+    const missing = venues.filter(v => v.lat == null && v.status !== 'verworfen');
+    const fmtShort = (iso) => (iso ? fmtDateDE(iso).slice(0, 6) : 'o. D.');
+    box.innerHTML = `
+      <p class="section-intro">Pfeile zeigen die Konzerte, denen schon eine Location zugeordnet ist. Ziel: jede Himmelsrichtung mindestens einmal. Kreise: 25 und 50 km um Neckarsulm.</p>
+      <div class="loc-cover">${LOC_DIRS.map(([k, label]) => `
+        <div class="loc-cover-item ${cover[k].length ? 'ok' : 'gap'}">
+          <strong>${label}</strong>
+          <span>${cover[k].length ? cover[k].map(d => fmtShort(d.date)).join(', ') : 'noch kein Konzert'}</span>
+        </div>`).join('')}</div>
+      <div class="loc-legend">
+        <span><i class="lg lg-plan"></i>Konzert geplant</span><span><i class="lg lg-ja"></i>mietbar</span><span><i class="lg lg-unklar"></i>mietbar unklar</span>
+        <span><i class="lg lg-done"></i>schon bespielt</span><span><i class="lg lg-off"></i>verworfen/Absage</span>
+      </div>
+      <div class="card loc-map-card"><div id="loc-map" class="loc-map"></div></div>
+      ${missing.length ? `<div class="loc-missing">${missing.length} Location${missing.length === 1 ? '' : 's'} ohne Kartenposition: ${missing.map(v => escapeHtml(locVenueLabel(v))).join(', ')}
+        <button type="button" class="ghost" id="loc-geocode">Positionen suchen</button></div>` : ''}`;
+    const geoBtn = document.getElementById('loc-geocode');
+    if (geoBtn) geoBtn.addEventListener('click', async () => {
+      geoBtn.disabled = true;
+      let ok = 0;
+      for (const v of missing) {
+        geoBtn.textContent = `Suche ${ok + 1}/${missing.length} …`;
+        try { const row = await api(`/api/locations/venues/${v.id}/geocode`, { method: 'POST' }); Object.assign(v, row); ok++; } catch (err) { toast(err.message); }
+      }
+      renderLocations();
+    });
+    try { await loadLeaflet(); } catch (err) { document.getElementById('loc-map').textContent = err.message; return; }
+    if (locMode !== 'map') return;
+    if (locMap) { locMap.remove(); locMap = null; }
+    const L = window.L;
+    const map = L.map('loc-map', { scrollWheelZoom: false }).setView([home.lat, home.lng], 9);
+    locMap = map;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--accent').trim() || '#1d8c78';
+    const ring50 = L.circle([home.lat, home.lng], { radius: 50000, color: '#c2410c', weight: 2, opacity: .7, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
+    L.circle([home.lat, home.lng], { radius: 25000, color: '#c2410c', weight: 1.5, opacity: .45, dashArray: '3 6', fill: false, interactive: false }).addTo(map);
+    map.fitBounds(ring50.getBounds(), { padding: [10, 10] });
+    // Grenzen der Himmelsrichtungen (NO, SO, SW, NW) und Beschriftung
+    const offset = (b, km) => {
+      const dLat = km / 111.2 * Math.cos(b * Math.PI / 180);
+      const dLng = km / (111.2 * Math.cos(home.lat * Math.PI / 180)) * Math.sin(b * Math.PI / 180);
+      return [home.lat + dLat, home.lng + dLng];
+    };
+    [45, 135, 225, 315].forEach(b => L.polyline([[home.lat, home.lng], offset(b, 55)], { color: '#7a7f88', weight: 1, opacity: .5, dashArray: '2 6', interactive: false }).addTo(map));
+    [['N', 0], ['O', 90], ['S', 180], ['W', 270]].forEach(([k, b]) => L.marker(offset(b, 53), {
+      interactive: false, icon: L.divIcon({ className: 'loc-dir-label' + (cover[k].length ? ' ok' : ' gap'), html: k, iconSize: [26, 26], iconAnchor: [13, 13] }),
+    }).addTo(map));
+    L.marker([home.lat, home.lng], { icon: L.divIcon({ className: 'loc-home', html: '★', iconSize: [22, 22], iconAnchor: [11, 11] }), title: 'Neckarsulm' }).addTo(map);
+    const colorOf = (v) => (byVenue[v.id] ? accent : ['verworfen', 'Absage'].includes(v.status) ? '#a3a7ae' : v.status === 'schon bespielt' ? '#3b82f6' : v.rentable === 'ja' ? '#22a06b' : '#e0a100');
+    venues.filter(v => v.lat != null).forEach(v => {
+      const plannedHere = byVenue[v.id] || [];
+      const km = Math.round(locDistKm(home, v));
+      const popup = `<strong>${escapeHtml(locVenueLabel(v))}</strong><br>
+        ${plannedHere.length ? `<b>Konzert: ${plannedHere.map(d => fmtShort(d.date)).join(', ')}</b><br>` : ''}
+        ${[v.seats && `${escapeHtml(v.seats)} Plätze`, v.costs && escapeHtml(v.costs)].filter(Boolean).join(' · ')}${v.seats || v.costs ? '<br>' : ''}
+        ${km} km Luftlinie · Status: ${escapeHtml(v.status || '')} · mietbar: ${escapeHtml(v.rentable || 'unklar')}<br>
+        ${v.contact_person ? escapeHtml(v.contact_person) + '<br>' : ''}
+        ${v.phone ? `<a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a> ` : ''}${v.email ? `<a href="mailto:${escapeHtml(v.email)}">✉️ ${escapeHtml(v.email)}</a>` : ''}`;
+      L.circleMarker([v.lat, v.lng], {
+        radius: plannedHere.length ? 9 : 6, color: '#fff', weight: 1.5, fillColor: colorOf(v), fillOpacity: ['verworfen', 'Absage'].includes(v.status) ? .5 : .95,
+      }).bindPopup(popup).bindTooltip(locVenueLabel(v)).addTo(map);
+    });
+    // Pfeile Neckarsulm → Konzertort mit Datum (Pfeilspitze in Bildschirm-Pixeln → bei Zoom neu zeichnen)
+    const arrows = L.layerGroup().addTo(map);
+    const drawArrows = () => { arrows.clearLayers(); Object.entries(byVenue).forEach(([vid, ds]) => {
+      const v = venues.find(x => x.id === +vid);
+      if (!v || v.lat == null) return;
+      const from = map.latLngToLayerPoint([home.lat, home.lng]);
+      const to = map.latLngToLayerPoint([v.lat, v.lng]);
+      const len = Math.hypot(to.x - from.x, to.y - from.y);
+      if (len < 1) return;
+      const ux = (to.x - from.x) / len, uy = (to.y - from.y) / len;
+      const stop = Math.max(len - 11, len * 0.6); // vor dem Punkt enden
+      const tip = map.layerPointToLatLng([from.x + ux * stop, from.y + uy * stop]);
+      L.polyline([[home.lat, home.lng], tip], { color: accent, weight: 3, opacity: .9 }).addTo(arrows);
+      const angle = Math.atan2(uy, ux) * 180 / Math.PI;
+      L.marker(tip, { interactive: false, icon: L.divIcon({ className: 'loc-arrow', html: `<span style="transform:rotate(${angle}deg);color:${accent}">➤</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(arrows);
+      L.marker([v.lat, v.lng], { interactive: false, icon: L.divIcon({ className: 'loc-date-label', html: ds.map(d => fmtShort(d.date)).join(' / '), iconSize: null, iconAnchor: [-10, 22] }) }).addTo(arrows);
+    }); };
+    drawArrows();
+    map.on('zoomend', drawArrows);
+  }
+
   const VENUE_SEARCH_FIELDS = ['place', 'name', 'contact_person', 'email', 'phone', 'notes', 'costs'];
 
 

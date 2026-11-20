@@ -3256,3 +3256,22 @@ main:has(#tab-nk_projects.active #nk-view-program:not(.hidden)) { max-width: 156
   .loc-table tr.prog-group th { display: block; }
 }
 .loc-name { resize: none; overflow: hidden; line-height: 1.4; }
+/* Locations: Karte */
+.loc-cover { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.loc-cover-item { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.loc-cover-item strong { font-size: 14px; }
+.loc-cover-item.ok { border-color: var(--ok); background: var(--ok-soft); }
+.loc-cover-item.gap { border-color: var(--warn); background: var(--warn-soft); }
+.loc-cover-item.gap span { color: var(--ink-soft); }
+.loc-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 8px; }
+.loc-legend .lg { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.15); }
+.lg-plan { background: var(--accent); } .lg-ja { background: #22a06b; } .lg-unklar { background: #e0a100; } .lg-done { background: #3b82f6; } .lg-off { background: #a3a7ae; }
+.loc-map-card { padding: 0; overflow: hidden; }
+.loc-map { height: 600px; width: 100%; }
+.loc-missing { margin-top: 10px; font-size: 13px; color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.loc-home { color: #fff; background: #c2410c; border-radius: 50%; text-align: center; line-height: 22px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.loc-dir-label { background: rgba(255,255,255,.9); border-radius: 50%; text-align: center; line-height: 26px; font-weight: 800; font-size: 13px; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.loc-dir-label.ok { background: #d1f2e0; } .loc-dir-label.gap { background: #fde9b8; }
+.loc-arrow span { display: block; font-size: 16px; line-height: 18px; text-align: center; text-shadow: 0 0 2px #fff; }
+.loc-date-label { background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.3); width: auto !important; height: auto !important; }
+@media (max-width: 700px) { .loc-cover { grid-template-columns: repeat(2, minmax(0, 1fr)); } .loc-map { height: 440px; } }

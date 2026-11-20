@@ -14,7 +14,9 @@
    "contact_person": "Stabsstelle Sedef Özbey",
    "phone": "07135 105-302",
    "email": "info@brackenheim.de",
-   "website": "https://www.brackenheim.de/tourismus-freizeit/kultur-museen/staedtisches-kulturprogramm-im-buergerzentrum"
+   "website": "https://www.brackenheim.de/tourismus-freizeit/kultur-museen/staedtisches-kulturprogramm-im-buergerzentrum",
+   "lat": 49.08171,
+   "lng": 9.08206
   },
   {
    "place": "Vaihingen/Enz",
@@ -29,7 +31,9 @@
    "costs": "Grundgebühr 130 € bis 6 Std. (Stand 07/2021), ggf. +100 % für Auswärtige = 260 €; Kaution doppelte Grundgebühr; Flügel 15 €",
    "phone": "07042 18-387",
    "website": "https://www.vaihingen.de/leben-wohnen/staedtische-veranstaltungsraeume/peterskirche",
-   "source_url": "https://www.vaihingen.de/fileadmin/Dateien/Dateien/Ortsrecht/Entgeltordnung__01.pdf"
+   "source_url": "https://www.vaihingen.de/fileadmin/Dateien/Dateien/Ortsrecht/Entgeltordnung__01.pdf",
+   "lat": 48.931,
+   "lng": 8.9595
   },
   {
    "place": "Ilsfeld",
@@ -45,7 +49,9 @@
    "email": "gemeinde@ilsfeld.de",
    "contact_person": "Gemeinde Ilsfeld",
    "website": "https://www.ilsfeld.de/website/de/leben/veranstaltungshallen",
-   "source_url": "https://www.ilsfeld.de/resources/ecics_249.pdf"
+   "source_url": "https://www.ilsfeld.de/resources/ecics_249.pdf",
+   "lat": 49.0554,
+   "lng": 9.24583
   },
   {
    "place": "Schwaigern",
@@ -57,7 +63,9 @@
    "contact_person": "Stadt Schwaigern (Kontakt über Ilona: Marleen-Sophia Würtz)",
    "notes": "Keine Hallenordnung im Ortsrecht gefunden, ev. Gemeindehaus: nichts online. Nur als eigene Miete – nicht als Veranstaltung der Stadt/Knackpunkt.",
    "phone": "07138 21-0",
-   "website": "https://www.schwaigern.de/kontakt"
+   "website": "https://www.schwaigern.de/kontakt",
+   "lat": 49.14531,
+   "lng": 9.05742
   },
   {
    "place": "Löwenstein",
@@ -68,7 +76,9 @@
    "rating": "",
    "status": "verworfen",
    "contact_person": "Pfr. Thomas Burk (Kontakt besteht)",
-   "notes": "Nur ca. 60 Plätze, keine Bühne. Kontakt Pfr. Thomas Burk. Online nichts zur Vermietung gefunden – Alternativen: Alte Kelter / Dorfkelter Hößlinsülz."
+   "notes": "Nur ca. 60 Plätze, keine Bühne. Kontakt Pfr. Thomas Burk. Online nichts zur Vermietung gefunden – Alternativen: Alte Kelter / Dorfkelter Hößlinsülz.",
+   "lat": 49.09531,
+   "lng": 9.38095
   },
   {
    "place": "Bietigheim-Bissingen",
@@ -83,7 +93,9 @@
    "contact_person": "Kronensaal-Betriebsgesellschaft / Haustechnik (Angaben von 2006)",
    "phone": "07142 74-495",
    "email": "Kronenzentrum.Bi-Bi@t-online.de",
-   "booking_url": "https://congress.stuttgart-tourist.de/en/a-kronenzentrum"
+   "booking_url": "https://congress.stuttgart-tourist.de/en/a-kronenzentrum",
+   "lat": 48.96015,
+   "lng": 9.13059
   },
   {
    "place": "Weinsberg-Grantschen",
@@ -92,7 +104,9 @@
    "rentable": "unklar",
    "rating": "",
    "status": "Kandidat",
-   "notes": "Ilonas Vorschlag für 30.01. – gehört zu Weinsberg (11.04.2027 gebucht), nimmt sich Publikum weg."
+   "notes": "Ilonas Vorschlag für 30.01. – gehört zu Weinsberg (11.04.2027 gebucht), nimmt sich Publikum weg.",
+   "lat": 49.15853,
+   "lng": 9.32639
   },
   {
    "place": "Pforzheim",
@@ -107,7 +121,9 @@
    "phone": "07231 3182-97",
    "email": "raum@kulturhaus-osterfeld.de",
    "contact_person": "Raumanmietung (Di–Do)",
-   "website": "https://www.kulturhaus-osterfeld.de/raeume-vermietung"
+   "website": "https://www.kulturhaus-osterfeld.de/raeume-vermietung",
+   "lat": 48.89223,
+   "lng": 8.68607
   },
   {
    "place": "Forchtenberg-Ernsbach",
@@ -119,7 +135,9 @@
    "status": "schon bespielt",
    "contact_person": "Stadt Forchtenberg",
    "source_url": "https://www.forchtenberg.de/fileadmin/Dateien/Dateien/Benutzungs-_und_Geb%C3%BChrenordnung_f%C3%BCr_die_%C3%B6ffentlichen_Einrichtungen_vom_01.06.2025.pdf",
-   "notes": "2025 gespielt (damals 262,50 €)."
+   "notes": "2025 gespielt (damals 262,50 €).",
+   "lat": 49.29099,
+   "lng": 9.5141
   },
   {
    "place": "Schwäbisch Hall",
@@ -134,7 +152,9 @@
    "phone": "0791 751-246",
    "contact_person": "Touristik und Marketing / Tourist-Info (Vermietungs-Nr. nicht belegt)",
    "booking_url": "https://www.eventlocations.com/de/venues/hospitalkirche-schwaebisch-hall",
-   "website": "https://www.schwaebischhall.de/en/welcome/town-hall/marriages-in-schwaebisch-hall/hospital-church"
+   "website": "https://www.schwaebischhall.de/en/welcome/town-hall/marriages-in-schwaebisch-hall/hospital-church",
+   "lat": 49.11392,
+   "lng": 9.73546
   },
   {
    "place": "Zweiflingen",
@@ -147,7 +167,9 @@
    "status": "Kandidat",
    "contact_person": "Gemeinde Zweiflingen",
    "source_url": "https://www.zweiflingen.de/wp-content/uploads/2025/07/Bekanntmachung-Entgeltordnung-Halle-Juli-2026.pdf",
-   "notes": "Sporthalle, Akustik fraglich – nur Reserve."
+   "notes": "Sporthalle, Akustik fraglich – nur Reserve.",
+   "lat": 49.2495,
+   "lng": 9.51617
   },
   {
    "place": "Schöntal",
@@ -158,7 +180,9 @@
    "status": "Kandidat",
    "contact_person": "Gemeinde Schöntal",
    "source_url": "https://www.schoental.de/fileadmin/Dateien/Dateien/Satzungen/Benutzungsordnung_fuer_oeffentliche_Raeume_der_Gde._Schoental_ab_01.01.2023.pdf",
-   "notes": "Entgeltordnung vorhanden, Beträge nicht gefunden."
+   "notes": "Entgeltordnung vorhanden, Beträge nicht gefunden.",
+   "lat": 49.34667,
+   "lng": 9.53783
   },
   {
    "place": "Untergruppenbach",
@@ -170,7 +194,9 @@
    "rating": "",
    "status": "verworfen",
    "source_url": "https://burg-stettenfels.de/pdf/240415burg-stettenfels-feiern-preise.pdf",
-   "notes": "Zu teuer."
+   "notes": "Zu teuer.",
+   "lat": 49.08845,
+   "lng": 9.28057
   },
   {
    "place": "Lauffen",
@@ -180,7 +206,9 @@
    "rentable": "nein",
    "status": "verworfen",
    "source_url": "https://www.lauffen.de/resources/ecics_5296.pdf",
-   "notes": "Vermietet nur an örtliche Vereine."
+   "notes": "Vermietet nur an örtliche Vereine.",
+   "lat": 49.0794,
+   "lng": 9.15067
   },
   {
    "place": "Bad Rappenau",
@@ -189,7 +217,9 @@
    "km": "20",
    "rentable": "nein",
    "status": "verworfen",
-   "notes": "Nur örtliche Vereine."
+   "notes": "Nur örtliche Vereine.",
+   "lat": 49.23932,
+   "lng": 9.09768
   },
   {
    "place": "Heilbronn",
@@ -199,7 +229,9 @@
    "km": "8",
    "rentable": "ja",
    "status": "verworfen",
-   "notes": "Zu teuer, Karten nur über Theaterkasse."
+   "notes": "Zu teuer, Karten nur über Theaterkasse.",
+   "lat": 49.14574,
+   "lng": 9.22244
   },
   {
    "place": "Weinsberg",
@@ -207,7 +239,9 @@
    "km": "12",
    "rentable": "ja",
    "status": "schon bespielt",
-   "notes": "14.03.2026 Unplugged-Konzert. Mietvertrag in Dropbox/Claude/Projekte/Voctails/Downloads."
+   "notes": "14.03.2026 Unplugged-Konzert. Mietvertrag in Dropbox/Claude/Projekte/Voctails/Downloads.",
+   "lat": 49.15042,
+   "lng": 9.28655
   },
   {
    "place": "Hardthausen-Kochersteinsfeld",
@@ -215,7 +249,9 @@
    "km": "15",
    "rentable": "ja",
    "status": "schon bespielt",
-   "notes": "18.04.2026 Konzert. Probenort."
+   "notes": "18.04.2026 Konzert. Probenort.",
+   "lat": 49.24162,
+   "lng": 9.40371
   },
   {
    "place": "Neuenstein",
@@ -223,7 +259,9 @@
    "km": "30",
    "rentable": "ja",
    "status": "schon bespielt",
-   "notes": "25.04.2026 Unplugged-Konzert."
+   "notes": "25.04.2026 Unplugged-Konzert.",
+   "lat": 49.20499,
+   "lng": 9.58132
   },
   {
    "place": "Neckarsulm-Obereisesheim",
@@ -231,7 +269,9 @@
    "km": "5",
    "rentable": "ja",
    "status": "schon bespielt",
-   "notes": "26.04.2026 Unplugged, Spendenbasis."
+   "notes": "26.04.2026 Unplugged, Spendenbasis.",
+   "lat": 49.19688,
+   "lng": 9.19815
   },
   {
    "place": "Oedheim",
@@ -239,7 +279,9 @@
    "km": "10",
    "rentable": "ja",
    "status": "schon bespielt",
-   "notes": "09.05.2026 Konzert. Mietvertrag in Dropbox/Claude/Projekte/Voctails/Downloads."
+   "notes": "09.05.2026 Konzert. Mietvertrag in Dropbox/Claude/Projekte/Voctails/Downloads.",
+   "lat": 49.24122,
+   "lng": 9.25748
   },
   {
    "place": "Neckarsulm",
@@ -249,7 +291,9 @@
    "rentable": "ja",
    "rating": "★★",
    "status": "schon bespielt",
-   "notes": "Stärkster Standort (ZSM 2025: 385 Tickets). Idee: Tourabschluss Mai 2027 mit Partnergruppen."
+   "notes": "Stärkster Standort (ZSM 2025: 385 Tickets). Idee: Tourabschluss Mai 2027 mit Partnergruppen.",
+   "lat": 49.19437,
+   "lng": 9.22632
   },
   {
    "place": "Neckarsulm",
@@ -258,7 +302,9 @@
    "km": "0",
    "rentable": "ja",
    "status": "schon bespielt",
-   "notes": "Eigener Raum. 03.02.2024: 79 Tickets."
+   "notes": "Eigener Raum. 03.02.2024: 79 Tickets.",
+   "lat": 49.19298,
+   "lng": 9.22601
   },
   {
    "place": "Besigheim",
@@ -272,7 +318,9 @@
    "contact_person": "Stadtverwaltung, c/o Kulturamt, Marktplatz 12",
    "email": "stadtverwaltung@besigheim.de",
    "website": "https://www.besigheim.de",
-   "notes": "Echter Konzertsaal mit ansteigendem Gestühl – bester Raum zum kleinsten Preis. Bewirtung nur über den Pächter. BaB 24.03.2019 dort. Telefon unbekannt."
+   "notes": "Echter Konzertsaal mit ansteigendem Gestühl – bester Raum zum kleinsten Preis. Bewirtung nur über den Pächter. BaB 24.03.2019 dort. Telefon unbekannt.",
+   "lat": 49.00067,
+   "lng": 9.13938
   },
   {
    "place": "Besigheim",
@@ -284,7 +332,9 @@
    "rating": "",
    "status": "Kandidat",
    "email": "stadtverwaltung@besigheim.de",
-   "notes": "Ausweichräume. Saal 2 = Vereinssaal der Chorgemeinschaft, „nur für Vereine“ (auswärtige unklar)."
+   "notes": "Ausweichräume. Saal 2 = Vereinssaal der Chorgemeinschaft, „nur für Vereine“ (auswärtige unklar).",
+   "lat": 49.00091,
+   "lng": 9.13943
   },
   {
    "place": "Vaihingen-Horrheim",
@@ -298,7 +348,9 @@
    "contact_person": "Verwaltungsstelle Horrheim, Annette Freund",
    "phone": "07042 841050",
    "website": "https://www.vaihingen.de/leben-wohnen/staedtische-veranstaltungsraeume/alte-kelter-horrheim",
-   "notes": "Bau von 1788, saniert, sehr stimmungsvoll. Hausmeister Jens Link 0174 1803742."
+   "notes": "Bau von 1788, saniert, sehr stimmungsvoll. Hausmeister Jens Link 0174 1803742.",
+   "lat": 48.97877,
+   "lng": 8.98893
   },
   {
    "place": "Tamm",
@@ -313,7 +365,9 @@
    "phone": "07141 606-0",
    "email": "info@tamm.org",
    "website": "https://www.tamm.org/de/kultur-freizeit/kelter/allgemeine-informationen",
-   "notes": "Bau 1611, Kleinkunstsaal der Gemeinde; Überlassung an Vereine, Organisationen, Privatleute. Beschallungsliste online."
+   "notes": "Bau 1611, Kleinkunstsaal der Gemeinde; Überlassung an Vereine, Organisationen, Privatleute. Beschallungsliste online.",
+   "lat": 48.92061,
+   "lng": 9.11581
   },
   {
    "place": "Heilbronn-Sontheim",
@@ -326,7 +380,9 @@
    "status": "Kandidat",
    "contact_person": "Heilbronn Marketing GmbH",
    "email": "congress-service@heilbronn-marketing.de",
-   "notes": "Sehr nah. Zweck laut Ordnung „Leben des Stadtteils“. Keine Nebelmaschine. Alternativ-Mail: tagungen@heilbronn-marketing.de."
+   "notes": "Sehr nah. Zweck laut Ordnung „Leben des Stadtteils“. Keine Nebelmaschine. Alternativ-Mail: tagungen@heilbronn-marketing.de.",
+   "lat": 49.11931,
+   "lng": 9.19004
   },
   {
    "place": "Oberstenfeld",
@@ -340,7 +396,9 @@
    "contact_person": "Bürgermeisteramt / Gebäudemanagement (261-21)",
    "phone": "07062 261-0",
    "email": "info@oberstenfeld.de",
-   "notes": "Festsaal mit Bühne. Antrag mindestens 4 Wochen vorher."
+   "notes": "Festsaal mit Bühne. Antrag mindestens 4 Wochen vorher.",
+   "lat": 49.0224,
+   "lng": 9.32131
   },
   {
    "place": "Gundelsheim",
@@ -355,7 +413,9 @@
    "phone": "06269 9642",
    "email": "Deutschmeisterhalle@gundelsheim.de",
    "website": "https://www.gundelsheim.de/tourismus-freizeit/veranstaltungsraeume/gundelsheim",
-   "notes": "Halle mit Saal, Akustik unbekannt. Tour 2025/26 schon in Gundelsheim gespielt (Raum?)."
+   "notes": "Halle mit Saal, Akustik unbekannt. Tour 2025/26 schon in Gundelsheim gespielt (Raum?).",
+   "lat": 49.28753,
+   "lng": 9.15743
   },
   {
    "place": "Eppingen",
@@ -370,7 +430,9 @@
    "phone": "07262 920-1175",
    "booking_url": "https://booking.locaboo.com/de/stadt-eppingen",
    "website": "https://www.eppingen.de/freizeit-kultur/sportstaetten-veranstaltungshallen",
-   "notes": "Dreschhallen sehr günstig – Plätze und Akustik prüfen. Stadthalle: 07262 6109240."
+   "notes": "Dreschhallen sehr günstig – Plätze und Akustik prüfen. Stadthalle: 07262 6109240.",
+   "lat": 49.13567,
+   "lng": 8.91083
   },
   {
    "place": "Löwenstein",
@@ -384,7 +446,9 @@
    "contact_person": "Carmen Pfitzer, Stadt Löwenstein",
    "phone": "07130 22-31",
    "website": "https://www.stadt-loewenstein.de/leben-wohnen/festhallen",
-   "notes": "Mehrzweckhalle, auch Schulsport. BaB 30.11.2019 dort."
+   "notes": "Mehrzweckhalle, auch Schulsport. BaB 30.11.2019 dort.",
+   "lat": 49.09516,
+   "lng": 9.38149
   },
   {
    "place": "Löwenstein-Hößlinsülz",
@@ -398,7 +462,9 @@
    "contact_person": "Carmen Pfitzer, Stadt Löwenstein",
    "phone": "07130 22-31",
    "website": "https://www.stadt-loewenstein.de/leben-wohnen/festhallen",
-   "notes": "Ein Wochenende pro Monat muss frei bleiben."
+   "notes": "Ein Wochenende pro Monat muss frei bleiben.",
+   "lat": 49.11604,
+   "lng": 9.35636
   },
   {
    "place": "Abstatt",
@@ -412,7 +478,9 @@
    "contact_person": "Gemeinde Abstatt (Konditionen beim Hausmeister)",
    "phone": "07062 677-0",
    "website": "https://www.abstatt.de/kultur-freizeit/veranstaltungsraeume",
-   "notes": "Ob in Happenbach, nicht bestätigt."
+   "notes": "Ob in Happenbach, nicht bestätigt.",
+   "lat": 49.08563,
+   "lng": 9.29661
   },
   {
    "place": "Möckmühl",
@@ -426,7 +494,9 @@
    "contact_person": "Stadt Möckmühl",
    "phone": "06298 202-0",
    "website": "https://www.moeckmuehl.de/kultur-freizeit/veranstaltungsraeume",
-   "notes": "Für 80–150 Zuhörer eher zu groß."
+   "notes": "Für 80–150 Zuhörer eher zu groß.",
+   "lat": 49.32175,
+   "lng": 9.36326
   },
   {
    "place": "Güglingen",
@@ -441,7 +511,9 @@
    "phone": "07135 922-0",
    "email": "stadt@gueglingen.de",
    "website": "https://www.gueglingen.de/website/de/kultur-freizeit/kulturprogramm/herzogskelter",
-   "notes": "Eher zu groß, aber echte Konzertbühne."
+   "notes": "Eher zu groß, aber echte Konzertbühne.",
+   "lat": 49.06699,
+   "lng": 8.99909
   },
   {
    "place": "Heilbronn-Kirchhausen",
@@ -454,7 +526,9 @@
    "status": "Kandidat",
    "contact_person": "Bürgeramt Kirchhausen",
    "phone": "07066 7044",
-   "notes": "Nur April bis Oktober nutzbar – höchstens für 24./25.04."
+   "notes": "Nur April bis Oktober nutzbar – höchstens für 24./25.04.",
+   "lat": 49.18456,
+   "lng": 9.11089
   },
   {
    "place": "Freiberg a. N.",
@@ -463,7 +537,9 @@
    "km": "40",
    "rentable": "ja",
    "status": "verworfen",
-   "notes": "Zu teuer, Bewirtung nur über Freiberger Betriebe."
+   "notes": "Zu teuer, Bewirtung nur über Freiberger Betriebe.",
+   "lat": 48.93455,
+   "lng": 9.19226
   },
   {
    "place": "Bad Wimpfen",
@@ -471,7 +547,9 @@
    "km": "20",
    "rentable": "nein",
    "status": "verworfen",
-   "notes": "Laut Komoot seit 2025 dauerhaft geschlossen."
+   "notes": "Laut Komoot seit 2025 dauerhaft geschlossen.",
+   "lat": 49.22773,
+   "lng": 9.16298
   }
  ],
  "dates": [

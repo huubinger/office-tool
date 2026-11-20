@@ -11,8 +11,9 @@ const GROUPS = ['voctails'];
 const VENUE_STATUSES = ['Kandidat', 'angefragt', 'Zusage', 'Absage', 'schon bespielt', 'verworfen'];
 const RENTABLE = ['ja', 'unklar', 'nein'];
 const DATE_STATUSES = ['offen', 'angefragt', 'reserviert', 'gebucht', 'abgesagt', 'Probentag'];
+const NUM_FIELDS = ['lat', 'lng'];
 const VENUE_FIELDS = ['place', 'name', 'seats', 'costs', 'km', 'rentable', 'rating', 'status',
-  'contact_person', 'phone', 'email', 'booking_url', 'website', 'source_url', 'notes'];
+  'contact_person', 'phone', 'email', 'booking_url', 'website', 'source_url', 'notes', 'lat', 'lng'];
 const DATE_FIELDS = ['date', 'time', 'label', 'venue_id', 'status', 'note'];
 
 db.exec(`
@@ -55,6 +56,34 @@ CREATE INDEX IF NOT EXISTS idx_loc_venues_group ON loc_venues(group_key);
 CREATE INDEX IF NOT EXISTS idx_loc_dates_group ON loc_tour_dates(group_key);
 `);
 
+{
+  const cols = db.prepare('PRAGMA table_info(loc_venues)').all().map(c => c.name);
+  if (!cols.includes('lat')) db.exec('ALTER TABLE loc_venues ADD COLUMN lat REAL');
+  if (!cols.includes('lng')) db.exec('ALTER TABLE loc_venues ADD COLUMN lng REAL');
+}
+
+// Mittelpunkt der Tourplanung (Neckarsulm, Marktplatz)
+const HOME = { name: 'Neckarsulm', lat: 49.1913, lng: 9.2246 };
+
+// ---- Koordinaten über OpenStreetMap (Nominatim, max. 1 Anfrage/Sekunde) ----
+let lastGeo = 0;
+async function geocode(place, name) {
+  const queries = [[name, place].filter(Boolean).join(', '), place].filter(Boolean);
+  for (const q of queries) {
+    const wait = lastGeo + 1100 - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastGeo = Date.now();
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=de&q=' + encodeURIComponent(q + ', Baden-Württemberg');
+      const res = await fetch(url, { headers: { 'User-Agent': 'office-tool/1.0 (Vereinsverwaltung)', 'Accept-Language': 'de' } });
+      if (!res.ok) continue;
+      const arr = await res.json();
+      if (arr && arr[0]) return { lat: +arr[0].lat, lng: +arr[0].lon };
+    } catch (e) { /* nächste Variante */ }
+  }
+  return null;
+}
+
 // ---- Startdaten (einmalig je Version; vorhandene Einträge werden nie überschrieben) ----
 function seed() {
   let data;
@@ -67,7 +96,7 @@ function seed() {
     const ins = db.prepare(`INSERT INTO loc_venues (group_key, ${cols}) VALUES (?, ${VENUE_FIELDS.map(() => '?').join(', ')})`);
     const upd = db.prepare(`UPDATE loc_venues SET ${VENUE_FIELDS.map(f => `${f} = COALESCE(${f}, ?)`).join(', ')} WHERE id = ?`);
     (data.venues || []).forEach(v => {
-      const vals = VENUE_FIELDS.map(f => (v[f] === undefined || v[f] === '' ? null : String(v[f])));
+      const vals = VENUE_FIELDS.map(f => (v[f] === undefined || v[f] === '' || v[f] === null ? null : NUM_FIELDS.includes(f) ? +v[f] : String(v[f])));
       const row = exists.get(v.group || 'voctails', v.place || '', v.name || '');
       if (row) upd.run(...vals, row.id); // nur leere Felder ergänzen
       else ins.run(v.group || 'voctails', ...vals);
@@ -104,7 +133,7 @@ function register(app) {
     if (!GROUPS.includes(g)) return res.status(404).json({ error: 'Unbekannte Gruppe' });
     const venues = db.prepare('SELECT * FROM loc_venues WHERE group_key = ? ORDER BY place COLLATE NOCASE, name COLLATE NOCASE').all(g).map(venueOut);
     const dates = db.prepare("SELECT * FROM loc_tour_dates WHERE group_key = ? ORDER BY CASE WHEN date IS NULL THEN 1 ELSE 0 END, date, time").all(g);
-    res.json({ venues, dates, venue_statuses: VENUE_STATUSES, rentable: RENTABLE, date_statuses: DATE_STATUSES });
+    res.json({ venues, dates, home: HOME, venue_statuses: VENUE_STATUSES, rentable: RENTABLE, date_statuses: DATE_STATUSES });
   });
 
   app.post('/api/locations/:group/venues', (req, res) => {
@@ -116,15 +145,36 @@ function register(app) {
     res.json(venueOut(db.prepare('SELECT * FROM loc_venues WHERE id = ?').get(r.lastInsertRowid)));
   });
 
-  app.put('/api/locations/venues/:id', (req, res) => {
+  app.put('/api/locations/venues/:id', async (req, res) => {
     const { field, value } = req.body || {};
     if (!VENUE_FIELDS.includes(field)) return res.status(400).json({ error: 'Unbekanntes Feld' });
     let v = clean(value);
+    if (NUM_FIELDS.includes(field)) {
+      v = v === null ? null : parseFloat(String(v).replace(',', '.'));
+      if (v !== null && !Number.isFinite(v)) return res.status(400).json({ error: 'Ungültige Koordinate' });
+    }
     if (field === 'status' && !VENUE_STATUSES.includes(v)) return res.status(400).json({ error: 'Ungültiger Status' });
     if (field === 'rentable' && !RENTABLE.includes(v)) return res.status(400).json({ error: 'Ungültiger Wert' });
-    const r = db.prepare(`UPDATE loc_venues SET ${field} = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?`).run(v, req.user.id, +req.params.id);
+    const id = +req.params.id;
+    const r = db.prepare(`UPDATE loc_venues SET ${field} = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?`).run(v, req.user.id, id);
     if (!r.changes) return res.status(404).json({ error: 'Nicht gefunden' });
-    res.json(venueOut(db.prepare('SELECT * FROM loc_venues WHERE id = ?').get(+req.params.id)));
+    // Ort geändert: Kartenposition neu bestimmen (wartet, damit die Karte gleich stimmt)
+    if (field === 'place' && v) {
+      const row = db.prepare('SELECT place, name FROM loc_venues WHERE id = ?').get(id);
+      const g = await geocode(row.place, row.name);
+      if (g) db.prepare('UPDATE loc_venues SET lat = ?, lng = ? WHERE id = ?').run(g.lat, g.lng, id);
+    }
+    res.json(venueOut(db.prepare('SELECT * FROM loc_venues WHERE id = ?').get(id)));
+  });
+
+  // Koordinaten für eine Location (neu) suchen
+  app.post('/api/locations/venues/:id/geocode', async (req, res) => {
+    const v = db.prepare('SELECT * FROM loc_venues WHERE id = ?').get(+req.params.id);
+    if (!v) return res.status(404).json({ error: 'Nicht gefunden' });
+    const g = await geocode(v.place, v.name);
+    if (!g) return res.status(404).json({ error: `Für „${v.place || v.name}“ keine Koordinaten gefunden – bitte Ort prüfen` });
+    db.prepare("UPDATE loc_venues SET lat = ?, lng = ?, updated_at = datetime('now') WHERE id = ?").run(g.lat, g.lng, v.id);
+    res.json(venueOut(db.prepare('SELECT * FROM loc_venues WHERE id = ?').get(v.id)));
   });
 
   app.delete('/api/locations/venues/:id', (req, res) => {

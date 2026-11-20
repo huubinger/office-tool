@@ -318,8 +318,24 @@ function seedHolds() {
   })();
 }
 
+// Einmalig: Stand 20.11.2026 - After-Match-Party: die Homepage blockiert 128 Tribuenenplaetze beim Handballspiel
+// (800 Plaetze Ballei, 672 frei). Die sind nicht verkauft, bisher 0 Kombitickets.
+function seedTribuene() {
+  const key = 'migr_nk_ticket_holds_tribuene';
+  if (db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(key)) return;
+  const c = db.prepare('SELECT id, title FROM nk_concerts WHERE date = ? ORDER BY id').all('2027-03-13').find(x => titleMatch(x.title, 'After-Match-Party SNOW') >= 0.5);
+  if (!c) { console.log('[NK-Tickets] Tribuenenplaetze: After-Match-Party nicht gefunden'); return; }
+  db.transaction(() => {
+    db.prepare("INSERT INTO app_settings (key, value) VALUES (?, '1')").run(key);
+    if (!db.prepare("SELECT 1 FROM nk_ticket_holds WHERE concert_id = ? AND label LIKE 'Tribüne%'").get(c.id))
+      db.prepare('INSERT INTO nk_ticket_holds (concert_id, label, count, sold) VALUES (?, ?, 128, 0)').run(c.id, 'Tribünenplätze beim Spiel (Kombitickets)');
+  })();
+  console.log(`[NK-Tickets] Tribuenenplaetze eingetragen: #${c.id} ${c.title}`);
+}
+
 function register(app) {
   seedHolds(); // erst hier, damit die Konzerte aus dem Programm-Import schon angelegt sind
+  seedTribuene();
   nk.extendDetail((c) => ({ tickets: ticketInfo(c), ticket_source_types: SOURCES }));
   nk.extendList((c) => {
     const t = ticketSummary(c);

@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS nk_ticket_dismissed (
 );
 `);
 
+// Kombitickets (eigenes Event auf der Homepage, z.B. Tribuenenplaetze beim Spiel): Kontingent mit dem Kombi-Event verknuepft,
+// "davon verkauft" kommt dann automatisch von der Homepage (Kontingent - frei)
+const holdCols = db.prepare('PRAGMA table_info(nk_ticket_holds)').all().map(c => c.name);
+if (!holdCols.includes('external_id')) db.exec('ALTER TABLE nk_ticket_holds ADD COLUMN external_id TEXT');
+if (!holdCols.includes('remaining')) db.exec('ALTER TABLE nk_ticket_holds ADD COLUMN remaining INTEGER');
+
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
 const intOrNull = (v) => {
   if (v === null || v === undefined || v === '') return null;
@@ -87,6 +93,7 @@ async function kreatiefEvents(force) {
     online: !!e.onlinePresale,
     cancelled: !!e.cancelledReason,
     url: KREATIEF_EVENT_URL + e.id,
+    combi_tickets: !!e.hasCombiTickets,
   }));
   kreatiefCache = { at: Date.now(), events };
   return events;
@@ -162,9 +169,38 @@ async function refreshKreatief(onlyConcertId) {
     db.prepare("UPDATE nk_ticket_sources SET remaining = ?, sold = ?, label = COALESCE(label, ?), error = NULL, last_checked_at = datetime('now') WHERE id = ?")
       .run(e.remaining, sold, e.name, s.id);
     saveSnapshot(s.id, sold);
+    if (e.combi_tickets) await refreshCombi(s).catch(err => console.error('[NK-Tickets] Kombitickets:', err.message));
     updated++;
   }
   return updated;
+}
+
+// Kombitickets eines Homepage-Events (Kombi-Event mit eigenen Plaetzen, z.B. Spiel + Party) als Kontingent fuehren.
+// Die Homepage nennt nur die freien Kombi-Plaetze; das Kontingent (Gesamtzahl) steht im Tool,
+// beim ersten Fund = aktuell frei. Verkauft = Kontingent - frei.
+async function refreshCombi(source) {
+  const res = await fetch(`https://api.kreatief-neckarsulm.de/frontend/veranstaltung/${encodeURIComponent(source.external_id)}/ticket-optionen`,
+    { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Kombitickets nicht abrufbar (${res.status})`);
+  const options = await res.json();
+  for (const o of (Array.isArray(options) ? options : []).filter(o => o.combi && Number.isFinite(o.remainingTickets))) {
+    const ext = String(o.eventId);
+    let h = db.prepare('SELECT * FROM nk_ticket_holds WHERE concert_id = ? AND external_id = ?').get(source.concert_id, ext);
+    if (!h) {
+      // Von Hand angelegtes Tribuenen-/Kombi-Kontingent uebernehmen, sonst neu anlegen
+      h = db.prepare("SELECT * FROM nk_ticket_holds WHERE concert_id = ? AND external_id IS NULL AND (label LIKE '%Tribüne%' OR label LIKE '%Kombi%') ORDER BY id").get(source.concert_id);
+      if (h) db.prepare('UPDATE nk_ticket_holds SET external_id = ? WHERE id = ?').run(ext, h.id);
+      else {
+        const where = String(o.locationTextname || '').split(/\s+[–-]\s+/).pop();
+        const id = db.prepare('INSERT INTO nk_ticket_holds (concert_id, label, count, sold, external_id) VALUES (?, ?, ?, 0, ?)')
+          .run(source.concert_id, `Kombitickets${where ? ' – ' + where : ''}`, o.remainingTickets, ext).lastInsertRowid;
+        h = db.prepare('SELECT * FROM nk_ticket_holds WHERE id = ?').get(id);
+      }
+    }
+    const count = Math.max(h.count, o.remainingTickets);
+    db.prepare("UPDATE nk_ticket_holds SET count = ?, remaining = ?, sold = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(count, o.remainingTickets, Math.max(0, count - o.remainingTickets), h.id);
+  }
 }
 
 // Konzerte der Reihe automatisch mit ihrer Veranstaltung auf der Kreatief-Homepage verknuepfen
@@ -406,7 +442,8 @@ function register(app) {
     if (!h) return res.status(404).json({ error: 'Kontingent nicht gefunden' });
     const b = req.body || {};
     const count = b.count !== undefined ? (intOrNull(b.count) || 0) : h.count;
-    const sold = Math.min(b.sold !== undefined ? (intOrNull(b.sold) || 0) : h.sold, count);
+    const sold = h.external_id && h.remaining !== null ? Math.max(0, count - h.remaining)
+      : Math.min(b.sold !== undefined ? (intOrNull(b.sold) || 0) : h.sold, count);
     const label = b.label !== undefined ? (String(b.label || '').trim().slice(0, 200) || h.label) : h.label;
     db.prepare("UPDATE nk_ticket_holds SET label = ?, count = ?, sold = ?, updated_at = datetime('now') WHERE id = ?").run(label, count, sold, h.id);
     res.json(nk.concertDetail(req.params.id, req));

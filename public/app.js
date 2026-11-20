@@ -6378,7 +6378,8 @@
                   <div class="ticket-source" data-ticket-hold="${h.id}">
                     <div class="ticket-source-main"><input type="text" data-hold-field="label" value="${escapeHtml(h.label)}" aria-label="Bezeichnung"></div>
                     <label class="ticket-num">Anzahl<input type="number" min="0" data-hold-field="count" value="${h.count}" inputmode="numeric"></label>
-                    <label class="ticket-num">davon verkauft<input type="number" min="0" max="${h.count}" data-hold-field="sold" value="${h.sold}" inputmode="numeric"></label>
+                    ${h.external_id ? `<label class="ticket-num" title="Automatisch von der Kreatief-Homepage: Anzahl − ${h.remaining ?? '?'} frei">davon verkauft<input type="number" value="${h.sold}" readonly tabindex="-1"><small class="hint">von der Homepage</small></label>`
+                      : `<label class="ticket-num">davon verkauft<input type="number" min="0" max="${h.count}" data-hold-field="sold" value="${h.sold}" inputmode="numeric"></label>`}
                     <button type="button" class="icon-btn" data-hold-delete="${h.id}" title="Kontingent entfernen">✕</button>
                   </div>`).join('')}
                 <form class="ticket-add" id="ticket-hold-form">

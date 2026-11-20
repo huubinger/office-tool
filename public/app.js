@@ -10556,37 +10556,65 @@
 
   async function renderLocMap(box) {
     const { venues, dates, home } = locData;
-    const planned = dates.filter(d => d.venue_id && !['abgesagt', 'Probentag'].includes(d.status));
+    const isPlanned = (d) => d.venue_id && !['abgesagt', 'Probentag'].includes(d.status);
+    // Reihenfolge: nach Datum, Termine ohne Datum ans Ende → Nummern 1, 2, 3 …
+    const ordered = [...dates].sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.time || '').localeCompare(b.time || ''));
+    const nr = {};
+    ordered.filter(isPlanned).forEach((d, i) => { nr[d.id] = i + 1; });
     const byVenue = {};
-    planned.forEach(d => { (byVenue[d.venue_id] = byVenue[d.venue_id] || []).push(d); });
+    ordered.filter(isPlanned).forEach(d => { (byVenue[d.venue_id] = byVenue[d.venue_id] || []).push(d); });
+    const venueOf = (d) => venues.find(x => x.id === d.venue_id);
+    // Orte im Umkreis von 5 km (Neckarsulm selbst) zählen zu keiner Himmelsrichtung
+    const dirOf = (v) => (v && v.lat != null && locDistKm(home, v) >= 5 ? locDir(locBearing(home, v)) : null);
     const cover = { N: [], O: [], S: [], W: [] };
-    planned.forEach(d => {
-      const v = venues.find(x => x.id === d.venue_id);
-      if (v && v.lat != null) cover[locDir(locBearing(home, v))].push(d);
-    });
+    ordered.filter(isPlanned).forEach(d => { const k = dirOf(venueOf(d)); if (k) cover[k].push(d); });
     const missing = venues.filter(v => v.lat == null && v.status !== 'verworfen');
     const fmtShort = (iso) => (iso ? fmtDateDE(iso).slice(0, 6) : 'o. D.');
+    const dirName = { N: 'Nord', O: 'Ost', S: 'Süd', W: 'West' };
+    const calItem = (d) => {
+      const v = venueOf(d);
+      const n = nr[d.id];
+      const k = dirOf(v);
+      const km = v && v.lat != null ? Math.round(locDistKm(home, v)) : null;
+      const wd = d.date ? WD_SHORT[isoToDate(d.date).getDay()] : '';
+      return `<li class="loc-cal-item ${n ? '' : 'muted'} st-${(d.status || 'offen').toLowerCase()}" ${n ? `data-cal-venue="${v.id}"` : ''}>
+        <span class="loc-cal-nr">${n || '–'}</span>
+        <div class="loc-cal-body">
+          <div class="loc-cal-head"><strong>${wd} ${d.date ? fmtDateDE(d.date) : 'ohne Datum'}</strong>${d.time ? ` · ${escapeHtml(d.time.slice(0, 5))}` : ''}<span class="loc-cal-st">${escapeHtml(d.status || '')}</span></div>
+          <div class="loc-cal-what">${v ? escapeHtml(locVenueLabel(v)) : escapeHtml(d.label || '')}</div>
+          ${v ? `<div class="loc-cal-meta">${k ? `${dirName[k]} · ` : v && v.lat != null ? 'Heimspiel · ' : ''}${km != null ? `${km} km · ` : ''}${v.seats ? `${escapeHtml(v.seats)} · ` : ''}${v.phone ? `<a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a>` : v.email ? `<a href="mailto:${escapeHtml(v.email)}">✉️ ${escapeHtml(v.email)}</a>` : ''}</div>` : `<div class="loc-cal-meta">${escapeHtml((d.note || '').split('\n')[0])}</div>`}
+        </div>
+      </li>`;
+    };
     box.innerHTML = `
-      <p class="section-intro">Pfeile zeigen die Konzerte, denen schon eine Location zugeordnet ist. Ziel: jede Himmelsrichtung mindestens einmal. Kreise: 25 und 50 km um Neckarsulm.</p>
+      <p class="section-intro">Nummern = Reihenfolge der Konzerte. Durchgezogene Pfeile: angefragt/reserviert/gebucht, gestrichelt: Vorschlag oder offen. Ziel: jede Himmelsrichtung mindestens einmal. Kreise: 25 und 50 km um Neckarsulm. Termine und Locations ändern unter „Termine“.</p>
       <div class="loc-cover">${LOC_DIRS.map(([k, label]) => `
         <div class="loc-cover-item ${cover[k].length ? 'ok' : 'gap'}">
           <strong>${label}</strong>
-          <span>${cover[k].length ? cover[k].map(d => fmtShort(d.date)).join(', ') : 'noch kein Konzert'}</span>
+          <span>${cover[k].length ? cover[k].map(d => `${nr[d.id]}. ${fmtShort(d.date)}`).join(', ') : 'noch kein Konzert'}</span>
         </div>`).join('')}</div>
-      <div class="loc-legend">
-        <span><i class="lg lg-plan"></i>Konzert geplant</span><span><i class="lg lg-ja"></i>mietbar</span><span><i class="lg lg-unklar"></i>mietbar unklar</span>
-        <span><i class="lg lg-done"></i>schon bespielt</span><span><i class="lg lg-off"></i>verworfen/Absage</span>
-      </div>
-      <div class="card loc-map-card"><div id="loc-map" class="loc-map"></div></div>
-      ${missing.length ? `<div class="loc-missing">${missing.length} Location${missing.length === 1 ? '' : 's'} ohne Kartenposition: ${missing.map(v => escapeHtml(locVenueLabel(v))).join(', ')}
-        <button type="button" class="ghost" id="loc-geocode">Positionen suchen</button></div>` : ''}`;
+      <div class="loc-map-layout">
+        <div class="loc-map-col">
+          <div class="loc-legend">
+            <span><i class="lg lg-plan"></i>Konzert</span><span><i class="lg lg-ja"></i>mietbar</span><span><i class="lg lg-unklar"></i>mietbar unklar</span>
+            <span><i class="lg lg-done"></i>schon bespielt</span><span><i class="lg lg-off"></i>verworfen</span>
+          </div>
+          <div class="card loc-map-card"><div id="loc-map" class="loc-map"></div></div>
+          ${missing.length ? `<div class="loc-missing">${missing.length} Location${missing.length === 1 ? '' : 's'} ohne Kartenposition: ${missing.map(v => escapeHtml(locVenueLabel(v))).join(', ')}
+            <button type="button" class="ghost" id="loc-geocode">Positionen suchen</button></div>` : ''}
+        </div>
+        <aside class="card loc-cal">
+          <h3>Kalendarium</h3>
+          <ol class="loc-cal-list">${ordered.map(calItem).join('')}</ol>
+        </aside>
+      </div>`;
     const geoBtn = document.getElementById('loc-geocode');
     if (geoBtn) geoBtn.addEventListener('click', async () => {
       geoBtn.disabled = true;
-      let ok = 0;
+      let i = 0;
       for (const v of missing) {
-        geoBtn.textContent = `Suche ${ok + 1}/${missing.length} …`;
-        try { const row = await api(`/api/locations/venues/${v.id}/geocode`, { method: 'POST' }); Object.assign(v, row); ok++; } catch (err) { toast(err.message); }
+        geoBtn.textContent = `Suche ${++i}/${missing.length} …`;
+        try { const row = await api(`/api/locations/venues/${v.id}/geocode`, { method: 'POST' }); Object.assign(v, row); } catch (err) { toast(err.message); }
       }
       renderLocations();
     });
@@ -10597,12 +10625,10 @@
     const map = L.map('loc-map', { scrollWheelZoom: false }).setView([home.lat, home.lng], 9);
     locMap = map;
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
-    const css = getComputedStyle(document.documentElement);
-    const accent = css.getPropertyValue('--accent').trim() || '#1d8c78';
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1d8c78';
     const ring50 = L.circle([home.lat, home.lng], { radius: 50000, color: '#c2410c', weight: 2, opacity: .7, dashArray: '6 6', fill: false, interactive: false }).addTo(map);
     L.circle([home.lat, home.lng], { radius: 25000, color: '#c2410c', weight: 1.5, opacity: .45, dashArray: '3 6', fill: false, interactive: false }).addTo(map);
     map.fitBounds(ring50.getBounds(), { padding: [10, 10] });
-    // Grenzen der Himmelsrichtungen (NO, SO, SW, NW) und Beschriftung
     const offset = (b, km) => {
       const dLat = km / 111.2 * Math.cos(b * Math.PI / 180);
       const dLng = km / (111.2 * Math.cos(home.lat * Math.PI / 180)) * Math.sin(b * Math.PI / 180);
@@ -10614,38 +10640,49 @@
     }).addTo(map));
     L.marker([home.lat, home.lng], { icon: L.divIcon({ className: 'loc-home', html: '★', iconSize: [22, 22], iconAnchor: [11, 11] }), title: 'Neckarsulm' }).addTo(map);
     const colorOf = (v) => (byVenue[v.id] ? accent : ['verworfen', 'Absage'].includes(v.status) ? '#a3a7ae' : v.status === 'schon bespielt' ? '#3b82f6' : v.rentable === 'ja' ? '#22a06b' : '#e0a100');
-    venues.filter(v => v.lat != null).forEach(v => {
-      const plannedHere = byVenue[v.id] || [];
+    const markers = {};
+    venues.filter(v => v.lat != null && !byVenue[v.id]).forEach(v => {
       const km = Math.round(locDistKm(home, v));
-      const popup = `<strong>${escapeHtml(locVenueLabel(v))}</strong><br>
-        ${plannedHere.length ? `<b>Konzert: ${plannedHere.map(d => fmtShort(d.date)).join(', ')}</b><br>` : ''}
-        ${[v.seats && `${escapeHtml(v.seats)} Plätze`, v.costs && escapeHtml(v.costs)].filter(Boolean).join(' · ')}${v.seats || v.costs ? '<br>' : ''}
-        ${km} km Luftlinie · Status: ${escapeHtml(v.status || '')} · mietbar: ${escapeHtml(v.rentable || 'unklar')}<br>
-        ${v.contact_person ? escapeHtml(v.contact_person) + '<br>' : ''}
-        ${v.phone ? `<a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a> ` : ''}${v.email ? `<a href="mailto:${escapeHtml(v.email)}">✉️ ${escapeHtml(v.email)}</a>` : ''}`;
       L.circleMarker([v.lat, v.lng], {
-        radius: plannedHere.length ? 9 : 6, color: '#fff', weight: 1.5, fillColor: colorOf(v), fillOpacity: ['verworfen', 'Absage'].includes(v.status) ? .5 : .95,
-      }).bindPopup(popup).bindTooltip(locVenueLabel(v)).addTo(map);
+        radius: 5, color: '#fff', weight: 1.2, fillColor: colorOf(v), fillOpacity: ['verworfen', 'Absage'].includes(v.status) ? .45 : .9,
+      }).bindPopup(`<strong>${escapeHtml(locVenueLabel(v))}</strong><br>${[v.seats && `${escapeHtml(v.seats)} Plätze`, v.costs && escapeHtml(v.costs)].filter(Boolean).join(' · ')}<br>${km} km · ${escapeHtml(v.status || '')} · mietbar: ${escapeHtml(v.rentable || 'unklar')}${v.phone ? `<br><a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a>` : ''}`)
+        .bindTooltip(locVenueLabel(v)).addTo(map);
     });
-    // Pfeile Neckarsulm → Konzertort mit Datum (Pfeilspitze in Bildschirm-Pixeln → bei Zoom neu zeichnen)
+    // Konzertorte: Pfeil von Neckarsulm, nummeriertes Abzeichen am Ort
     const arrows = L.layerGroup().addTo(map);
-    const drawArrows = () => { arrows.clearLayers(); Object.entries(byVenue).forEach(([vid, ds]) => {
-      const v = venues.find(x => x.id === +vid);
-      if (!v || v.lat == null) return;
-      const from = map.latLngToLayerPoint([home.lat, home.lng]);
-      const to = map.latLngToLayerPoint([v.lat, v.lng]);
-      const len = Math.hypot(to.x - from.x, to.y - from.y);
-      if (len < 1) return;
-      const ux = (to.x - from.x) / len, uy = (to.y - from.y) / len;
-      const stop = Math.max(len - 11, len * 0.6); // vor dem Punkt enden
-      const tip = map.layerPointToLatLng([from.x + ux * stop, from.y + uy * stop]);
-      L.polyline([[home.lat, home.lng], tip], { color: accent, weight: 3, opacity: .9 }).addTo(arrows);
-      const angle = Math.atan2(uy, ux) * 180 / Math.PI;
-      L.marker(tip, { interactive: false, icon: L.divIcon({ className: 'loc-arrow', html: `<span style="transform:rotate(${angle}deg);color:${accent}">➤</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(arrows);
-      L.marker([v.lat, v.lng], { interactive: false, icon: L.divIcon({ className: 'loc-date-label', html: ds.map(d => fmtShort(d.date)).join(' / '), iconSize: null, iconAnchor: [-10, 22] }) }).addTo(arrows);
-    }); };
+    const drawArrows = () => {
+      arrows.clearLayers();
+      Object.entries(byVenue).forEach(([vid, ds]) => {
+        const v = venues.find(x => x.id === +vid);
+        if (!v || v.lat == null) return;
+        const firm = ds.some(d => ['angefragt', 'reserviert', 'gebucht'].includes(d.status));
+        const from = map.latLngToLayerPoint([home.lat, home.lng]);
+        const to = map.latLngToLayerPoint([v.lat, v.lng]);
+        const len = Math.hypot(to.x - from.x, to.y - from.y);
+        if (len > 24) {
+          const ux = (to.x - from.x) / len, uy = (to.y - from.y) / len;
+          const tip = map.layerPointToLatLng([from.x + ux * (len - 16), from.y + uy * (len - 16)]);
+          L.polyline([[home.lat, home.lng], tip], { color: accent, weight: 3, opacity: .9, dashArray: firm ? null : '7 6' }).addTo(arrows);
+          L.marker(tip, { interactive: false, icon: L.divIcon({ className: 'loc-arrow', html: `<span style="transform:rotate(${Math.atan2(uy, ux) * 180 / Math.PI}deg);color:${accent}">➤</span>`, iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(arrows);
+        }
+        const label = ds.map(d => nr[d.id]).join('/');
+        const m = L.marker([v.lat, v.lng], {
+          icon: L.divIcon({ className: 'loc-nr' + (firm ? ' firm' : ''), html: `<b>${label}</b><span>${ds.map(d => fmtShort(d.date)).join(' / ')}</span>`, iconSize: null, iconAnchor: [13, 13] }),
+          zIndexOffset: 1000,
+        }).bindPopup(`<strong>${ds.map(d => `${nr[d.id]}. ${d.date ? fmtDateDE(d.date) : 'ohne Datum'}`).join('<br>')}</strong><br>${escapeHtml(locVenueLabel(v))}<br>${[v.seats && `${escapeHtml(v.seats)} Plätze`, v.costs && escapeHtml(v.costs)].filter(Boolean).join(' · ')}${v.contact_person ? `<br>${escapeHtml(v.contact_person)}` : ''}${v.phone ? `<br><a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a>` : ''}${v.email ? `<br><a href="mailto:${escapeHtml(v.email)}">✉️ ${escapeHtml(v.email)}</a>` : ''}`).addTo(arrows);
+        markers[v.id] = m;
+      });
+    };
     drawArrows();
     map.on('zoomend', drawArrows);
+    // Klick im Kalendarium → Ort auf der Karte zeigen
+    box.querySelectorAll('[data-cal-venue]').forEach(li => li.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return;
+      const v = venues.find(x => x.id === +li.dataset.calVenue);
+      if (!v || v.lat == null) return;
+      map.setView([v.lat, v.lng], Math.max(map.getZoom(), 10));
+      setTimeout(() => { const m = markers[v.id]; if (m) m.openPopup(); }, 350);
+    }));
   }
 
   const VENUE_SEARCH_FIELDS = ['place', 'name', 'contact_person', 'email', 'phone', 'notes', 'costs'];

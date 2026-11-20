@@ -10,7 +10,7 @@ const { displayForUserId } = require('./access');
 const GROUPS = ['voctails'];
 const VENUE_STATUSES = ['Kandidat', 'angefragt', 'Zusage', 'Absage', 'schon bespielt', 'verworfen'];
 const RENTABLE = ['ja', 'unklar', 'nein'];
-const DATE_STATUSES = ['offen', 'angefragt', 'reserviert', 'gebucht', 'abgesagt', 'Probentag'];
+const DATE_STATUSES = ['offen', 'Vorschlag', 'angefragt', 'reserviert', 'gebucht', 'abgesagt', 'Probentag'];
 const NUM_FIELDS = ['lat', 'lng'];
 const VENUE_FIELDS = ['place', 'name', 'seats', 'costs', 'km', 'rentable', 'rating', 'status',
   'contact_person', 'phone', 'email', 'booking_url', 'website', 'source_url', 'notes', 'lat', 'lng'];
@@ -111,6 +111,18 @@ function seed() {
       }
       db.prepare('INSERT INTO loc_tour_dates (group_key, date, time, label, venue_id, status, note) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(g, d.date || null, d.time || null, d.label || null, venueId, d.status || 'offen', d.note || null);
+    });
+    // Tourvorschlag: nur Termine ohne Location bekommen den vorgeschlagenen Raum (Status „Vorschlag“)
+    (data.proposal || []).forEach(x => {
+      const g = x.group || 'voctails';
+      const v = exists.get(g, x.venue_place, x.venue_name);
+      if (!v) return;
+      const row = x.date
+        ? db.prepare('SELECT * FROM loc_tour_dates WHERE group_key = ? AND date = ? AND venue_id IS NULL').get(g, x.date)
+        : db.prepare("SELECT * FROM loc_tour_dates WHERE group_key = ? AND date IS NULL AND venue_id IS NULL AND label LIKE 'Tourabschluss%'").get(g);
+      if (!row) return;
+      db.prepare("UPDATE loc_tour_dates SET venue_id = ?, status = CASE WHEN status = 'offen' THEN 'Vorschlag' ELSE status END, note = ? WHERE id = ?")
+        .run(v.id, [x.note, row.note].filter(Boolean).join('\n'), row.id);
     });
     db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)').run(key, '1');
   });

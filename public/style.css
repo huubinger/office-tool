@@ -3275,3 +3275,28 @@ main:has(#tab-nk_projects.active #nk-view-program:not(.hidden)) { max-width: 156
 .loc-arrow span { display: block; font-size: 16px; line-height: 18px; text-align: center; text-shadow: 0 0 2px #fff; }
 .loc-date-label { background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.3); width: auto !important; height: auto !important; }
 @media (max-width: 700px) { .loc-cover { grid-template-columns: repeat(2, minmax(0, 1fr)); } .loc-map { height: 440px; } }
+/* Karte + Kalendarium */
+.loc-map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.loc-map-col { min-width: 0; }
+.loc-cal { padding: 12px 12px 6px; position: sticky; top: 12px; max-height: calc(100vh - 40px); overflow-y: auto; }
+.loc-cal h3 { margin: 0 0 8px; font-size: 15px; }
+.loc-cal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.loc-cal-item { display: flex; gap: 10px; padding: 8px 6px; border-radius: 10px; cursor: pointer; }
+.loc-cal-item:hover { background: var(--accent-soft); }
+.loc-cal-item.muted { opacity: .55; cursor: default; }
+.loc-cal-item.muted:hover { background: none; }
+.loc-cal-nr { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.loc-cal-item.muted .loc-cal-nr { background: var(--line-strong); color: var(--ink-soft); }
+.loc-cal-item.st-vorschlag .loc-cal-nr, .loc-cal-item.st-offen .loc-cal-nr { background: #fff; color: var(--accent-dark); border: 2px dashed var(--accent); }
+.loc-cal-body { min-width: 0; flex: 1; font-size: 13px; line-height: 1.4; }
+.loc-cal-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.loc-cal-st { margin-left: auto; font-size: 11px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .03em; }
+.loc-cal-what { font-weight: 600; overflow-wrap: anywhere; }
+.loc-cal-meta { color: var(--ink-soft); font-size: 12px; overflow-wrap: anywhere; }
+.loc-cal-meta a { color: var(--accent-dark); text-decoration: none; }
+.loc-nr { display: flex !important; align-items: center; gap: 4px; width: auto !important; height: auto !important; white-space: nowrap; }
+.loc-nr b { width: 26px; height: 26px; border-radius: 50%; background: #fff; color: var(--accent-dark); border: 2px dashed var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; box-shadow: 0 1px 4px rgba(0,0,0,.35); box-sizing: border-box; }
+.loc-nr.firm b { background: var(--accent); color: #fff; border: 2px solid #fff; }
+.loc-nr span { background: rgba(255,255,255,.92); color: #222; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+@media (max-width: 1100px) { .loc-map-layout { grid-template-columns: 1fr; } .loc-cal { position: static; max-height: none; } }
+.loc-d-vorschlag td:first-child { border-left-color: var(--accent); border-left-style: dashed; }

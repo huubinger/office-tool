@@ -10605,7 +10605,7 @@
         </div>
         <aside class="card loc-cal">
           <h3>Kalendarium</h3>
-          <ol class="loc-cal-list">${ordered.map(calItem).join('')}</ol>
+          ${ordered.length ? `<ol class="loc-cal-list">${ordered.map(calItem).join('')}</ol>` : '<p class="loc-faint">Noch keine Termine – unter „Termine“ anlegen.</p>'}
         </aside>
       </div>`;
     const geoBtn = document.getElementById('loc-geocode');
@@ -10646,7 +10646,7 @@
       L.circleMarker([v.lat, v.lng], {
         radius: 5, color: '#fff', weight: 1.2, fillColor: colorOf(v), fillOpacity: ['verworfen', 'Absage'].includes(v.status) ? .45 : .9,
       }).bindPopup(`<strong>${escapeHtml(locVenueLabel(v))}</strong><br>${[v.seats && `${escapeHtml(v.seats)} Plätze`, v.costs && escapeHtml(v.costs)].filter(Boolean).join(' · ')}<br>${km} km · ${escapeHtml(v.status || '')} · mietbar: ${escapeHtml(v.rentable || 'unklar')}${v.phone ? `<br><a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a>` : ''}`)
-        .bindTooltip(locVenueLabel(v)).addTo(map);
+        .bindTooltip(escapeHtml(locVenueLabel(v))).addTo(map);
     });
     // Konzertorte: Pfeil von Neckarsulm, nummeriertes Abzeichen am Ort
     const arrows = L.layerGroup().addTo(map);
@@ -10680,8 +10680,9 @@
       if (e.target.closest('a')) return;
       const v = venues.find(x => x.id === +li.dataset.calVenue);
       if (!v || v.lat == null) return;
+      // Popup erst nach Ende von Verschieben/Zoom öffnen (Marker werden beim Zoomen neu angelegt)
+      map.once('moveend', () => setTimeout(() => { const m = markers[v.id]; if (m) m.openPopup(); }, 0));
       map.setView([v.lat, v.lng], Math.max(map.getZoom(), 10));
-      setTimeout(() => { const m = markers[v.id]; if (m) m.openPopup(); }, 350);
     }));
   }
 

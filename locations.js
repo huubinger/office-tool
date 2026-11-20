@@ -94,23 +94,30 @@ function seed() {
     const exists = db.prepare('SELECT id FROM loc_venues WHERE group_key = ? AND lower(place) = lower(?) AND lower(name) = lower(?)');
     const cols = VENUE_FIELDS.join(', ');
     const ins = db.prepare(`INSERT INTO loc_venues (group_key, ${cols}) VALUES (?, ${VENUE_FIELDS.map(() => '?').join(', ')})`);
-    const upd = db.prepare(`UPDATE loc_venues SET ${VENUE_FIELDS.map(f => `${f} = COALESCE(${f}, ?)`).join(', ')} WHERE id = ?`);
+    // Schon einmal eingespielte Räume nie wieder anfassen (gelöscht bleibt gelöscht, Änderungen bleiben)
+    const seededRow = db.prepare("SELECT value FROM app_settings WHERE key = 'loc_seeded_venues'").get();
+    let seeded = [];
+    try { seeded = JSON.parse(seededRow ? seededRow.value : '[]'); } catch (e) { seeded = []; }
+    if (!seededRow) {
+      // Erster Lauf mit dieser Logik: alles, was schon in der DB steht, gilt als eingespielt
+      seeded = db.prepare('SELECT group_key, place, name FROM loc_venues').all().map(v => `${v.group_key}|${(v.place || '').toLowerCase()}|${(v.name || '').toLowerCase()}`);
+    }
+    const seededSet = new Set(seeded);
     (data.venues || []).forEach(v => {
-      const vals = VENUE_FIELDS.map(f => (v[f] === undefined || v[f] === '' || v[f] === null ? null : NUM_FIELDS.includes(f) ? +v[f] : String(v[f])));
-      const row = exists.get(v.group || 'voctails', v.place || '', v.name || '');
-      if (row) upd.run(...vals, row.id); // nur leere Felder ergänzen
-      else ins.run(v.group || 'voctails', ...vals);
+      const g = v.group || 'voctails';
+      const k = `${g}|${(v.place || '').toLowerCase()}|${(v.name || '').toLowerCase()}`;
+      if (seededSet.has(k)) return;
+      seededSet.add(k);
+      if (exists.get(g, v.place || '', v.name || '')) return;
+      ins.run(g, ...VENUE_FIELDS.map(f => (v[f] === undefined || v[f] === '' || v[f] === null ? null : NUM_FIELDS.includes(f) ? +v[f] : String(v[f]))));
     });
-    (data.dates || []).forEach(d => {
+    db.prepare("INSERT INTO app_settings (key, value) VALUES ('loc_seeded_venues', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify([...seededSet]));
+    // Termine nur beim allerersten Einspielen (danach pflegt sie das Team)
+    const anyDates = db.prepare('SELECT 1 FROM loc_tour_dates LIMIT 1').get();
+    if (!anyDates) (data.dates || []).forEach(d => {
       const g = d.group || 'voctails';
-      if (db.prepare('SELECT 1 FROM loc_tour_dates WHERE group_key = ? AND date IS ? AND label IS ?').get(g, d.date || null, d.label || null)) return;
-      let venueId = null;
-      if (d.venue_place) {
-        const v = exists.get(g, d.venue_place, d.venue_name || '');
-        if (v) venueId = v.id;
-      }
-      db.prepare('INSERT INTO loc_tour_dates (group_key, date, time, label, venue_id, status, note) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(g, d.date || null, d.time || null, d.label || null, venueId, d.status || 'offen', d.note || null);
+      db.prepare('INSERT INTO loc_tour_dates (group_key, date, time, label, venue_id, status, note) VALUES (?, ?, ?, ?, NULL, ?, ?)')
+        .run(g, d.date || null, d.time || null, d.label || null, d.status || 'offen', d.note || null);
     });
     // Tourvorschlag: nur Termine ohne Location bekommen den vorgeschlagenen Raum (Status „Vorschlag“)
     (data.proposal || []).forEach(x => {
@@ -118,10 +125,10 @@ function seed() {
       const v = exists.get(g, x.venue_place, x.venue_name);
       if (!v) return;
       const row = x.date
-        ? db.prepare('SELECT * FROM loc_tour_dates WHERE group_key = ? AND date = ? AND venue_id IS NULL').get(g, x.date)
-        : db.prepare("SELECT * FROM loc_tour_dates WHERE group_key = ? AND date IS NULL AND venue_id IS NULL AND label LIKE 'Tourabschluss%'").get(g);
+        ? db.prepare("SELECT * FROM loc_tour_dates WHERE group_key = ? AND date = ? AND venue_id IS NULL AND status = 'offen' ORDER BY id LIMIT 1").get(g, x.date)
+        : db.prepare("SELECT * FROM loc_tour_dates WHERE group_key = ? AND date IS NULL AND venue_id IS NULL AND status = 'offen' AND label LIKE 'Tourabschluss%' ORDER BY id LIMIT 1").get(g);
       if (!row) return;
-      db.prepare("UPDATE loc_tour_dates SET venue_id = ?, status = CASE WHEN status = 'offen' THEN 'Vorschlag' ELSE status END, note = ? WHERE id = ?")
+      db.prepare("UPDATE loc_tour_dates SET venue_id = ?, status = 'Vorschlag', note = ? WHERE id = ?")
         .run(v.id, [x.note, row.note].filter(Boolean).join('\n'), row.id);
     });
     db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)').run(key, '1');

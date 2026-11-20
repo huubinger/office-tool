@@ -107,6 +107,14 @@
         Finder
       </button>
     </nav>
+    <div class="sidebar-section-label" id="loc-section-label">Locations</div>
+    <div class="sidebar-sub-label" id="loc-voctails-label">Voctails</div>
+    <nav class="tabs" id="loc-tabs">
+      <button class="tab-btn tab-btn-sub" data-tab="loc_voctails_tour" data-title="Tourplanung" data-group="Locations · Voctails">
+        <svg class="tab-icon" viewBox="0 0 20 20" fill="none"><path d="M10 17.5s-5.5-5.2-5.5-9.3a5.5 5.5 0 0 1 11 0c0 4.1-5.5 9.3-5.5 9.3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8.2" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
+        Tourplanung
+      </button>
+    </nav>
     <div class="sidebar-section-label" id="marketing-section-label">Marketing</div>
     <nav class="tabs" id="marketing-tabs">
       <button class="tab-btn" data-tab="marketing" data-title="Social Media &amp; Grafik" data-group="Marketing">
@@ -811,6 +819,15 @@
       </div>
     </div>
     <div id="nk-concert-detail-view" class="hidden"></div>
+  </section>
+
+  <!-- ===================== LOCATIONS: VOCTAILS-TOURPLANUNG ===================== -->
+  <section id="tab-loc_voctails_tour" class="tab-panel">
+    <div class="finder-modes loc-modes" role="tablist">
+      <button type="button" class="finder-mode active" data-loc-mode="dates"><span>📅</span> Termine</button>
+      <button type="button" class="finder-mode" data-loc-mode="venues"><span>📍</span> Locations</button>
+    </div>
+    <div id="loc-view"></div>
   </section>
 
   <!-- ===================== KREATIEF: FINDER ===================== -->

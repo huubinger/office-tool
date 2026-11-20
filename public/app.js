@@ -87,10 +87,10 @@
 
   // ---------- Tabs ----------
   // Reihenfolge fuer die mobile Bottom-Navigation (die ersten 4 freigegebenen, Rest unter "Mehr").
-  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_sponsors', 'nk_polls', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'surveys', 'contracts', 'people', 'finder', 'marketing', 'timeline'];
+  const MOBILE_TAB_ORDER = ['mytasks', 'tasks', 'timetracking', 'nk_projects', 'nk_sponsors', 'nk_polls', 'nk_contacts', 'calendar', 'yearcalendar', 'events', 'surveys', 'contracts', 'people', 'finder', 'loc_voctails_tour', 'marketing', 'timeline'];
   const MOBILE_LABELS = {
     tasks: 'Aufgaben', mytasks: 'Meine', timeline: 'Zeitleiste', calendar: 'Woche', people: 'Personen', timetracking: 'Zeit',
-    yearcalendar: 'Jahr', contracts: 'Verträge', events: 'Events', surveys: 'Umfragen', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing',
+    yearcalendar: 'Jahr', contracts: 'Verträge', events: 'Events', surveys: 'Umfragen', nk_polls: 'Termine', nk_projects: 'Konzerte', nk_sponsors: 'Sponsoren', nk_contacts: 'Kontakte', finder: 'Finder', marketing: 'Marketing', loc_voctails_tour: 'Tour',
   };
   let activeTab = null;
   // Eigener Einstieg /nk ("NK Konzerte" als App auf dem Home-Bildschirm): nur die NK-Reiter
@@ -104,6 +104,7 @@
     // Finder: Admins immer, alle anderen nur mit ausdrücklicher Freigabe
     if (tab === 'finder') return !!currentUser.is_admin || (currentUser.tabs || []).includes('finder');
     if (tab === 'marketing') return !!currentUser.is_admin || (currentUser.tabs || []).includes('marketing');
+    if (tab === 'loc_voctails_tour') return !!currentUser.is_admin || (currentUser.tabs || []).includes('loc_voctails_tour');
     return !currentUser.tabs || currentUser.tabs.includes(tab);
   }
 
@@ -190,6 +191,7 @@
     if (tab === 'nk_contacts') { showNkContactList(); loadNkContacts(); }
     if (tab === 'finder') { loadFinder(); }
     if (tab === 'marketing') { loadMarketing(); }
+    if (tab === 'loc_voctails_tour') { loadLocations(); }
   }
 
   document.querySelectorAll('.sidebar .tab-btn').forEach(btn => {
@@ -208,6 +210,8 @@
     document.getElementById('office-menu-link').classList.toggle('hidden', !NK_MODE || !hasOffice);
     document.getElementById('kreatief-section-label').classList.toggle('hidden', !can('finder'));
     document.getElementById('marketing-section-label').classList.toggle('hidden', !can('marketing'));
+    document.getElementById('loc-section-label').classList.toggle('hidden', !can('loc_voctails_tour'));
+    document.getElementById('loc-voctails-label').classList.toggle('hidden', !can('loc_voctails_tour'));
     const anyMain = LEGACY_TABS.some(can);
     document.querySelector('.sidebar-section-label').classList.toggle('hidden', !anyMain);
 
@@ -3669,7 +3673,7 @@
     ['tasks', 'Aufgaben'], ['calendar', 'Wochenplanung'], ['people', 'Personen/Projekte'],
     ['timetracking', 'Zeiterfassung'], ['yearcalendar', 'Jahreskalender'], ['contracts', 'Verträge'], ['events', 'Events'], ['surveys', 'Umfragen'],
     ['nk_projects', 'NK · Events'], ['nk_sponsors', 'NK · Sponsoren'], ['nk_polls', 'NK · Terminfindung'], ['nk_contacts', 'NK · Kontakte'],
-    ['finder', 'Kreatief · Finder'], ['marketing', 'Marketing · Social Media & Grafik'],
+    ['finder', 'Kreatief · Finder'], ['loc_voctails_tour', 'Locations · Voctails · Tourplanung'], ['marketing', 'Marketing · Social Media & Grafik'],
   ];
   const TAB_PRESETS = {
     nk: ['nk_projects', 'nk_sponsors', 'nk_polls', 'nk_contacts'],
@@ -10313,6 +10317,212 @@
       deleteConfirm: r ? `Antwort von ${r.name} löschen?` : '',
     });
   }
+
+  // ================= LOCATIONS › VOCTAILS › TOURPLANUNG =================
+  // Termine der Tour mit zugeordneter Location + Sammlung selbst mietbarer Räume mit Kontaktdaten.
+  const LOC_GROUP = 'voctails';
+  let locData = null;
+  let locMode = 'dates';
+  let locFilter = { q: '', status: '' };
+  try { locMode = localStorage.getItem('office_loc_mode') || 'dates'; } catch (e) { /* egal */ }
+  if (!['dates', 'venues'].includes(locMode)) locMode = 'dates';
+
+  document.querySelectorAll('[data-loc-mode]').forEach(b => b.addEventListener('click', () => {
+    locMode = b.dataset.locMode;
+    try { localStorage.setItem('office_loc_mode', locMode); } catch (e) { /* egal */ }
+    renderLocations();
+  }));
+
+  async function loadLocations() {
+    try { locData = await api(`/api/locations/${LOC_GROUP}`); } catch (err) { toast(err.message); return; }
+    renderLocations();
+  }
+
+  const locVenueLabel = (v) => [v.place, v.name].filter(Boolean).join(' – ') || 'Ohne Namen';
+  const locHref = (u) => (!u ? '' : /^https?:\/\//i.test(u) ? u : 'https://' + u);
+  const locTel = (t) => 'tel:' + String(t || '').replace(/[^\d+]/g, '');
+
+  function locContactHtml(v) {
+    if (!v) return '';
+    const parts = [];
+    if (v.contact_person) parts.push(escapeHtml(v.contact_person));
+    if (v.phone) parts.push(`<a href="${locTel(v.phone)}">📞 ${escapeHtml(v.phone)}</a>`);
+    if (v.email) parts.push(`<a href="mailto:${escapeHtml(v.email)}">✉️ ${escapeHtml(v.email)}</a>`);
+    if (v.booking_url) parts.push(`<a href="${escapeHtml(locHref(v.booking_url))}" target="_blank" rel="noopener">Buchung ↗</a>`);
+    const facts = [v.seats && `${escapeHtml(v.seats)} Plätze`, v.costs && escapeHtml(v.costs), v.km && `ca. ${escapeHtml(v.km)} km`].filter(Boolean).join(' · ');
+    return `<div class="loc-contact">${facts ? `<div class="loc-facts">${facts}</div>` : ''}${parts.length ? `<div>${parts.join(' · ')}</div>` : '<div class="loc-faint">noch keine Kontaktdaten</div>'}</div>`;
+  }
+
+  function locSaveField(el, url, onSaved) {
+    const ev = el.type === 'date' ? 'blur' : 'change';
+    el.addEventListener(ev, async () => {
+      const tr = el.closest('[data-loc-row]');
+      try {
+        const row = await api(url(tr), { method: 'PUT', body: JSON.stringify({ field: el.dataset.f, value: el.value }) });
+        onSaved(row, tr, el);
+        tr.classList.add('prog-saved');
+        setTimeout(() => tr.classList.remove('prog-saved'), 900);
+      } catch (err) { toast(err.message); }
+    });
+  }
+
+  function renderLocations() {
+    document.querySelectorAll('[data-loc-mode]').forEach(b => b.classList.toggle('active', b.dataset.locMode === locMode));
+    const box = document.getElementById('loc-view');
+    if (!locData) { box.innerHTML = ''; return; }
+    if (locMode === 'dates') renderLocDates(box); else renderLocVenues(box);
+    const grow = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
+    box.querySelectorAll('textarea').forEach(ta => { grow(ta); ta.addEventListener('input', () => grow(ta)); });
+  }
+
+  function renderLocDates(box) {
+    const { dates, venues, date_statuses: st } = locData;
+    const wd = (iso) => (iso ? WD_SHORT[isoToDate(iso).getDay()] : '');
+    const usable = venues.filter(v => !['verworfen', 'Absage'].includes(v.status));
+    const venueOpts = (sel) => `<option value="">– Location wählen –</option>` + usable.map(v =>
+      `<option value="${v.id}" ${v.id === sel ? 'selected' : ''}>${escapeHtml(locVenueLabel(v))}</option>`).join('')
+      + (sel && !usable.some(v => v.id === sel) ? (() => { const v = venues.find(x => x.id === sel); return v ? `<option value="${v.id}" selected>${escapeHtml(locVenueLabel(v))} (${escapeHtml(v.status)})</option>` : ''; })() : '');
+    const rowHtml = (d) => {
+      const v = venues.find(x => x.id === d.venue_id);
+      return `
+      <tr class="prog-row loc-d-${(d.status || 'offen').toLowerCase()}" data-loc-row="${d.id}">
+        <td data-label="Datum">
+          <span class="prog-date"><small class="prog-wd">${wd(d.date)}</small><input type="date" data-f="date" value="${d.date || ''}"></span>
+          <label class="prog-kv"><span>Beginn</span><input type="time" data-f="time" value="${escapeHtml((d.time || '').slice(0, 5))}"></label>
+        </td>
+        <td data-label="Termin"><input type="text" data-f="label" value="${escapeHtml(d.label || '')}" class="loc-strong"></td>
+        <td data-label="Location"><select data-f="venue_id">${venueOpts(d.venue_id)}</select><div class="loc-contact-box">${locContactHtml(v)}</div></td>
+        <td data-label="Status"><select data-f="status" class="status-select">${st.map(x => `<option ${x === d.status ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')}</select></td>
+        <td data-label="Notiz"><textarea data-f="note" rows="1" placeholder="—">${escapeHtml(d.note || '')}</textarea></td>
+        <td class="prog-actions"><button type="button" class="icon-btn" data-loc-del-date="${d.id}" title="Termin löschen">✕</button></td>
+      </tr>`;
+    };
+    const open = dates.filter(d => !d.venue_id && !['Probentag', 'abgesagt'].includes(d.status)).length;
+    box.innerHTML = `
+      <p class="section-intro">Tourtermine der Voctails – jede Zelle direkt bearbeiten, gespeichert wird beim Verlassen des Feldes. Nur Räume, die wir selbst mieten können (für externe Veranstalter ist es zu spät). Neue Räume unter „Locations“ anlegen.${open ? ` <strong>${open} Termin${open === 1 ? '' : 'e'} noch ohne Location.</strong>` : ''}</p>
+      <div class="card prog-card">
+        <div class="prog-scroll">
+          <table class="prog-table loc-table loc-dates">
+            <thead><tr><th>Datum · Zeit</th><th>Termin</th><th>Location · Kontakt</th><th>Status</th><th>Notiz</th><th></th></tr></thead>
+            <tbody>${dates.map(rowHtml).join('')}</tbody>
+          </table>
+        </div>
+        <button type="button" class="ghost prog-add" id="loc-add-date">+ Termin hinzufügen</button>
+      </div>`;
+    box.querySelectorAll('[data-loc-row] [data-f]').forEach(el => locSaveField(el, tr => `/api/locations/dates/${tr.dataset.locRow}`, (row, tr, el) => {
+      const i = locData.dates.findIndex(x => x.id === row.id);
+      if (i >= 0) locData.dates[i] = row;
+      if (el.dataset.f === 'date') tr.querySelector('.prog-wd').textContent = wd(row.date);
+      if (el.dataset.f === 'status') tr.className = `prog-row loc-d-${(row.status || 'offen').toLowerCase()}`;
+      if (el.dataset.f === 'venue_id') tr.querySelector('.loc-contact-box').innerHTML = locContactHtml(venues.find(x => x.id === row.venue_id));
+    }));
+    box.querySelectorAll('[data-loc-del-date]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Termin löschen?')) return;
+      try { await api(`/api/locations/dates/${b.dataset.locDelDate}`, { method: 'DELETE' }); await loadLocations(); } catch (err) { toast(err.message); }
+    }));
+    document.getElementById('loc-add-date').addEventListener('click', async () => {
+      try {
+        await api(`/api/locations/${LOC_GROUP}/dates`, { method: 'POST', body: JSON.stringify({ label: 'Konzert' }) });
+        await loadLocations();
+        const inputs = box.querySelectorAll('[data-f="date"]');
+        const empty = [...inputs].find(i => !i.value);
+        if (empty) empty.focus();
+      } catch (err) { toast(err.message); }
+    });
+  }
+
+  function renderLocVenues(box) {
+    const { venues, dates, venue_statuses: vst, rentable } = locData;
+    const q = locFilter.q.trim().toLowerCase();
+    const list = venues.filter(v => (!locFilter.status || v.status === locFilter.status)
+      && (!q || VENUE_SEARCH_FIELDS.some(f => String(v[f] || '').toLowerCase().includes(q))));
+    const rank = { '★★': 0, '★': 1 };
+    const sortFn = (a, b) => (rank[a.rating] ?? 2) - (rank[b.rating] ?? 2) || (parseFloat(a.km) || 999) - (parseFloat(b.km) || 999) || locVenueLabel(a).localeCompare(locVenueLabel(b), 'de');
+    const groups = [
+      { title: 'Kandidaten', rows: list.filter(v => ['Kandidat', 'angefragt', 'Zusage'].includes(v.status || 'Kandidat')).sort(sortFn) },
+      { title: 'Schon bespielt', rows: list.filter(v => v.status === 'schon bespielt').sort(sortFn) },
+      { title: 'Absage / verworfen', rows: list.filter(v => ['Absage', 'verworfen'].includes(v.status)).sort(sortFn), muted: true },
+    ].filter(g => g.rows.length);
+    const opt = (arr, val, empty) => (empty !== undefined ? `<option value="">${empty}</option>` : '') + arr.map(x => `<option ${x === val ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('');
+    const linkBtn = (href, title) => (href ? `<a class="loc-go" href="${escapeHtml(href)}" target="_blank" rel="noopener" title="${title}">↗</a>` : '');
+    const kv = (label, f, v, type = 'text', extra = '') => `<label class="prog-kv"><span>${label}</span><span class="loc-kv-in"><input type="${type}" data-f="${f}" value="${escapeHtml(v[f] || '')}">${extra}</span></label>`;
+    const kvArea = (label, f, v) => `<label class="prog-kv loc-kv-area"><span>${label}</span><textarea data-f="${f}" rows="1">${escapeHtml(v[f] || '')}</textarea></label>`;
+    const rowHtml = (v) => {
+      const used = dates.filter(d => d.venue_id === v.id && d.date).map(d => fmtDateDE(d.date).slice(0, 6));
+      return `
+      <tr class="prog-row loc-v-${(v.rentable || 'unklar')}" data-loc-row="${v.id}">
+        <td data-label="Location">
+          <input type="text" data-f="place" value="${escapeHtml(v.place || '')}" placeholder="Ort" class="loc-strong">
+          <input type="text" data-f="name" value="${escapeHtml(v.name || '')}" placeholder="Raum" class="prog-sub">
+          <label class="prog-kv"><span>Eignung</span><select data-f="rating">${opt(['★★', '★'], v.rating, '–')}</select></label>
+          ${used.length ? `<div class="loc-used">📅 ${used.join(', ')}</div>` : ''}
+        </td>
+        <td data-label="Eckdaten">
+          ${kvArea('Plätze', 'seats', v)}${kvArea('Kosten', 'costs', v)}${kv('km', 'km', v)}
+        </td>
+        <td data-label="Stand">
+          <label class="prog-kv"><span>Status</span><select data-f="status" class="status-select">${opt(vst, v.status || 'Kandidat')}</select></label>
+          <label class="prog-kv"><span>Mietbar</span><select data-f="rentable">${opt(rentable, v.rentable || 'unklar')}</select></label>
+        </td>
+        <td data-label="Kontakt">
+          ${kvArea('Person', 'contact_person', v)}
+          ${kv('Telefon', 'phone', v, 'tel', v.phone ? `<a class="loc-go" href="${locTel(v.phone)}" title="Anrufen">📞</a>` : '')}
+          ${kv('E-Mail', 'email', v, 'email', v.email ? `<a class="loc-go" href="mailto:${escapeHtml(v.email)}" title="E-Mail schreiben">✉️</a>` : '')}
+          ${kv('Buchung', 'booking_url', v, 'text', linkBtn(locHref(v.booking_url), 'Buchung/Vermietung öffnen'))}
+          ${kv('Website', 'website', v, 'text', linkBtn(locHref(v.website), 'Website öffnen'))}
+        </td>
+        <td data-label="Hinweis">
+          <textarea data-f="notes" rows="2" placeholder="Bühne, Akustik, Technik, Bedingungen …">${escapeHtml(v.notes || '')}</textarea>
+          ${kv('Quelle', 'source_url', v, 'text', linkBtn(locHref(v.source_url), 'Quelle öffnen'))}
+        </td>
+        <td class="prog-actions"><button type="button" class="icon-btn" data-loc-del-venue="${v.id}" title="Location löschen">✕</button></td>
+      </tr>`;
+    };
+    box.innerHTML = `
+      <p class="section-intro">Räume, die wir selbst mieten können – mit Plätzen, Kosten und Kontakt der Vermietung. Grün = Fremdvermietung an auswärtige Vereine belegt, gelb = unklar. Gespeichert wird beim Verlassen des Feldes.</p>
+      <div class="loc-filters">
+        <input type="search" id="loc-search" placeholder="Ort, Raum, Kontakt …" value="${escapeHtml(locFilter.q)}" autocomplete="off">
+        <select id="loc-status-filter"><option value="">Alle Status</option>${vst.map(x => `<option ${x === locFilter.status ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')}</select>
+        <span class="count-chip">${list.length}</span>
+        <button type="button" id="loc-add-venue">+ Location</button>
+      </div>
+      <div class="card prog-card">
+        <div class="prog-scroll">
+          <table class="prog-table loc-table loc-venues">
+            <thead><tr><th>Ort · Raum</th><th>Eckdaten</th><th>Stand</th><th>Kontakt Vermietung</th><th>Hinweis · Quelle</th><th></th></tr></thead>
+            ${groups.map(g => `<tbody class="${g.muted ? 'prog-muted' : ''}">
+              <tr class="prog-group"><th colspan="6">${escapeHtml(g.title)} <span class="count-chip">${g.rows.length}</span></th></tr>
+              ${g.rows.map(rowHtml).join('')}
+            </tbody>`).join('') || '<tbody><tr><td colspan="6" class="loc-faint">Keine Locations gefunden.</td></tr></tbody>'}
+          </table>
+        </div>
+      </div>`;
+    box.querySelectorAll('[data-loc-row] [data-f]').forEach(el => locSaveField(el, tr => `/api/locations/venues/${tr.dataset.locRow}`, (row, tr, el) => {
+      const i = locData.venues.findIndex(x => x.id === row.id);
+      if (i >= 0) locData.venues[i] = row;
+      if (el.dataset.f === 'rentable') tr.className = `prog-row loc-v-${row.rentable || 'unklar'}`;
+    }));
+    const search = document.getElementById('loc-search');
+    let t = null;
+    search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { locFilter.q = search.value; renderLocations(); const s = document.getElementById('loc-search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }, 250); });
+    document.getElementById('loc-status-filter').addEventListener('change', (e) => { locFilter.status = e.target.value; renderLocations(); });
+    box.querySelectorAll('[data-loc-del-venue]').forEach(b => b.addEventListener('click', async () => {
+      const v = venues.find(x => x.id === +b.dataset.locDelVenue);
+      if (!confirm(`„${locVenueLabel(v)}“ löschen? Zugeordnete Termine verlieren die Location.`)) return;
+      try { await api(`/api/locations/venues/${v.id}`, { method: 'DELETE' }); await loadLocations(); } catch (err) { toast(err.message); }
+    }));
+    document.getElementById('loc-add-venue').addEventListener('click', async () => {
+      try {
+        const row = await api(`/api/locations/${LOC_GROUP}/venues`, { method: 'POST', body: JSON.stringify({ name: '' }) });
+        locFilter = { q: '', status: '' };
+        await loadLocations();
+        const input = box.querySelector(`[data-loc-row="${row.id}"] [data-f="place"]`);
+        if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
+      } catch (err) { toast(err.message); }
+    });
+  }
+  const VENUE_SEARCH_FIELDS = ['place', 'name', 'contact_person', 'email', 'phone', 'notes', 'costs'];
+
 
   init();
 })();

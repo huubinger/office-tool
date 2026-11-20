@@ -30,6 +30,7 @@ const nkReport = require('./nk-report');
 const nkProgram = require('./nk-program');
 const diktat = require('./diktat');
 const finder = require('./finder');
+const locations = require('./locations');
 const marketing = require('./marketing');
 const events = require('./events');
 const surveys = require('./surveys');
@@ -151,6 +152,10 @@ app.use((req, res, next) => {
   // Finder (Förder-/Presse-/Sponsorensuche): Admins immer, sonst per Reiter-Freigabe
   if (req.path.startsWith('/api/finder')) {
     return req.isAdmin || req.tabs.includes('finder') ? next() : res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
+  }
+  // Locations › Voctails › Tourplanung: Admins immer, sonst per Reiter-Freigabe
+  if (req.path.startsWith('/api/locations')) {
+    return req.isAdmin || req.tabs.includes('loc_voctails_tour') ? next() : res.status(403).json({ error: 'Kein Zugriff auf diesen Bereich' });
   }
   // Marketing (Social Media & Grafik): Admins immer, sonst per Reiter-Freigabe
   if (req.path.startsWith('/api/marketing')) {
@@ -2070,6 +2075,7 @@ nkReport.register(app);
 diktat.register(app);
 nk.backfillFileText();
 finder.register(app);
+locations.register(app);
 marketing.register(app);
 events.register(app);
 surveys.register(app);

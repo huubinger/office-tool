@@ -3227,3 +3227,32 @@ main:has(#tab-nk_projects.active #nk-view-program:not(.hidden)) { max-width: 156
 .loc-table.loc-venues thead th:nth-child(3) { width: 150px; }
 .loc-table.loc-venues thead th:nth-child(4) { width: 290px; }
 .loc-filters input[type="search"] { padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--field-bg); color: var(--ink); }
+/* Locations: Tabelle passt in die Breite – kein seitliches Scrollen, Text bricht um */
+.loc-card .prog-scroll { overflow-x: visible; }
+.loc-table.loc-dates, .loc-table.loc-venues { min-width: 0; width: 100%; table-layout: fixed; }
+.loc-table td { overflow: hidden; overflow-wrap: anywhere; word-break: break-word; }
+.loc-table input, .loc-table select, .loc-table textarea { max-width: 100%; text-overflow: ellipsis; }
+.loc-table.loc-dates thead th:nth-child(1) { width: 15%; }
+.loc-table.loc-dates thead th:nth-child(2) { width: 13%; }
+.loc-table.loc-dates thead th:nth-child(3) { width: 32%; }
+.loc-table.loc-dates thead th:nth-child(4) { width: 11%; }
+.loc-table.loc-dates thead th:nth-child(5) { width: auto; }
+.loc-table.loc-dates thead th:nth-child(6) { width: 36px; }
+.loc-table.loc-venues thead th:nth-child(1) { width: 17%; }
+.loc-table.loc-venues thead th:nth-child(2) { width: 20%; }
+.loc-table.loc-venues thead th:nth-child(3) { width: 13%; }
+.loc-table.loc-venues thead th:nth-child(4) { width: 25%; }
+.loc-table.loc-venues thead th:nth-child(5) { width: auto; }
+.loc-table.loc-venues thead th:nth-child(6) { width: 36px; }
+.loc-contact a { white-space: normal; }
+/* Schmale Fenster: jede Zeile als Karte untereinander */
+@media (max-width: 1100px) {
+  .loc-table thead { display: none; }
+  .loc-table, .loc-table tbody, .loc-table tr, .loc-table td { display: block; width: 100%; box-sizing: border-box; }
+  .loc-table tr.prog-row { border-bottom: 1px solid var(--line-strong); padding: 6px 0; }
+  .loc-table td { border-bottom: 0; padding: 4px 8px; }
+  .loc-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-faint); padding: 0 6px 2px; }
+  .loc-table td.prog-actions { text-align: right; }
+  .loc-table tr.prog-group th { display: block; }
+}
+.loc-name { resize: none; overflow: hidden; line-height: 1.4; }

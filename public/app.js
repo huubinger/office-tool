@@ -10400,7 +10400,7 @@
     const open = dates.filter(d => !d.venue_id && !['Probentag', 'abgesagt'].includes(d.status)).length;
     box.innerHTML = `
       <p class="section-intro">Tourtermine der Voctails – jede Zelle direkt bearbeiten, gespeichert wird beim Verlassen des Feldes. Nur Räume, die wir selbst mieten können (für externe Veranstalter ist es zu spät). Neue Räume unter „Locations“ anlegen.${open ? ` <strong>${open} Termin${open === 1 ? '' : 'e'} noch ohne Location.</strong>` : ''}</p>
-      <div class="card prog-card">
+      <div class="card prog-card loc-card">
         <div class="prog-scroll">
           <table class="prog-table loc-table loc-dates">
             <thead><tr><th>Datum · Zeit</th><th>Termin</th><th>Location · Kontakt</th><th>Status</th><th>Notiz</th><th></th></tr></thead>
@@ -10453,7 +10453,7 @@
       <tr class="prog-row loc-v-${(v.rentable || 'unklar')}" data-loc-row="${v.id}">
         <td data-label="Location">
           <input type="text" data-f="place" value="${escapeHtml(v.place || '')}" placeholder="Ort" class="loc-strong">
-          <input type="text" data-f="name" value="${escapeHtml(v.name || '')}" placeholder="Raum" class="prog-sub">
+          <textarea data-f="name" rows="1" placeholder="Raum" class="prog-sub loc-name">${escapeHtml(v.name || '')}</textarea>
           <label class="prog-kv"><span>Eignung</span><select data-f="rating">${opt(['★★', '★'], v.rating, '–')}</select></label>
           ${used.length ? `<div class="loc-used">📅 ${used.join(', ')}</div>` : ''}
         </td>
@@ -10486,7 +10486,7 @@
         <span class="count-chip">${list.length}</span>
         <button type="button" id="loc-add-venue">+ Location</button>
       </div>
-      <div class="card prog-card">
+      <div class="card prog-card loc-card">
         <div class="prog-scroll">
           <table class="prog-table loc-table loc-venues">
             <thead><tr><th>Ort · Raum</th><th>Eckdaten</th><th>Stand</th><th>Kontakt Vermietung</th><th>Hinweis · Quelle</th><th></th></tr></thead>
